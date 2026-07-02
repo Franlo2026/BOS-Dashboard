@@ -112,7 +112,7 @@ window.__bosSessionPromise = checkBosSession().then(me => {
 });
 </script>
 
-<script type="text/babel" data-presets="react">
+<script type="text/plain" id="app-jsx-source">
 const { useState, useEffect, useRef } = React;
 
 const STORAGE_KEY = "bl_v18";
@@ -1321,6 +1321,28 @@ function Root(){
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 root.render(<Root />);
+</script>
+
+<script>
+// Manually transform and run the JSX above, instead of relying on Babel's
+// automatic page-wide <script type="text/babel"> scanning. That automatic
+// scan processes every matching tag on the page — including any a browser
+// extension might inject — and one bad tag can break all of them with an
+// opaque error. Doing it explicitly, for only our own content, avoids that
+// entirely.
+(function(){
+  const source = document.getElementById('app-jsx-source').textContent;
+  try {
+    const compiled = Babel.transform(source, { presets: [['react', { runtime: 'classic' }]] }).code;
+    (0, eval)(compiled);
+  } catch (e) {
+    document.getElementById('root').innerHTML =
+      '<div style="padding:60px;color:#d08770;font-family:-apple-system,sans-serif;">' +
+      'Could not start the Team Scheduler: ' + (e && e.message ? e.message : e) +
+      '</div>';
+    console.error('Team Scheduler failed to load:', e);
+  }
+})();
 </script>
 
 </body>
