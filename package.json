@@ -1,0 +1,19 @@
+{
+  "name": "bos-dashboard",
+  "version": "2.0.0",
+  "description": "Bootlegger Operating System (BOS) KPI dashboard — multi-user, role-based, Postgres-backed",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "dotenv": "^16.4.5"
+  }
+}
