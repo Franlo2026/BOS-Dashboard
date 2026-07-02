@@ -87,11 +87,17 @@ async function checkBosSession() {
   } catch (e) { return null; }
 }
 
-checkBosSession().then(me => {
+// Kick off the session check immediately; the React app (below) awaits this
+// same promise before rendering anything, instead of relying on dynamically
+// injecting and re-transforming a <script type="text/babel"> tag after the
+// fact — that approach was unreliable and could leave the page stuck on
+// "Loading..." with no visible error if the manual Babel step silently
+// failed.
+window.__bosSessionPromise = checkBosSession().then(me => {
   if (!me) {
     document.getElementById('gateMsg').textContent = 'Sign in on the main BOS Dashboard first — this page shares that login.';
     document.getElementById('gateLink').style.display = 'block';
-    return;
+    return null;
   }
   window.BOS_ROLE = me.role;
   window.BOS_USERNAME = me.username;
@@ -102,18 +108,11 @@ checkBosSession().then(me => {
   document.getElementById('topBar').style.display = 'flex';
   document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase() +
     (window.BOS_CAN_SEE_FRANCHISEES ? '' : ' · Franchisee meetings hidden (Tarryn/Franlo only)');
-
-  // Mount the scheduler now that permissions are known
-  const script = document.createElement('script');
-  script.type = 'text/babel';
-  script.setAttribute('data-presets', 'react');
-  script.textContent = APP_SOURCE + "\nconst root = ReactDOM.createRoot(document.getElementById('root')); root.render(<App />);";
-  document.body.appendChild(script);
-  if (window.Babel) Babel.transformScriptTags();
+  return me;
 });
 </script>
 
-<script id="app-source-holder" type="text/plain">
+<script type="text/babel" data-presets="react">
 const { useState, useEffect, useRef } = React;
 
 const STORAGE_KEY = "bl_v18";
@@ -1306,9 +1305,22 @@ function App(){
   );
 }
 
-</script>
-<script>
-  const APP_SOURCE = document.getElementById('app-source-holder').textContent;
+function Root(){
+  const [ready, setReady] = useState(false);
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    window.__bosSessionPromise.then(me => {
+      setOk(!!me);
+      setReady(true);
+    });
+  }, []);
+  if (!ready) return null; // the HTML gate overlay is already covering the screen at this point
+  if (!ok) return null;    // gate stays visible with its "sign in" message
+  return <App />;
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Root />);
 </script>
 
 </body>
