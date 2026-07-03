@@ -1,0 +1,1087 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRIND — Café Visit Checklist</title>
+<style>
+:root {
+  --gold: #c8ae79;
+  --gold-light: rgba(200,174,121,0.12);
+  --black: #1a1a1a;
+  --white: #ffffff;
+  --grey-100: #f7f7f7;
+  --grey-200: #ebebeb;
+  --grey-300: #d4d4d4;
+  --grey-500: #999999;
+  --grey-700: #555555;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  background: var(--grey-100);
+  color: var(--black);
+}
+
+.nav {
+  background: var(--black);
+  height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+.nav .logo { color: var(--white); font-weight: 800; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; }
+.nav .logo span { color: var(--gold); }
+.nav .tag {
+  margin-left: 14px; color: var(--grey-500); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; border-left: 1px solid var(--grey-700); padding-left: 14px;
+}
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ---- Vertical GRIND rail ---- */
+.grind-rail {
+  position: sticky;
+  top: 52px;
+  width: 96px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--black);
+  min-height: calc(100vh - 52px);
+}
+.grind-box {
+  padding: 14px 8px;
+  border-left: 4px solid var(--grey-700);
+  text-align: center;
+  transition: border-color .2s, background .2s;
+}
+.grind-box.done { border-left-color: var(--gold); background: rgba(200,174,121,0.08); }
+.grind-box .letter { font-size: 28px; font-weight: 800; color: var(--gold); line-height: 1; }
+.grind-box .label { font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--white); margin-top: 5px; line-height: 1.25; }
+
+.wrap { flex: 1; min-width: 0; padding: 22px 20px 90px; }
+
+.page-header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-bottom: 1px solid var(--gold); padding-bottom: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.page-header h1 { font-size: 18px; font-weight: 800; text-transform: uppercase; margin: 0; }
+.page-header .sub { font-size: 10px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+.badge {
+  background: var(--gold-light); border: 1px solid var(--gold); color: #8f733f;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 5px 12px; letter-spacing: 0.06em;
+}
+
+/* Visit meta card */
+.meta-card {
+  background: var(--white); border: 1px solid var(--grey-200); padding: 16px 18px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 6px;
+}
+.field label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey-500); margin-bottom: 4px; }
+.field input { width: 100%; border: none; border-bottom: 1px solid var(--grey-300); padding: 5px 2px; font-size: 13px; font-family: inherit; background: transparent; }
+.field input:focus { outline: none; border-bottom-color: var(--gold); }
+
+.timestamp-line {
+  font-size: 9.5px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 18px; padding: 6px 2px 0;
+}
+.timestamp-line b { color: var(--black); }
+
+/* Intro card */
+.intro-card {
+  background: var(--white); border: 1px solid var(--grey-200); margin-bottom: 18px;
+}
+.intro-card .intro-head {
+  background: var(--black); color: var(--white); padding: 10px 16px;
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.intro-steps {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+}
+.intro-step {
+  padding: 10px 14px; border-right: 1px solid var(--grey-200); border-bottom: 1px solid var(--grey-200); font-size: 9.5px; line-height: 1.35;
+}
+.intro-step:nth-child(3n) { border-right: none; }
+.intro-step .num { color: var(--gold); font-weight: 800; font-size: 11px; margin-right: 3px; }
+.intro-step .ttl { font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.02em; }
+
+/* progress bar overall */
+.progress-wrap {
+  background: var(--white); border: 1px solid var(--grey-200); padding: 10px 16px; margin-bottom: 20px;
+  display: flex; align-items: center; gap: 14px;
+}
+.progress-track { flex: 1; height: 6px; background: var(--grey-200); position: relative; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--gold); width: 0%; transition: width .3s; }
+.progress-label { font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+/* Section */
+.section { background: var(--white); border: 1px solid var(--grey-200); margin-bottom: 16px; }
+.section-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--grey-200); cursor: pointer; user-select: none; }
+.section-head .tag { background: var(--gold); color: var(--white); font-size: 9px; font-weight: 800; padding: 3px 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+.section-head .tag.admin { background: var(--black); }
+.section-head h2 { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; flex: 1; }
+.section-head .count { font-size: 10px; color: var(--grey-500); font-weight: 600; }
+.section-head .chev { font-size: 11px; color: var(--grey-500); transition: transform .2s; }
+.section.collapsed .chev { transform: rotate(-90deg); }
+.section-body { padding: 4px 16px 14px; }
+.section.collapsed .section-body { display: none; }
+
+/* Checklist rows */
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grey-200); flex-wrap: wrap; }
+.row:last-child { border-bottom: none; }
+.row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--gold); margin-top: 2px; flex-shrink: 0; cursor: pointer; }
+.row .rowtext { flex: 1; min-width: 180px; }
+.row .rowtext b { font-weight: 700; }
+.row.checked .rowtext { text-decoration: line-through; text-decoration-color: var(--grey-300); color: var(--grey-500); }
+
+.row-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.rating-select, .yn-select { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 4px 6px; font-family: inherit; background: var(--white); min-width: 62px; }
+.comment-input { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 4px 7px; font-family: inherit; width: 140px; }
+.comment-input::placeholder { color: var(--grey-300); }
+
+.photo-btn {
+  border: 1px dashed var(--grey-300); background: var(--white); font-size: 9px; padding: 4px 8px;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; color: var(--grey-500);
+  display: flex; align-items: center; gap: 4px;
+}
+.photo-btn.attached { border-style: solid; border-color: var(--gold); color: #8f733f; background: var(--gold-light); }
+.photo-thumb { width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--grey-300); }
+
+/* Portion check block */
+.portion-box { margin: 10px 0 6px; border: 1px dashed var(--grey-300); padding: 10px; background: var(--grey-100); }
+.portion-box .ptitle { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.portion-box .ptitle .badge-mini { background: var(--gold); color: var(--white); font-size: 8px; padding: 1px 5px; }
+.portion-row { display: grid; grid-template-columns: 18px 1.3fr 0.8fr 0.8fr 0.8fr; gap: 5px; align-items: center; margin-bottom: 5px; }
+.portion-row input[type="text"] { border: 1px solid var(--grey-300); font-size: 10px; padding: 4px 6px; font-family: inherit; width: 100%; }
+.portion-row select { border: 1px solid var(--grey-300); font-size: 10px; padding: 4px 3px; font-family: inherit; width: 100%; }
+.portion-row input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--gold); }
+.portion-labels { display: grid; grid-template-columns: 18px 1.3fr 0.8fr 0.8fr 0.8fr; gap: 5px; font-size: 8px; text-transform: uppercase; color: var(--grey-500); margin-bottom: 4px; letter-spacing: 0.03em; }
+
+/* Tasting categories */
+.tasting-cat { margin-bottom: 14px; }
+.tasting-cat:last-child { margin-bottom: 0; }
+.tasting-cat-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: var(--grey-100); padding: 6px 10px; border-left: 3px solid var(--gold); margin-bottom: 4px; }
+.add-item-row { display: flex; gap: 6px; align-items: center; padding: 8px 0 2px; flex-wrap: wrap; }
+.add-item-row select, .add-item-row input[type="text"] { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 7px; font-family: inherit; }
+.add-item-row .add-btn { border: 1px solid var(--black); background: var(--black); color: var(--white); font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 12px; cursor: pointer; }
+.add-item-row .add-btn:hover { background: #333; }
+.remove-x { color: var(--grey-500); font-size: 13px; cursor: pointer; padding: 0 4px; }
+.remove-x:hover { color: var(--red, #a35c5c); }
+
+.admin-section .section-body { background: var(--gold-light); }
+
+/* Footer actions */
+.actions-bar {
+  position: sticky; bottom: 0; background: var(--white); border-top: 1px solid var(--grey-200);
+  padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.btn { border: none; font-family: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 18px; cursor: pointer; }
+.btn-primary { background: var(--black); color: var(--white); }
+.btn-primary:hover { background: #333; }
+.btn-secondary { background: var(--white); border: 1px solid var(--grey-300); color: var(--black); }
+.btn-secondary:hover { border-color: var(--gold); }
+.save-status { font-size: 10px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.footer-note { font-size: 9.5px; color: var(--grey-500); line-height: 1.5; margin-top: 4px; }
+
+/* Flagged items section */
+.flag-section .section-head { background: var(--black); }
+.flag-section .section-head .tag { background: var(--gold); }
+.flag-section .section-head h2, .flag-section .section-head .count, .flag-section .section-head .chev { color: var(--white); }
+.flag-empty { padding: 16px 0; font-size: 11px; color: var(--grey-500); text-align: center; }
+.flag-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grey-200); flex-wrap: wrap; }
+.flag-row:last-child { border-bottom: none; }
+.flag-row .flag-text { flex: 1; min-width: 200px; font-size: 11.5px; }
+.flag-row .flag-text .src { display: block; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--grey-500); margin-bottom: 2px; }
+.flag-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; white-space: nowrap; }
+.flag-badge.incomplete { background: var(--grey-200); color: var(--grey-700); }
+.flag-badge.lowrating { background: var(--gold-light); color: #8f733f; border: 1px solid var(--gold); }
+.flag-badge.fail { background: var(--grey-200); color: var(--grey-700); border: 1px solid var(--grey-300); }
+.flag-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.nextstep-select { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 6px; font-family: inherit; background: var(--white); min-width: 170px; }
+.nextstep-notes { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 7px; font-family: inherit; width: 170px; }
+
+/* Team Q&A widget */
+.teamqa-box { margin: 10px 0 6px; border: 1px dashed var(--grey-300); padding: 10px; background: var(--grey-100); }
+.teamqa-box .ptitle { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.teamqa-box .ptitle .badge-mini { background: var(--gold); color: var(--white); font-size: 8px; padding: 1px 5px; }
+.teamqa-area { margin-bottom: 10px; }
+.teamqa-area:last-child { margin-bottom: 0; }
+.teamqa-area-title { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--white); background: var(--black); padding: 4px 8px; margin-bottom: 5px; display: inline-block; }
+.teamqa-row { display: grid; grid-template-columns: 1.6fr 0.6fr 1.2fr; gap: 6px; margin-bottom: 5px; align-items: center; }
+.teamqa-row input[type="text"], .teamqa-row select { border: 1px solid var(--grey-300); font-size: 10px; padding: 5px 7px; font-family: inherit; width: 100%; }
+.teamqa-row .qlabel { font-size: 8px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; display: block; }
+
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .grind-rail { position: static; width: 100%; flex-direction: row; min-height: auto; }
+  .grind-box { flex: 1; border-left: none; border-top: 4px solid var(--grey-700); }
+  .grind-box.done { border-top-color: var(--gold); }
+  .meta-card { grid-template-columns: 1fr 1fr; }
+  .intro-steps { grid-template-columns: 1fr; }
+  .intro-step:nth-child(3n) { border-right: 1px solid var(--grey-200); }
+  .row-controls { width: 100%; justify-content: flex-start; margin-top: 6px; }
+  .comment-input { width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<div id="bosGate" style="position:fixed;inset:0;z-index:9999;background:#1a1a1a;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;">
+  <div style="width:340px;max-width:90vw;text-align:center;background:#fff;border-top:3px solid #c8ae79;border-radius:4px;padding:28px 24px;">
+    <div style="font-weight:800;letter-spacing:0.2em;font-size:14px;text-transform:uppercase;color:#1a1a1a;">BOOTLEGGER<span style="color:#c8ae79;">.</span></div>
+    <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 20px;">Log Support Visit</div>
+    <div id="gateMsg" style="font-size:12px;color:#555;margin-bottom:16px;">Checking session…</div>
+    <a href="/" id="gateLink" style="display:none;background:#c8ae79;color:#1a1a1a;padding:10px;border-radius:4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;text-decoration:none;">Sign In via BOS Dashboard</a>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="logo">BOOTLEGGER<span>.</span> COFFEE CO.</div>
+  <div class="tag">BOS Dashboard · GRIND Café Visit Checklist</div>
+  <a href="/" style="margin-left:auto;color:var(--gold);font-size:11px;text-decoration:none;border:1px solid var(--gold);padding:5px 10px;border-radius:4px;">&larr; BOS Dashboard</a>
+  <span id="whoBadge" style="color:var(--grey-500);font-size:11px;margin-left:14px;"></span>
+</div>
+
+<div class="layout">
+
+  <div class="grind-rail" id="grindStrip">
+    <div class="grind-box" data-stage="greet"><div class="letter">G</div><div class="label">Greet &amp; Walk</div></div>
+    <div class="grind-box" data-stage="review"><div class="letter">R</div><div class="label">Review &amp; Support</div></div>
+    <div class="grind-box" data-stage="inspect"><div class="letter">I</div><div class="label">Inspect Quality &amp; Compliance</div></div>
+    <div class="grind-box" data-stage="note"><div class="letter">N</div><div class="label">Note Status</div></div>
+    <div class="grind-box" data-stage="debrief"><div class="letter">D</div><div class="label">Debrief &amp; Feedback</div></div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="page-header">
+      <div>
+        <h1>GRIND Café Visit Checklist</h1>
+        <div class="sub">Ops Team Field Tool — Live Checklist</div>
+      </div>
+      <div class="badge" id="statusBadge">Not Started</div>
+    </div>
+
+    <div class="meta-card" style="grid-template-columns: repeat(6, 1fr);">
+      <div class="field"><label>FSM</label><select id="f-fsm"><option value="">— select —</option></select></div>
+      <div class="field"><label>Store</label><input type="text" id="f-store" placeholder="e.g. V&A Waterfront"></div>
+      <div class="field"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="field"><label>Visit Type</label>
+        <select id="f-visittype">
+          <option value="Support Visit">Support Visit</option>
+          <option value="Trainer Visit">Trainer Visit</option>
+        </select>
+      </div>
+      <div class="field"><label>Manager on Duty</label><input type="text" id="f-manager" placeholder="Name"></div>
+      <div class="field"><label>Support Member</label><input type="text" id="f-support" placeholder="Name"></div>
+    </div>
+    <div class="timestamp-line" id="timestampLine">Visit Started: <b>—</b> &nbsp;·&nbsp; Visit Completed: <b>—</b></div>
+
+    <div class="intro-card">
+      <div class="intro-head">Visit Flow — At a Glance</div>
+      <div class="intro-steps">
+        <div class="intro-step"><span class="num">1</span><span class="ttl">Entrance</span>Wait at door until greeted &amp; seated. Read the room first — feel before you check.</div>
+        <div class="intro-step"><span class="num">2</span><span class="ttl">Greet</span>Greet staff and management/franchisee first — can run alongside the walk-through.</div>
+        <div class="intro-step"><span class="num">3</span><span class="ttl">Walk-Through</span>Figure-8 route. Mental notes + ask team questions in each section as you pass.</div>
+        <div class="intro-step"><span class="num">4</span><span class="ttl">Support Phase</span>Work through the café. Check fixed points, action on the spot.</div>
+        <div class="intro-step"><span class="num">5</span><span class="ttl">Sit &amp; Taste</span>Sit down, tasting items brought (prep during support phase to save time).</div>
+        <div class="intro-step"><span class="num">6</span><span class="ttl">Status Check</span>Admin, figures, follow-up &amp; feedback. No laptop out until this phase.</div>
+      </div>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-label" id="progressLabel">0 / 0 checked</div>
+      <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+      <div class="progress-label" id="progressPct">0%</div>
+    </div>
+
+    <!-- FIXED SECTION -->
+    <div class="section" data-stage="review" id="sec-fixed">
+      <div class="section-head" onclick="toggleSection('sec-fixed')">
+        <span class="tag">Fixed</span>
+        <h2>On Every Visit:</h2>
+        <span class="count" id="count-fixed">0/11</span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-fixed"></div>
+    </div>
+
+    <!-- INSPECT / TASTING SECTION -->
+    <div class="section" data-stage="inspect" id="sec-tasting">
+      <div class="section-head" onclick="toggleSection('sec-tasting')">
+        <span class="tag">Inspect</span>
+        <h2>Quality &amp; Compliance — Tasting Rated /5</h2>
+        <span class="count" id="count-tasting">0/9</span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-tasting"></div>
+    </div>
+
+    <!-- VARIABLE SECTION -->
+    <div class="section" data-stage="note" id="sec-variable">
+      <div class="section-head" onclick="toggleSection('sec-variable')">
+        <span class="tag">Variable</span>
+        <h2>As Applicable / Store-Dependent</h2>
+        <span class="count" id="count-variable">0/3</span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-variable"></div>
+    </div>
+
+    <!-- ADMIN SECTION -->
+    <div class="section admin-section" data-stage="debrief" id="sec-admin">
+      <div class="section-head" onclick="toggleSection('sec-admin')">
+        <span class="tag admin">Admin</span>
+        <h2>FSM Only — Status Check</h2>
+        <span class="count" id="count-admin">0/3</span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-admin"></div>
+    </div>
+
+    <!-- FLAGGED ITEMS & NEXT STEPS -->
+    <div class="section flag-section" id="sec-flagged">
+      <div class="section-head" onclick="toggleSection('sec-flagged')">
+        <span class="tag">Review</span>
+        <h2>Flagged Items &amp; Next Steps</h2>
+        <span class="count" id="count-flagged">0</span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-flagged"></div>
+    </div>
+
+    <div class="footer-note">
+      No laptop out until the Status Check / Admin phase. Photos and ratings save to this device while you work — use <b>Export Summary</b> at the end of the visit to push results into the BOS Dashboard record for this store.
+    </div>
+
+  </div>
+</div>
+
+<div class="actions-bar">
+  <span class="save-status" id="saveStatus">All changes saved locally</span>
+  <div style="display:flex; gap:8px;">
+    <button class="btn btn-secondary" onclick="resetChecklist()">Reset</button>
+    <button class="btn btn-secondary" onclick="exportSummary()">Export Summary</button>
+    <button class="btn btn-primary" onclick="markComplete()">Complete Visit</button>
+  </div>
+</div>
+
+<input type="file" id="hiddenPhotoInput" accept="image/*" style="display:none">
+
+<script>
+// ---------- BOS SESSION + STORAGE (real backend, not local-only) ----------
+window.storage = {
+  async get(key) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('storage get failed: ' + res.status);
+    return res.json();
+  },
+  async set(key, value) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ value }),
+    });
+    if (!res.ok) throw new Error('storage set failed: ' + res.status);
+    return res.json();
+  },
+};
+
+async function checkBosSession() {
+  const token = localStorage.getItem('bos_token');
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) { localStorage.removeItem('bos_token'); return null; }
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+let FSM_STORES = {};
+async function loadFsmStores() {
+  try {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/reference-data', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) return;
+    const data = await res.json();
+    FSM_STORES = data.fsmStores || {};
+    const fsmSel = document.getElementById('f-fsm');
+    fsmSel.innerHTML = '<option value="">— select —</option>' + Object.keys(FSM_STORES).sort().map(f => `<option>${f}</option>`).join('');
+  } catch (e) { /* leave FSM dropdown empty if this fails */ }
+}
+function updateStoreOptionsForFsm() {
+  const fsm = document.getElementById('f-fsm').value;
+  const stores = FSM_STORES[fsm] || [];
+  const storeField = document.getElementById('f-store');
+  // Store started life as a free-text input — convert it to a select the first time this runs.
+  if (storeField.tagName === 'INPUT') {
+    const sel = document.createElement('select');
+    sel.id = 'f-store';
+    sel.innerHTML = '<option value="">— select FSM first —</option>';
+    storeField.replaceWith(sel);
+    sel.addEventListener('change', persist);
+  }
+  const finalSelect = document.getElementById('f-store');
+  finalSelect.innerHTML = stores.length
+    ? stores.map(s => `<option>${s}</option>`).join('')
+    : '<option value="">— select FSM first —</option>';
+}
+
+checkBosSession().then(me => {
+  if (!me) {
+    document.getElementById('gateMsg').textContent = 'Sign in on the main BOS Dashboard first — this page shares that login.';
+    document.getElementById('gateLink').style.display = 'block';
+    return;
+  }
+  document.getElementById('bosGate').style.display = 'none';
+  document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase();
+  loadFsmStores();
+  document.getElementById('f-fsm').addEventListener('change', () => { updateStoreOptionsForFsm(); persist(); });
+});
+
+// ---------- DATA MODEL ----------
+const FIXED = [
+  {id:'f1', text:'Vibe & feel — flow, control, temp, music on, lighting, customer faces', ctrl:'rating'},
+  {id:'f2', text:'Coffee check — shot times & extraction, ask barista to pull a shot', ctrl:'rating'},
+  {id:'f3', text:'Checklists — completion, accuracy, dated/signed. Fridge dating/labelling, prep qty, foodsafe storage. Latest recipe cards', ctrl:'yn', photo:true},
+  {id:'f4', text:'Hygiene & cleanliness — score per section', ctrl:'rating', photo:true},
+  {id:'f5', text:'Devices — MrD & UE tablets on/working, Flow device live to recipe, BBM screens accurate', ctrl:'yn', photo:true},
+  {id:'f6', text:'Order times — spot check bar & kitchen ticket times', ctrl:'yn'},
+  {id:'f7', text:'Product quality — spot check accuracy & presentation vs. recipe', ctrl:'rating', photo:true},
+  {id:'f8', text:'Management presence & control', ctrl:'rating'},
+  {id:'f9', text:'Staffing — adequately staffed; mgmt/supervisor on shift & uniformed', ctrl:'yn'},
+  {id:'f10', text:'Retail & displays — tags, pricing recon, range, appeal, tidiness vs. planogram, incl. cake & pasteis', ctrl:'yn', photo:true},
+];
+const PORTION_ITEMS = 5; // BOH portion check rows
+
+const TASTING_CATS = {
+  Coffee: [ {id:'t1', text:'Coffee'} ],
+  Beverages: [
+    {id:'t2', text:'New hot drink (1x)'},
+    {id:'t3', text:'Matcha range (1x)'},
+    {id:'t4', text:'Blanc — check cloud & prep'},
+  ],
+  Food: [
+    {id:'t5', text:'Base sauces'},
+    {id:'t6', text:'Caesar (new dish)'},
+    {id:'t7', text:'Chicken mayo open sandwich (new dish)'},
+    {id:'t8', text:'3 cheese toastie (new dish)'},
+    {id:'t9', text:'Soup (1x)'},
+  ],
+};
+const ADD_ITEM_OPTIONS = {
+  Coffee: ['Espresso', 'Cappuccino', 'Filter Coffee', 'Custom…'],
+  Beverages: ['Iced Latte', 'Chai', 'Frappe', 'Cold Brew', 'Custom…'],
+  Food: ['Salad', 'Toastie', 'Wrap', 'Pastry', 'Cake Slice', 'Custom…'],
+};
+
+const VARIABLE = [
+  {id:'v1', text:'Flojet test — works, team can operate, emergency water available (pre-communicate, trade-dependent)', ctrl:'yn'},
+  {id:'v2', text:'Plants & plant boxes — condition & clean (store dependent)', ctrl:'yn'},
+  {id:'v3', text:'Google, App & Masterfile aligned & up to date — if not, log on task tracker', ctrl:'yn'},
+];
+const TEAM_QA_AREAS = ['FOH', 'Bar', 'BOH'];
+const TEAM_QA_QUESTIONS_PER_AREA = 2;
+
+const ADMIN = [
+  {id:'a1', text:'Café status update with franchisee/senior manager — Flow, turnover, B.Better, all KPIs', ctrl:'yn'},
+  {id:'a2', text:'Check servicing records', ctrl:'yn'},
+  {id:'a3', text:'Outstanding tasks / non-conformances — Tracker & LTL', ctrl:'yn'},
+];
+
+// ---------- STATE ----------
+let state = {
+  meta: { store:'', date:'', manager:'', support:'', startTime:'', endTime:'' },
+  checks: {},
+  ratings: {},
+  comments: {},
+  portion: {},
+  photos: {},        // id -> dataURL (in-memory / session only)
+  extraTasting: { Coffee: [], Beverages: [], Food: [] },
+  nextSteps: {},      // id -> {action, notes}
+  teamQA: {},          // area -> [{q, a, c}, ...]
+};
+
+const STORAGE_KEY_PREFIX = 'grind-visit:';
+function keyForToday() {
+  const store = state.meta.store || 'unsaved';
+  const date = state.meta.date || 'nodate';
+  return STORAGE_KEY_PREFIX + store + ':' + date;
+}
+
+// ---------- HELPERS ----------
+function escapeHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function ratingControl(id) {
+  const val = state.ratings[id] || '';
+  return `<select class="rating-select" onchange="setRating('${id}', this.value)">
+    <option value="">Rate /5</option>
+    ${[1,2,3,4,5].map(n => `<option value="${n}" ${val==n?'selected':''}>${n}</option>`).join('')}
+  </select>`;
+}
+function ynControl(id) {
+  const val = state.ratings[id] || '';
+  return `<select class="yn-select" onchange="setRating('${id}', this.value)">
+    <option value="">Y / N</option>
+    <option value="Y" ${val==='Y'?'selected':''}>Yes</option>
+    <option value="N" ${val==='N'?'selected':''}>No</option>
+    <option value="N/A" ${val==='N/A'?'selected':''}>N/A</option>
+  </select>`;
+}
+function commentControl(id) {
+  const val = state.comments[id] || '';
+  return `<input type="text" class="comment-input" placeholder="Comment" value="${escapeHtml(val)}" onchange="setComment('${id}', this.value)">`;
+}
+function photoControl(id) {
+  const has = !!state.photos[id];
+  return `<button type="button" class="photo-btn ${has?'attached':''}" onclick="attachPhoto('${id}')">
+    ${has ? '<img class="photo-thumb" src="'+state.photos[id]+'"> Attached' : '📷 Add Photo'}
+  </button>`;
+}
+
+function renderRow(item, ctrlType, withPhoto) {
+  const checked = !!state.checks[item.id];
+  const ctrl = ctrlType === 'rating' ? ratingControl(item.id) : ctrlType === 'yn' ? ynControl(item.id) : '';
+  return `
+  <div class="row ${checked?'checked':''}" id="row-${item.id}">
+    <input type="checkbox" ${checked?'checked':''} onchange="toggleCheck('${item.id}')">
+    <div class="rowtext"><b>${item.text}</b></div>
+    <div class="row-controls">
+      ${ctrl}
+      ${withPhoto ? photoControl(item.id) : ''}
+      ${commentControl(item.id)}
+    </div>
+  </div>`;
+}
+
+function renderPortionBox() {
+  let rows = '';
+  for (let i = 0; i < PORTION_ITEMS; i++) {
+    const p = state.portion[i] || {item:'', expected:'', actual:'', pass:'', done:false};
+    rows += `
+    <div class="portion-row">
+      <input type="checkbox" ${p.done?'checked':''} onchange="setPortionField(${i},'done', this.checked)">
+      <input type="text" placeholder="Item ${i+1}" value="${escapeHtml(p.item)}" onchange="setPortionField(${i},'item', this.value)">
+      <input type="text" placeholder="Expected" value="${escapeHtml(p.expected)}" onchange="setPortionField(${i},'expected', this.value)">
+      <input type="text" placeholder="Actual" value="${escapeHtml(p.actual)}" onchange="setPortionField(${i},'actual', this.value)">
+      <select onchange="setPortionField(${i},'pass', this.value)">
+        <option value="">Pass?</option>
+        <option value="Pass" ${p.pass==='Pass'?'selected':''}>Pass</option>
+        <option value="Fail" ${p.pass==='Fail'?'selected':''}>Fail</option>
+      </select>
+    </div>`;
+  }
+  return `
+  <div class="portion-box">
+    <div class="ptitle"><span class="badge-mini">BOH</span> Portion Check — 5 Items (weigh/measure vs. recipe spec)</div>
+    <div class="portion-labels"><span></span><span>Item</span><span>Expected</span><span>Actual</span><span>Result</span></div>
+    ${rows}
+  </div>`;
+}
+
+function renderFixed() {
+  const rows = FIXED.map(f => renderRow(f, f.ctrl, !!f.photo)).join('');
+  document.getElementById('body-fixed').innerHTML = rows + renderPortionBox();
+}
+
+function renderTastingRow(item, category, isExtra) {
+  const checked = !!state.checks[item.id];
+  return `
+  <div class="row ${checked?'checked':''}" id="row-${item.id}">
+    <input type="checkbox" ${checked?'checked':''} onchange="toggleCheck('${item.id}')">
+    <div class="rowtext"><b>${escapeHtml(item.text)}</b></div>
+    <div class="row-controls">
+      ${ratingControl(item.id)}
+      ${photoControl(item.id)}
+      ${commentControl(item.id)}
+      ${isExtra ? `<span class="remove-x" onclick="removeExtraTasting('${category}','${item.id}')">✕</span>` : ''}
+    </div>
+  </div>`;
+}
+
+function renderTasting() {
+  let html = '';
+  Object.entries(TASTING_CATS).forEach(([cat, items]) => {
+    const defaultRows = items.map(i => renderTastingRow(i, cat, false)).join('');
+    const extraRows = (state.extraTasting[cat] || []).map(i => renderTastingRow(i, cat, true)).join('');
+    const options = ADD_ITEM_OPTIONS[cat].map(o => `<option value="${o}">${o}</option>`).join('');
+    html += `
+    <div class="tasting-cat">
+      <div class="tasting-cat-title">${cat}</div>
+      ${defaultRows}
+      ${extraRows}
+      <div class="add-item-row">
+        <select id="addsel-${cat}" onchange="toggleCustomInput('${cat}')">
+          <option value="">+ Add item…</option>
+          ${options}
+        </select>
+        <input type="text" id="addcustom-${cat}" placeholder="Dish name" style="display:none;">
+        <button type="button" class="add-btn" onclick="addExtraTasting('${cat}')">Add</button>
+      </div>
+    </div>`;
+  });
+  document.getElementById('body-tasting').innerHTML = html;
+}
+
+function renderVariable() {
+  const rows = VARIABLE.map(v => renderRow(v, v.ctrl, false)).join('');
+  document.getElementById('body-variable').innerHTML = rows + renderTeamQABox();
+}
+
+function ensureTeamQAInit() {
+  TEAM_QA_AREAS.forEach(area => {
+    if (!state.teamQA[area]) {
+      state.teamQA[area] = Array.from({length: TEAM_QA_QUESTIONS_PER_AREA}, () => ({ q: '', a: '', c: '' }));
+    }
+  });
+}
+
+function renderTeamQABox() {
+  ensureTeamQAInit();
+  const areasHtml = TEAM_QA_AREAS.map(area => {
+    const rows = state.teamQA[area].map((entry, idx) => `
+      <div class="teamqa-row">
+        <div>
+          <span class="qlabel">Question ${idx+1}</span>
+          <input type="text" placeholder="Question asked" value="${escapeHtml(entry.q)}" onchange="setTeamQAField('${area}',${idx},'q',this.value)">
+        </div>
+        <div>
+          <span class="qlabel">Answer</span>
+          <select onchange="setTeamQAField('${area}',${idx},'a',this.value)">
+            <option value="">Y / N</option>
+            <option value="Y" ${entry.a==='Y'?'selected':''}>Yes</option>
+            <option value="N" ${entry.a==='N'?'selected':''}>No</option>
+            <option value="N/A" ${entry.a==='N/A'?'selected':''}>N/A</option>
+          </select>
+        </div>
+        <div>
+          <span class="qlabel">Comment</span>
+          <input type="text" placeholder="Comment / action" value="${escapeHtml(entry.c)}" onchange="setTeamQAField('${area}',${idx},'c',this.value)">
+        </div>
+      </div>`).join('');
+    return `<div class="teamqa-area"><div class="teamqa-area-title">${area}</div>${rows}</div>`;
+  }).join('');
+
+  return `
+  <div class="teamqa-box">
+    <div class="ptitle"><span class="badge-mini">Team</span> Team Q&amp;A — 2 Questions per Area</div>
+    ${areasHtml}
+  </div>`;
+}
+
+function setTeamQAField(area, idx, field, val) {
+  ensureTeamQAInit();
+  state.teamQA[area][idx][field] = val;
+  persist();
+}
+
+function renderAdmin() { document.getElementById('body-admin').innerHTML = ADMIN.map(a => renderRow(a, a.ctrl, false)).join(''); }
+
+// ---------- FLAGGED ITEMS & NEXT STEPS ----------
+function buildFlagList() {
+  const flags = [];
+
+  FIXED.forEach(f => {
+    if (!isChecked(f.id)) {
+      flags.push({ id: f.id, text: f.text, source: 'Fixed', reason: 'Incomplete', badge: 'incomplete' });
+    } else if (f.ctrl === 'rating' && state.ratings[f.id] && Number(state.ratings[f.id]) < 4) {
+      flags.push({ id: f.id, text: f.text, source: 'Fixed', reason: `Rating ${state.ratings[f.id]}/5`, badge: 'lowrating' });
+    }
+  });
+
+  for (let i = 0; i < PORTION_ITEMS; i++) {
+    const p = state.portion[i];
+    if (p && p.item) {
+      const pid = 'portion-' + i;
+      if (!p.done) {
+        flags.push({ id: pid, text: 'Portion check — ' + p.item, source: 'Fixed / BOH', reason: 'Incomplete', badge: 'incomplete' });
+      } else if (p.pass === 'Fail') {
+        flags.push({ id: pid, text: 'Portion check — ' + p.item, source: 'Fixed / BOH', reason: 'Failed spec', badge: 'fail' });
+      }
+    }
+  }
+
+  Object.entries(TASTING_CATS).forEach(([cat, items]) => {
+    items.forEach(t => {
+      if (!isChecked(t.id)) {
+        flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: 'Incomplete', badge: 'incomplete' });
+      } else if (state.ratings[t.id] && Number(state.ratings[t.id]) < 4) {
+        flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: `Rating ${state.ratings[t.id]}/5`, badge: 'lowrating' });
+      }
+    });
+    (state.extraTasting[cat] || []).forEach(t => {
+      if (!isChecked(t.id)) {
+        flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: 'Incomplete', badge: 'incomplete' });
+      } else if (state.ratings[t.id] && Number(state.ratings[t.id]) < 4) {
+        flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: `Rating ${state.ratings[t.id]}/5`, badge: 'lowrating' });
+      }
+    });
+  });
+
+  VARIABLE.forEach(v => { if (!isChecked(v.id)) flags.push({ id: v.id, text: v.text, source: 'Variable', reason: 'Incomplete', badge: 'incomplete' }); });
+  ADMIN.forEach(a => { if (!isChecked(a.id)) flags.push({ id: a.id, text: a.text, source: 'Admin', reason: 'Incomplete', badge: 'incomplete' }); });
+
+  // Items marked "No Action Needed" are resolved — drop them before display/export/PDF
+  return flags.filter(f => !(state.nextSteps[f.id] && state.nextSteps[f.id].action === 'No Action'));
+}
+
+function renderFlagged() {
+  const flags = buildFlagList();
+  document.getElementById('count-flagged').textContent = flags.length;
+  const body = document.getElementById('body-flagged');
+  if (flags.length === 0) {
+    body.innerHTML = `<div class="flag-empty">No flags — every item is complete and rated 4 or above.</div>`;
+    return;
+  }
+  body.innerHTML = flags.map(f => {
+    const step = state.nextSteps[f.id] || { action: '', notes: '' };
+    return `
+    <div class="flag-row">
+      <div class="flag-text"><span class="src">${f.source}</span><b>${escapeHtml(f.text)}</b></div>
+      <span class="flag-badge ${f.badge}">${f.reason}</span>
+      <div class="flag-controls">
+        <select class="nextstep-select" onchange="setNextStepAction('${f.id}', this.value)">
+          <option value="">Next step…</option>
+          <option value="No Action" ${step.action==='No Action'?'selected':''}>No Action Needed</option>
+          <option value="Task Tracker" ${step.action==='Task Tracker'?'selected':''}>Log on Task Tracker</option>
+          <option value="Non-Conformance" ${step.action==='Non-Conformance'?'selected':''}>Immediate Non-Conformance</option>
+        </select>
+        <input type="text" class="nextstep-notes" placeholder="Action notes" value="${escapeHtml(step.notes)}" onchange="setNextStepNotes('${f.id}', this.value)">
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function setNextStepAction(id, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '' };
+  state.nextSteps[id].action = val;
+  renderFlagged();
+  persist();
+}
+function setNextStepNotes(id, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '' };
+  state.nextSteps[id].notes = val;
+  persist();
+}
+
+// ---------- STATE MUTATORS ----------
+function toggleCheck(id) {
+  state.checks[id] = !state.checks[id];
+  const row = document.getElementById('row-' + id);
+  if (row) row.classList.toggle('checked', state.checks[id]);
+  updateProgress(); persist();
+}
+function setRating(id, val) { state.ratings[id] = val; updateProgress(); persist(); }
+function setComment(id, val) { state.comments[id] = val; persist(); }
+function setPortionField(idx, field, val) {
+  if (!state.portion[idx]) state.portion[idx] = {item:'', expected:'', actual:'', pass:'', done:false};
+  state.portion[idx][field] = val;
+  updateProgress(); persist();
+}
+function toggleSection(id) { document.getElementById(id).classList.toggle('collapsed'); }
+
+let currentPhotoTarget = null;
+function attachPhoto(id) {
+  currentPhotoTarget = id;
+  document.getElementById('hiddenPhotoInput').click();
+}
+document.getElementById('hiddenPhotoInput').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file || !currentPhotoTarget) return;
+  const reader = new FileReader();
+  reader.onload = function(ev) {
+    state.photos[currentPhotoTarget] = ev.target.result;
+    refreshCurrentSections();
+    persistLight();
+  };
+  reader.readAsDataURL(file);
+  e.target.value = '';
+});
+
+function toggleCustomInput(cat) {
+  const sel = document.getElementById('addsel-' + cat);
+  const custom = document.getElementById('addcustom-' + cat);
+  custom.style.display = sel.value === 'Custom…' ? 'inline-block' : 'none';
+}
+let extraCounter = 0;
+function addExtraTasting(cat) {
+  const sel = document.getElementById('addsel-' + cat);
+  const custom = document.getElementById('addcustom-' + cat);
+  let name = sel.value;
+  if (!name) return;
+  if (name === 'Custom…') {
+    name = custom.value.trim();
+    if (!name) { alert('Enter a dish name first.'); return; }
+  }
+  extraCounter++;
+  const id = 'extra-' + cat + '-' + extraCounter;
+  state.extraTasting[cat].push({ id, text: name });
+  sel.value = '';
+  custom.value = '';
+  custom.style.display = 'none';
+  renderTasting();
+  updateProgress();
+  persist();
+}
+function removeExtraTasting(cat, id) {
+  state.extraTasting[cat] = state.extraTasting[cat].filter(i => i.id !== id);
+  delete state.checks[id]; delete state.ratings[id]; delete state.comments[id]; delete state.photos[id];
+  renderTasting();
+  updateProgress();
+  persist();
+}
+
+// ---------- PROGRESS ----------
+function allTastingIds() {
+  let ids = [];
+  Object.values(TASTING_CATS).forEach(arr => ids = ids.concat(arr.map(i=>i.id)));
+  Object.values(state.extraTasting).forEach(arr => ids = ids.concat(arr.map(i=>i.id)));
+  return ids;
+}
+function fixedIncludingPortion() {
+  const portionIds = Array.from({length: PORTION_ITEMS}, (_, i) => 'portion-' + i);
+  return FIXED.map(f=>f.id).concat(portionIds);
+}
+function portionDoneCount() {
+  let c = 0;
+  for (let i = 0; i < PORTION_ITEMS; i++) if (state.portion[i] && state.portion[i].done) c++;
+  return c;
+}
+function allItemIds() {
+  return fixedIncludingPortion().concat(allTastingIds()).concat(VARIABLE.map(v=>v.id)).concat(ADMIN.map(a=>a.id));
+}
+function stageIdsMap() {
+  return {
+    greet: [],
+    review: fixedIncludingPortion(),
+    inspect: allTastingIds(),
+    note: VARIABLE.map(v=>v.id),
+    debrief: ADMIN.map(a=>a.id),
+  };
+}
+function isChecked(id) {
+  if (id.startsWith('portion-')) {
+    const idx = parseInt(id.split('-')[1], 10);
+    return !!(state.portion[idx] && state.portion[idx].done);
+  }
+  return !!state.checks[id];
+}
+
+function updateProgress() {
+  const ids = allItemIds();
+  const total = ids.length;
+  const done = ids.filter(isChecked).length;
+  document.getElementById('progressLabel').textContent = `${done} / ${total} checked`;
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById('progressFill').style.width = pct + '%';
+  document.getElementById('progressPct').textContent = pct + '%';
+
+  const fixedIds = fixedIncludingPortion();
+  document.getElementById('count-fixed').textContent = fixedIds.filter(isChecked).length + '/' + fixedIds.length;
+  const tastingIds = allTastingIds();
+  document.getElementById('count-tasting').textContent = tastingIds.filter(isChecked).length + '/' + tastingIds.length;
+  document.getElementById('count-variable').textContent = VARIABLE.filter(v=>state.checks[v.id]).length + '/' + VARIABLE.length;
+  document.getElementById('count-admin').textContent = ADMIN.filter(a=>state.checks[a.id]).length + '/' + ADMIN.length;
+
+  const stages = stageIdsMap();
+  document.querySelectorAll('.grind-box').forEach(box => {
+    const stage = box.dataset.stage;
+    const stageIds = stages[stage] || [];
+    let pctStage = 0;
+    if (stage === 'greet') {
+      pctStage = (state.meta.store && state.meta.date) ? 100 : 0;
+    } else if (stageIds.length) {
+      pctStage = Math.round((stageIds.filter(isChecked).length / stageIds.length) * 100);
+    }
+    box.classList.toggle('done', pctStage === 100);
+  });
+
+  const badge = document.getElementById('statusBadge');
+  if (done === 0) badge.textContent = 'Not Started';
+  else if (done === total) badge.textContent = 'Complete';
+  else badge.textContent = 'In Progress';
+
+  renderFlagged();
+}
+
+// ---------- TIMESTAMPS ----------
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+function updateTimestampLine() {
+  document.getElementById('timestampLine').innerHTML =
+    `Visit Started: <b>${fmtTime(state.meta.startTime)}</b> &nbsp;·&nbsp; Visit Completed: <b>${fmtTime(state.meta.endTime)}</b>`;
+}
+
+// ---------- PERSISTENCE ----------
+let saveTimeout;
+function refreshCurrentSections() { renderFixed(); renderTasting(); renderVariable(); renderAdmin(); updateProgress(); }
+
+async function persist() {
+  state.meta.store = document.getElementById('f-store').value;
+  state.meta.date = document.getElementById('f-date').value;
+  state.meta.manager = document.getElementById('f-manager').value;
+  state.meta.support = document.getElementById('f-support').value;
+
+  document.getElementById('saveStatus').textContent = 'Saving...';
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(persistLight, 400);
+}
+async function persistLight() {
+  try {
+    if (window.storage) {
+      await window.storage.set(keyForToday(), JSON.stringify(state));
+    }
+    document.getElementById('saveStatus').textContent = 'All changes saved locally';
+  } catch (e) {
+    document.getElementById('saveStatus').textContent = 'Save failed — changes kept in this session only';
+  }
+}
+
+async function loadExisting() {
+  try {
+    if (window.storage) {
+      const result = await window.storage.get(keyForToday());
+      if (result && result.value) {
+        state = JSON.parse(result.value);
+        document.getElementById('f-store').value = state.meta.store || '';
+        document.getElementById('f-date').value = state.meta.date || '';
+        document.getElementById('f-manager').value = state.meta.manager || '';
+        document.getElementById('f-support').value = state.meta.support || '';
+      }
+    }
+  } catch (e) { /* fresh visit */ }
+  if (!state.extraTasting) state.extraTasting = { Coffee: [], Beverages: [], Food: [] };
+  if (!state.photos) state.photos = {};
+  if (!state.teamQA) state.teamQA = {};
+  if (!state.nextSteps) state.nextSteps = {};
+  if (!state.meta.startTime) state.meta.startTime = new Date().toISOString();
+  renderAll();
+  persist();
+}
+
+function renderAll() { renderFixed(); renderTasting(); renderVariable(); renderAdmin(); updateProgress(); updateTimestampLine(); }
+
+// ---------- ACTIONS ----------
+function resetChecklist() {
+  if (!confirm('Reset this checklist? All ticks, ratings, comments and photos for this visit will be cleared.')) return;
+  state = { meta: { ...state.meta, startTime: new Date().toISOString(), endTime: '' }, checks: {}, ratings: {}, comments: {}, portion: {}, photos: {}, extraTasting: { Coffee: [], Beverages: [], Food: [] } };
+  renderAll();
+  persist();
+}
+
+function markComplete() {
+  updateProgress();
+  const ids = allItemIds();
+  const done = ids.filter(isChecked).length;
+  if (done < ids.length) {
+    if (!confirm(`Only ${done}/${ids.length} items checked. Mark visit complete anyway?`)) return;
+  }
+  state.meta.endTime = new Date().toISOString();
+  updateTimestampLine();
+  document.getElementById('statusBadge').textContent = 'Complete';
+  persist();
+  alert('Visit marked complete. Use Export Summary to send results into the BOS Dashboard record.');
+}
+
+function fmtLine(item) {
+  const checked = state.checks[item.id] ? '[x]' : '[ ]';
+  const rating = state.ratings[item.id] ? ` — ${state.ratings[item.id]}` : '';
+  const comment = state.comments[item.id] ? ` — "${state.comments[item.id]}"` : '';
+  const photo = state.photos[item.id] ? ' [photo attached]' : '';
+  return `  ${checked} ${item.text}${rating}${comment}${photo}`;
+}
+
+function exportSummary() {
+  const lines = [];
+  lines.push('GRIND CAFÉ VISIT SUMMARY');
+  lines.push('Store: ' + (state.meta.store || '—'));
+  lines.push('Date: ' + (state.meta.date || '—'));
+  lines.push('Manager on Duty: ' + (state.meta.manager || '—'));
+  lines.push('Support Member: ' + (state.meta.support || '—'));
+  lines.push('Visit Started: ' + fmtTime(state.meta.startTime) + '  |  Visit Completed: ' + fmtTime(state.meta.endTime));
+  lines.push('');
+  lines.push('FIXED');
+  FIXED.forEach(f => lines.push(fmtLine(f)));
+  lines.push('  Portion Check (BOH, 5 items):');
+  for (let i = 0; i < PORTION_ITEMS; i++) {
+    const p = state.portion[i] || {};
+    if (p.item) lines.push(`    - ${p.item}: expected ${p.expected||'—'}, actual ${p.actual||'—'}, ${p.pass||'not rated'}`);
+  }
+  lines.push('');
+  lines.push('INSPECT QUALITY & COMPLIANCE — TASTING');
+  Object.entries(TASTING_CATS).forEach(([cat, items]) => {
+    lines.push('  ' + cat.toUpperCase());
+    items.forEach(i => lines.push('  ' + fmtLine(i)));
+    (state.extraTasting[cat] || []).forEach(i => lines.push('  ' + fmtLine(i)));
+  });
+  lines.push('');
+  lines.push('VARIABLE');
+  VARIABLE.forEach(v => lines.push(fmtLine(v)));
+  lines.push('  Team Q&A:');
+  ensureTeamQAInit();
+  TEAM_QA_AREAS.forEach(area => {
+    lines.push(`    ${area}:`);
+    state.teamQA[area].forEach((entry, idx) => {
+      if (entry.q || entry.a || entry.c) {
+        lines.push(`      Q${idx+1}: ${entry.q || '—'} — ${entry.a || 'not answered'}${entry.c ? ' — "' + entry.c + '"' : ''}`);
+      }
+    });
+  });
+  lines.push('');
+  lines.push('ADMIN (FSM ONLY)');
+  ADMIN.forEach(a => lines.push(fmtLine(a)));
+  lines.push('');
+  lines.push('FLAGGED ITEMS & NEXT STEPS');
+  const flags = buildFlagList();
+  if (flags.length === 0) {
+    lines.push('  None — every item complete and rated 4 or above.');
+  } else {
+    flags.forEach(f => {
+      const step = state.nextSteps[f.id] || { action: '', notes: '' };
+      const actionLabel = step.action === 'Task Tracker' ? 'Log on Task Tracker'
+        : step.action === 'Non-Conformance' ? 'Immediate Non-Conformance'
+        : step.action === 'No Action' ? 'No Action Needed' : 'Not yet assigned';
+      const notes = step.notes ? ` — "${step.notes}"` : '';
+      lines.push(`  [${f.reason}] ${f.source}: ${f.text} → ${actionLabel}${notes}`);
+    });
+  }
+  lines.push('');
+  lines.push('Note: photo files are not included in this text export — attach them to the store record in BOS Dashboard directly.');
+
+  const text = lines.join('\n');
+  navigator.clipboard?.writeText(text).then(() => {
+    alert('Summary copied to clipboard — paste into the BOS Dashboard store record or task tracker.');
+  }).catch(() => { prompt('Copy this summary manually:', text); });
+}
+
+// ---------- INIT ----------
+['f-store','f-date','f-manager','f-support'].forEach(id => {
+  document.getElementById(id).addEventListener('change', persist);
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  const dateField = document.getElementById('f-date');
+  if (!dateField.value) dateField.value = new Date().toISOString().split('T')[0];
+  loadExisting();
+});
+</script>
+</body>
+</html>
