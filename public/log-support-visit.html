@@ -414,7 +414,7 @@ body {
     </div>
 
     <div class="footer-note">
-      No laptop out until the Status Check / Admin phase. Photos and ratings save to this device while you work — use <b>Export Summary</b> at the end of the visit to push results into the BOS Dashboard record for this store.
+      No laptop out until the Status Check / Admin phase. Progress saves automatically as you work. When you're done, click <b>Submit to BOS</b> — this logs the visit and creates a real Task Tracker entry for every item you routed there (with an owner and due date), visible immediately in Tasks and in this store's Cafe Overview page.
     </div>
 
   </div>
@@ -425,7 +425,7 @@ body {
   <div style="display:flex; gap:8px;">
     <button class="btn btn-secondary" onclick="resetChecklist()">Reset</button>
     <button class="btn btn-secondary" onclick="exportSummary()">Export Summary</button>
-    <button class="btn btn-primary" onclick="markComplete()">Complete Visit</button>
+    <button class="btn btn-primary" id="submitBtn" onclick="markComplete()">Submit to BOS</button>
   </div>
 </div>
 
@@ -800,7 +800,7 @@ function renderFlagged() {
     return;
   }
   body.innerHTML = flags.map(f => {
-    const step = state.nextSteps[f.id] || { action: '', notes: '' };
+    const step = state.nextSteps[f.id] || { action: '', notes: '', owner: '', dueDate: '' };
     return `
     <div class="flag-row">
       <div class="flag-text"><span class="src">${f.source}</span><b>${escapeHtml(f.text)}</b></div>
@@ -814,19 +814,29 @@ function renderFlagged() {
         </select>
         <input type="text" class="nextstep-notes" placeholder="Action notes" value="${escapeHtml(step.notes)}" onchange="setNextStepNotes('${f.id}', this.value)">
       </div>
+      ${step.action==='Task Tracker' ? `
+      <div class="flag-controls" style="width:100%;margin-top:6px;">
+        <input type="text" class="nextstep-notes" placeholder="Owner (who's fixing this)" value="${escapeHtml(step.owner||'')}" onchange="setNextStepField('${f.id}','owner',this.value)">
+        <input type="date" class="nextstep-notes" value="${step.dueDate||''}" onchange="setNextStepField('${f.id}','dueDate',this.value)">
+      </div>` : ''}
     </div>`;
   }).join('');
 }
 
 function setNextStepAction(id, val) {
-  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '' };
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
   state.nextSteps[id].action = val;
   renderFlagged();
   persist();
 }
 function setNextStepNotes(id, val) {
-  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '' };
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
   state.nextSteps[id].notes = val;
+  persist();
+}
+function setNextStepField(id, field, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
+  state.nextSteps[id][field] = val;
   persist();
 }
 
@@ -1038,18 +1048,85 @@ function resetChecklist() {
   persist();
 }
 
+function pillarForSource(source){
+  if (source.startsWith('Fixed')) return 'Trade';
+  if (source.startsWith('Inspect')) return 'Craft';
+  if (source === 'Variable') return 'People';
+  if (source === 'Admin') return 'Partnership';
+  return 'Craft';
+}
+
+async function submitToBOS(){
+  const fsm = document.getElementById('f-fsm').value;
+  const store = document.getElementById('f-store').value;
+  const date = document.getElementById('f-date').value;
+  const visitType = document.getElementById('f-visittype').value;
+  const manager = document.getElementById('f-manager').value;
+  const supportMember = document.getElementById('f-support').value;
+
+  if (!fsm || !store || !date) {
+    alert('FSM, Store and Date are required before this visit can be logged to BOS.');
+    return;
+  }
+
+  const flags = buildFlagList();
+  const taskFlags = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'Task Tracker');
+  const missingDetails = taskFlags.filter(f => !state.nextSteps[f.id].owner || !state.nextSteps[f.id].dueDate);
+  if (missingDetails.length) {
+    alert(`${missingDetails.length} item(s) routed to Task Tracker are missing an Owner or Due Date — fill those in before submitting.`);
+    return;
+  }
+
+  const actions = taskFlags.map(f => {
+    const step = state.nextSteps[f.id];
+    return {
+      pillar: pillarForSource(f.source),
+      description: f.text + (step.notes ? ' — ' + step.notes : ''),
+      owner: step.owner,
+      dueDate: step.dueDate,
+      source: 'support-visit',
+    };
+  });
+
+  const ids = allItemIds();
+  const doneCount = ids.filter(isChecked).length;
+  const notes = `${visitType} — GRIND Café Visit Checklist. ${doneCount}/${ids.length} items checked. ` +
+    (supportMember ? `Support Member: ${supportMember}. ` : '') +
+    (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length} sent to Task Tracker).` : 'No flags raised.');
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  try {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/visits', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ fsm, store, date, type: visitType, notes, actions }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || ('HTTP ' + res.status));
+    }
+    state.meta.endTime = new Date().toISOString();
+    updateTimestampLine();
+    document.getElementById('statusBadge').textContent = 'Submitted to BOS';
+    persist();
+    alert(`Visit logged to BOS.${actions.length ? ' ' + actions.length + ' task(s) created in the Task Tracker.' : ''}`);
+  } catch (e) {
+    alert('Could not submit to BOS — check your connection and try again. (' + e.message + ')');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Submit to BOS';
+  }
+}
+
 function markComplete() {
   updateProgress();
   const ids = allItemIds();
   const done = ids.filter(isChecked).length;
   if (done < ids.length) {
-    if (!confirm(`Only ${done}/${ids.length} items checked. Mark visit complete anyway?`)) return;
+    if (!confirm(`Only ${done}/${ids.length} items checked. Submit visit anyway?`)) return;
   }
-  state.meta.endTime = new Date().toISOString();
-  updateTimestampLine();
-  document.getElementById('statusBadge').textContent = 'Complete';
-  persist();
-  alert('Visit marked complete. Use Export Summary to send results into the BOS Dashboard record.');
+  submitToBOS();
 }
 
 function fmtLine(item) {
