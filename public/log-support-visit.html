@@ -89,8 +89,8 @@ body {
   display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 6px;
 }
 .field label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey-500); margin-bottom: 4px; }
-.field input { width: 100%; border: none; border-bottom: 1px solid var(--grey-300); padding: 5px 2px; font-size: 13px; font-family: inherit; background: transparent; }
-.field input:focus { outline: none; border-bottom-color: var(--gold); }
+.field input, .field select { width: 100%; border: none; border-bottom: 1px solid var(--grey-300); padding: 5px 2px; font-size: 13px; font-family: inherit; background: transparent; }
+.field input:focus, .field select:focus { outline: none; border-bottom-color: var(--gold); }
 
 .timestamp-line {
   font-size: 9.5px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.05em;
@@ -225,14 +225,52 @@ body {
 
 @media (max-width: 760px) {
   .layout { flex-direction: column; }
-  .grind-rail { position: static; width: 100%; flex-direction: row; min-height: auto; }
-  .grind-box { flex: 1; border-left: none; border-top: 4px solid var(--grey-700); }
+  .grind-rail { position: static; width: 100%; flex-direction: row; min-height: auto; overflow-x: auto; }
+  .grind-box { flex: 1; min-width: 58px; border-left: none; border-top: 4px solid var(--grey-700); padding: 10px 4px; }
   .grind-box.done { border-top-color: var(--gold); }
-  .meta-card { grid-template-columns: 1fr 1fr; }
+  .grind-box .letter { font-size: 20px; }
+  .grind-box .label { font-size: 6.5px; }
+  .meta-card { grid-template-columns: 1fr 1fr; gap: 12px 14px; }
   .intro-steps { grid-template-columns: 1fr; }
   .intro-step:nth-child(3n) { border-right: 1px solid var(--grey-200); }
   .row-controls { width: 100%; justify-content: flex-start; margin-top: 6px; }
   .comment-input { width: 100%; }
+  .nav .tag { display: none; }
+  .wrap { padding: 14px 12px 90px; }
+
+  /* Prevent iOS Safari from auto-zooming when a field is focused —
+     any input/select/textarea under 16px triggers it. */
+  input, select, textarea { font-size: 16px !important; }
+  .rating-select, .yn-select, .comment-input, .nextstep-select, .nextstep-notes,
+  .portion-row input, .portion-row select, .teamqa-row input, .teamqa-row select,
+  .add-item-row select, .add-item-row input { font-size: 16px !important; padding: 8px 8px !important; }
+
+  /* Portion check + Team Q&A grids are unreadable at phone widths as
+     fixed multi-column grids — switch to a scrollable strip instead of
+     squeezing 4-5 columns into ~340px. */
+  .portion-row, .portion-labels { grid-template-columns: 16px 100px 70px 70px 70px; }
+  .portion-box, .teamqa-box { overflow-x: auto; }
+  .portion-row, .portion-labels { min-width: 340px; }
+  .teamqa-row { grid-template-columns: 1fr; gap: 4px; min-width: 0; }
+  .teamqa-row .qlabel { margin-top: 4px; }
+
+  /* Bigger tap targets throughout */
+  .btn { padding: 12px 16px; min-height: 44px; }
+  .photo-btn { padding: 8px 10px; min-height: 36px; }
+  .row input[type="checkbox"] { width: 20px; height: 20px; }
+  .add-item-row .add-btn { min-height: 40px; padding: 8px 14px; }
+
+  .actions-bar { padding: 10px 12px; gap: 8px; }
+  .actions-bar .btn { flex: 1; text-align: center; }
+
+  .page-header h1 { font-size: 15px; }
+  .field input, .field select { font-size: 16px; padding: 7px 2px; }
+}
+
+@media (max-width: 400px) {
+  .meta-card { grid-template-columns: 1fr; }
+  .grind-box .label { display: none; }
+  .grind-box { padding: 10px 2px; }
 }
 </style>
 </head>
@@ -285,7 +323,20 @@ body {
         </select>
       </div>
       <div class="field"><label>Manager on Duty</label><input type="text" id="f-manager" placeholder="Name"></div>
-      <div class="field"><label>Support Member</label><input type="text" id="f-support" placeholder="Name"></div>
+      <div class="field"><label>Support Member</label>
+        <select id="f-support">
+          <option value="">— select —</option>
+          <option>Addright Chigama</option>
+          <option>Tshepo Goqo</option>
+          <option>Siphesihle Gwadela</option>
+          <option>Raabia Isaacs</option>
+          <option>Mini Mohale</option>
+          <option>Aphiwe Mqakayi</option>
+          <option>Johannes Moloto</option>
+          <option>Tristan Smith</option>
+          <option>Washington Dhliwayo</option>
+        </select>
+      </div>
     </div>
     <div class="timestamp-line" id="timestampLine">Visit Started: <b>—</b> &nbsp;·&nbsp; Visit Completed: <b>—</b></div>
 
