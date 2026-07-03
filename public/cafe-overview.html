@@ -225,7 +225,7 @@
     font-size: 12px;
   }
   .stores-table thead th {
-    background: #111;
+    background: #ffffff;
     padding: 8px 12px;
     text-align: left;
     font-family: 'IBM Plex Mono', monospace;
@@ -240,7 +240,7 @@
     z-index: 80;
   }
   .stores-table tbody tr {
-    border-bottom: 1px solid #1a1a1a;
+    border-bottom: 1px solid var(--border);
     transition: background 0.1s;
   }
   .stores-table tbody tr:hover { background: var(--surface2); cursor: pointer; }
@@ -386,15 +386,15 @@
   }
   .modal-overlay.open { display: flex; }
   .modal {
-    background: #111;
-    border: 1px solid #2a2a2a;
+    background: #ffffff;
+    border: 1px solid var(--border);
     border-top: 3px solid var(--accent);
     border-radius: 6px;
     width: 720px;
     max-width: 95vw;
     max-height: 90vh;
     overflow-y: auto;
-    box-shadow: 0 32px 80px rgba(0,0,0,0.85);
+    box-shadow: 0 32px 80px rgba(0,0,0,0.25);
   }
   .modal-head {
     padding: 20px 24px;
@@ -522,7 +522,7 @@
   }
   .cs-table td {
     padding: 7px 10px;
-    border-bottom: 1px solid #1a1a1a;
+    border-bottom: 1px solid var(--border);
     color: var(--text);
     vertical-align: top;
   }
@@ -2709,10 +2709,10 @@ function renderChecklist(idx) {
   html += '<div style="padding:14px;display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:14px;align-items:center;">';
   html += '<div><div class="cs-metric-label" style="margin-bottom:4px;">VISIT DATE</div>' +
     '<input type="date" value="' + (c.visit_date || '') + '" onchange="saveChecklistField(\'' + key + '\',\'root\',\'visit_date\',this.value)" ' +
-    'style="background:#1a1a1a;border:1px solid #2a2a2a;color:#f0f0f0;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;"></div>';
+    'style="background:#ffffff;border:1px solid #d4d4d4;color:#1a1a1a;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;"></div>';
   html += '<div><div class="cs-metric-label" style="margin-bottom:4px;">YOUR NAME</div>' +
     '<input type="text" value="' + (c.visitor_name || '') + '" placeholder="FSM name" onblur="saveChecklistField(\'' + key + '\',\'root\',\'visitor_name\',this.value)" ' +
-    'style="background:#1a1a1a;border:1px solid #2a2a2a;color:#f0f0f0;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;"></div>';
+    'style="background:#ffffff;border:1px solid #d4d4d4;color:#1a1a1a;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;"></div>';
 
   // Cafe selector dropdown
   var cafeOpts = STORES.slice().sort(function(a,b){return a.store_name.localeCompare(b.store_name);})
@@ -2723,7 +2723,7 @@ function renderChecklist(idx) {
   var curSel = c.cafe_name ? '' : ' selected';
   html += '<div><div class="cs-metric-label" style="margin-bottom:4px;">CAFÉ</div>' +
     '<select onchange="saveChecklistField(\'' + key + '\',\'root\',\'cafe_name\',this.value)" ' +
-    'style="background:#1a1a1a;border:1px solid #2a2a2a;color:#f0f0f0;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;cursor:pointer;">' +
+    'style="background:#ffffff;border:1px solid #d4d4d4;color:#1a1a1a;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:100%;box-sizing:border-box;cursor:pointer;">' +
     '<option value=""' + curSel + '>' + store.store_name + ' (this café)</option>' +
     cafeOpts + '</select></div>';
   html += '<div style="text-align:center;min-width:90px;"><div class="cs-metric-label" style="margin-bottom:4px;">OVERALL</div>' +
@@ -2778,7 +2778,7 @@ function renderChecklist(idx) {
   html += '<div style="display:grid;grid-template-columns:1fr;gap:10px;">';
   html += '<div><div class="cs-metric-label" style="margin-bottom:4px;">CURRENT B.BETTER SCORE</div>' +
     '<input type="text" value="' + (c.bbetter_score || '') + '" placeholder="e.g. 85%" onblur="saveChecklistField(\'' + key + '\',\'root\',\'bbetter_score\',this.value)" ' +
-    'style="background:#1a1a1a;border:1px solid #2a2a2a;color:#f0f0f0;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:120px;box-sizing:border-box;"></div>';
+    'style="background:#ffffff;border:1px solid #d4d4d4;color:#1a1a1a;padding:7px 10px;font-family:monospace;font-size:12px;border-radius:4px;outline:none;width:120px;box-sizing:border-box;"></div>';
   html += '</div>';
   html += '<div style="margin-top:10px;">' +
     '<div class="cs-metric-label" style="margin-bottom:6px;">IMMEDIATE ACTION NEEDED FOR B.BETTER</div>' +
