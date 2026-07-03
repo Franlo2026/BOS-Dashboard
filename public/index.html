@@ -663,7 +663,7 @@ function networkKPIs(){
 /* ---------- UI shell ---------- */
 const TABS = [
   { id:'dashboard', label:'Dashboard' },
-  { id:'logvisit', label:'+ Log Visit', editorOnly:true },
+  { id:'logsupport', label:'+ Log Support Visit', editorOnly:true, href:'/log-support-visit.html' },
   { id:'actions', label:'Tasks' },
   { id:'ltl', label:'LTL Audits' },
   { id:'bbetter', label:'B-Better' },
@@ -671,7 +671,6 @@ const TABS = [
   { id:'standards', label:'Flow' },
   { id:'weekly', label:'Weekly Report' },
   { id:'print', label:'Print View' },
-  { id:'trainers', label:'+ Log Training' },
   { id:'ops', label:'+ Add Task' },
   { id:'timelines', label:'New Cafes' },
   { id:'cafe-overview', label:'Cafe Overview', href:'/cafe-overview.html' },
@@ -775,13 +774,13 @@ function ragStatusPill(r){
 const HOME_GROUPS = [
   { title: 'Other Tools', ids: ['cafe-overview','scheduler'] },
   { title: 'Dashboards & Reports', ids: ['dashboard','trade','standards','bbetter','ltl','weekly','print'] },
-  { title: 'Log Something', ids: ['logvisit','trainers','ops'] },
+  { title: 'Log Something', ids: ['logsupport','ops'] },
   { title: 'Manage', ids: ['actions','timelines'] },
   { title: 'Admin', ids: ['admin'] },
 ];
 const HOME_META = {
   dashboard:     { icon:'📊', desc:'BOS KPI Tracker — trade, flow, B-Better, visits & tasks at a glance' },
-  logvisit:      { icon:'✅', desc:'GRIND visit checklist — Yes/No accountability workflow' },
+  logsupport:    { icon:'✅', desc:'GRIND café visit checklist — support visits and trainer visits in one place' },
   actions:       { icon:'📋', desc:'Task Tracker — live tasks from GRIND visits, with commentary' },
   ltl:           { icon:'🔍', desc:'LTL Audit Dashboard — per-FSM scores & stores at risk' },
   bbetter:       { icon:'🎓', desc:'B-Better training completion by FSM' },
@@ -789,7 +788,6 @@ const HOME_META = {
   standards:     { icon:'🌊', desc:'Flow — recipe compliance per store' },
   weekly:        { icon:'🗞️', desc:'Weekly Report — printable leadership summary' },
   print:         { icon:'🖨️', desc:'Print View — clean printable dashboard' },
-  trainers:      { icon:'🧑\u200d🏫', desc:'Log Training — trainer visit records, network-wide' },
   ops:           { icon:'🛠️', desc:'Add Task — report an operational issue at a café' },
   timelines:     { icon:'🏗️', desc:'New Cafes — opening timelines & CPA milestones' },
   'cafe-overview': { icon:'☕', desc:'Cafe Overview — FSM/café status, checklists, Store Health Reports' },
@@ -2525,8 +2523,8 @@ function viewOpeningTimelines(){
    ============================================================ */
 const VIEW_FN = {
   home: viewHome, dashboard: viewDashboard, trade: viewTrade, standards: viewStandards,
-  bbetter: viewBBetter, logvisit: viewLogVisit, actions: viewActions, ltl: viewLTL,
-  trainers: viewTrainers, weekly: viewWeekly, print: viewPrint, admin: viewAdmin,
+  bbetter: viewBBetter, actions: viewActions, ltl: viewLTL,
+  weekly: viewWeekly, print: viewPrint, admin: viewAdmin,
   ops: viewOpsTasks, timelines: viewOpeningTimelines
 };
 function formatNavDate(){
