@@ -805,8 +805,8 @@ function ragStatusPill(r){
    ============================================================ */
 const HOME_GROUPS = [
   { title: 'Other Tools', ids: ['cafe-overview','scheduler'] },
+  { title: 'Log Feedback', ids: ['logsupport','ops'] },
   { title: 'Dashboards & Reports', ids: ['dashboard','trade','standards','bbetter','ltl','weekly','print'] },
-  { title: 'Log Something', ids: ['logsupport','ops'] },
   { title: 'Manage', ids: ['actions','timelines'] },
   { title: 'Admin', ids: ['admin'] },
 ];
@@ -1612,10 +1612,14 @@ function viewActions(){
     <div class="grid-4" id="taskKpis" style="margin-bottom:16px;"></div>
     <div id="taskOverdueBanner"></div>
     <div class="card">
+      <div class="segmented" id="taskSubTab" style="margin-bottom:14px;">
+        <button class="segmented-btn active" data-sub="open">Open Tasks</button>
+        <button class="segmented-btn" data-sub="completed">Completed Tasks</button>
+      </div>
       <div class="filter-row">
         <select id="actFsm"><option value="">All FSMs</option>${fsmSelectOptions()}</select>
         <select id="actPillar"><option value="">All Pillars</option><option>Trade</option><option>Craft</option><option>People</option><option>Presence</option><option>Partnership</option></select>
-        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="in-progress">In Progress</option><option value="closed">Closed</option></select>
+        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="in-progress">In Progress</option></select>
         <input type="text" id="actSearch" placeholder="Search store or owner...">
         <button class="btn btn-outline" id="actClear">Clear</button>
         <button class="btn btn-outline" id="actRefresh">↻</button>
@@ -1625,6 +1629,8 @@ function viewActions(){
     </div>
     <div id="taskListWrap" style="margin-top:14px;"></div>
   `;
+
+  let subTab = 'open';
 
   function timeLeftLabel(a){
     if (a.status === 'closed') return null;
@@ -1640,6 +1646,7 @@ function viewActions(){
     const fsmF = document.getElementById('actFsm').value, pillarF = document.getElementById('actPillar').value, statusF = document.getElementById('actStatus').value;
     const searchF = document.getElementById('actSearch').value.trim().toLowerCase();
     return STATE.actions.filter(a =>
+      (subTab==='completed' ? a.status==='closed' : a.status!=='closed') &&
       (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) && (!statusF||a.status===statusF) &&
       (!searchF || (a.store||'').toLowerCase().includes(searchF) || (a.owner||'').toLowerCase().includes(searchF))
     );
@@ -1709,7 +1716,7 @@ function viewActions(){
             </div>
           </div>
         </div>`;
-      }).join('') : '<div class="empty-state">No tasks match this filter.</div>';
+      }).join('') : `<div class="empty-state">${subTab==='completed' ? 'No completed tasks match this filter.' : 'No open tasks match this filter.'}</div>`;
 
     document.querySelectorAll('[data-toggle-comments]').forEach(el => el.addEventListener('click', () => {
       const box = document.getElementById('comments_' + el.dataset.toggleComments);
@@ -1758,7 +1765,7 @@ function viewActions(){
     const blob = new Blob([csv], { type:'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = 'tasks-' + todayISO() + '.csv';
+    a.download = (subTab==='completed' ? 'completed-tasks-' : 'open-tasks-') + todayISO() + '.csv';
     a.click();
   }
 
@@ -1766,6 +1773,12 @@ function viewActions(){
   document.getElementById('actPillar').addEventListener('change', render);
   document.getElementById('actStatus').addEventListener('change', render);
   document.getElementById('actSearch').addEventListener('input', render);
+  document.querySelectorAll('#taskSubTab .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
+    subTab = btn.dataset.sub;
+    document.querySelectorAll('#taskSubTab .segmented-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    render();
+  }));
   document.getElementById('actClear').addEventListener('click', () => {
     document.getElementById('actFsm').value=''; document.getElementById('actPillar').value='';
     document.getElementById('actStatus').value=''; document.getElementById('actSearch').value='';

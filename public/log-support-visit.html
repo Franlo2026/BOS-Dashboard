@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GRIND — Café Visit Checklist</title>
+<title>GRIND — Café Visit Report</title>
 <style>
 :root {
   --gold: #c8ae79;
@@ -287,7 +287,7 @@ body {
 
 <div class="nav">
   <div class="logo">BOOTLEGGER<span>.</span> COFFEE CO.</div>
-  <div class="tag">BOS Dashboard · GRIND Café Visit Checklist</div>
+  <div class="tag">BOS Dashboard · GRIND Café Visit Report</div>
   <a href="/" style="margin-left:auto;color:var(--gold);font-size:11px;text-decoration:none;border:1px solid var(--gold);padding:5px 10px;border-radius:4px;">&larr; BOS Dashboard</a>
   <span id="whoBadge" style="color:var(--grey-500);font-size:11px;margin-left:14px;"></span>
 </div>
@@ -306,14 +306,14 @@ body {
 
     <div class="page-header">
       <div>
-        <h1>GRIND Café Visit Checklist</h1>
-        <div class="sub">Ops Team Field Tool — Live Checklist</div>
+        <h1>GRIND Café Visit Report</h1>
+        <div class="sub">Ops Team Field Tool — Live Report</div>
       </div>
       <div class="badge" id="statusBadge">Not Started</div>
     </div>
 
-    <div class="meta-card" style="grid-template-columns: repeat(6, 1fr);">
-      <div class="field"><label>FSM</label><select id="f-fsm"><option value="">— select —</option></select></div>
+    <div class="meta-card" style="grid-template-columns: repeat(5, 1fr);">
+      <div class="field"><label>FSM / Support Member</label><select id="f-fsm"><option value="">— select —</option></select></div>
       <div class="field"><label>Store</label><input type="text" id="f-store" placeholder="e.g. V&A Waterfront"></div>
       <div class="field"><label>Date</label><input type="date" id="f-date"></div>
       <div class="field"><label>Visit Type</label>
@@ -323,20 +323,6 @@ body {
         </select>
       </div>
       <div class="field"><label>Manager on Duty</label><input type="text" id="f-manager" placeholder="Name"></div>
-      <div class="field"><label>Support Member</label>
-        <select id="f-support">
-          <option value="">— select —</option>
-          <option>Addright Chigama</option>
-          <option>Tshepo Goqo</option>
-          <option>Siphesihle Gwadela</option>
-          <option>Raabia Isaacs</option>
-          <option>Mini Mohale</option>
-          <option>Aphiwe Mqakayi</option>
-          <option>Johannes Moloto</option>
-          <option>Tristan Smith</option>
-          <option>Washington Dhliwayo</option>
-        </select>
-      </div>
     </div>
     <div class="timestamp-line" id="timestampLine">Visit Started: <b>—</b> &nbsp;·&nbsp; Visit Completed: <b>—</b></div>
 
@@ -464,6 +450,7 @@ async function checkBosSession() {
 }
 
 let FSM_STORES = {};
+const SUPPORT_TEAM_ONLY = ['Addright Chigama', 'Tshepo Goqo', 'Siphesihle Gwadela', 'Raabia Isaacs', 'Mini Mohale', 'Aphiwe Mqakayi', 'Johannes Moloto'];
 async function loadFsmStores() {
   try {
     const token = localStorage.getItem('bos_token');
@@ -471,26 +458,32 @@ async function loadFsmStores() {
     if (!res.ok) return;
     const data = await res.json();
     FSM_STORES = data.fsmStores || {};
+    // Combined list = every FSM (has their own store portfolio, cascades the
+    // Store dropdown) plus support team members who aren't FSMs (get the
+    // full store list instead, since they don't have their own portfolio).
+    const names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY])).sort();
     const fsmSel = document.getElementById('f-fsm');
-    fsmSel.innerHTML = '<option value="">— select —</option>' + Object.keys(FSM_STORES).sort().map(f => `<option>${f}</option>`).join('');
-  } catch (e) { /* leave FSM dropdown empty if this fails */ }
+    fsmSel.innerHTML = '<option value="">— select —</option>' + names.map(f => `<option>${f}</option>`).join('');
+  } catch (e) { /* leave dropdown empty if this fails */ }
 }
 function updateStoreOptionsForFsm() {
-  const fsm = document.getElementById('f-fsm').value;
-  const stores = FSM_STORES[fsm] || [];
+  const person = document.getElementById('f-fsm').value;
+  // FSMs get their own store portfolio; support-team-only members (with no
+  // portfolio of their own) get every store, since they could visit any of them.
+  const stores = FSM_STORES[person] || Object.values(FSM_STORES).flat().sort();
   const storeField = document.getElementById('f-store');
   // Store started life as a free-text input — convert it to a select the first time this runs.
   if (storeField.tagName === 'INPUT') {
     const sel = document.createElement('select');
     sel.id = 'f-store';
-    sel.innerHTML = '<option value="">— select FSM first —</option>';
+    sel.innerHTML = '<option value="">— select FSM / Support Member first —</option>';
     storeField.replaceWith(sel);
     sel.addEventListener('change', persist);
   }
   const finalSelect = document.getElementById('f-store');
-  finalSelect.innerHTML = stores.length
+  finalSelect.innerHTML = (person && stores.length)
     ? stores.map(s => `<option>${s}</option>`).join('')
-    : '<option value="">— select FSM first —</option>';
+    : '<option value="">— select FSM / Support Member first —</option>';
 }
 
 checkBosSession().then(me => {
@@ -606,11 +599,10 @@ function photoControl(id) {
 }
 
 function renderRow(item, ctrlType, withPhoto) {
-  const checked = !!state.checks[item.id];
+  const checked = isChecked(item.id);
   const ctrl = ctrlType === 'rating' ? ratingControl(item.id) : ctrlType === 'yn' ? ynControl(item.id) : '';
   return `
   <div class="row ${checked?'checked':''}" id="row-${item.id}">
-    <input type="checkbox" ${checked?'checked':''} onchange="toggleCheck('${item.id}')">
     <div class="rowtext"><b>${item.text}</b></div>
     <div class="row-controls">
       ${ctrl}
@@ -651,10 +643,9 @@ function renderFixed() {
 }
 
 function renderTastingRow(item, category, isExtra) {
-  const checked = !!state.checks[item.id];
+  const checked = isChecked(item.id);
   return `
   <div class="row ${checked?'checked':''}" id="row-${item.id}">
-    <input type="checkbox" ${checked?'checked':''} onchange="toggleCheck('${item.id}')">
     <div class="rowtext"><b>${escapeHtml(item.text)}</b></div>
     <div class="row-controls">
       ${ratingControl(item.id)}
@@ -841,13 +832,12 @@ function setNextStepField(id, field, val) {
 }
 
 // ---------- STATE MUTATORS ----------
-function toggleCheck(id) {
-  state.checks[id] = !state.checks[id];
+function setRating(id, val) {
+  state.ratings[id] = val;
   const row = document.getElementById('row-' + id);
-  if (row) row.classList.toggle('checked', state.checks[id]);
+  if (row) row.classList.toggle('checked', isChecked(id));
   updateProgress(); persist();
 }
-function setRating(id, val) { state.ratings[id] = val; updateProgress(); persist(); }
 function setComment(id, val) { state.comments[id] = val; persist(); }
 function setPortionField(idx, field, val) {
   if (!state.portion[idx]) state.portion[idx] = {item:'', expected:'', actual:'', pass:'', done:false};
@@ -940,7 +930,10 @@ function isChecked(id) {
     const idx = parseInt(id.split('-')[1], 10);
     return !!(state.portion[idx] && state.portion[idx].done);
   }
-  return !!state.checks[id];
+  // An item counts as answered once its Yes/No or /5 rating dropdown has a
+  // value — there's no separate tick box anymore. Leaving it blank is what
+  // sends it to Flagged Items & Next Steps.
+  return !!state.ratings[id];
 }
 
 function updateProgress() {
@@ -956,8 +949,8 @@ function updateProgress() {
   document.getElementById('count-fixed').textContent = fixedIds.filter(isChecked).length + '/' + fixedIds.length;
   const tastingIds = allTastingIds();
   document.getElementById('count-tasting').textContent = tastingIds.filter(isChecked).length + '/' + tastingIds.length;
-  document.getElementById('count-variable').textContent = VARIABLE.filter(v=>state.checks[v.id]).length + '/' + VARIABLE.length;
-  document.getElementById('count-admin').textContent = ADMIN.filter(a=>state.checks[a.id]).length + '/' + ADMIN.length;
+  document.getElementById('count-variable').textContent = VARIABLE.filter(v=>isChecked(v.id)).length + '/' + VARIABLE.length;
+  document.getElementById('count-admin').textContent = ADMIN.filter(a=>isChecked(a.id)).length + '/' + ADMIN.length;
 
   const stages = stageIdsMap();
   document.querySelectorAll('.grind-box').forEach(box => {
@@ -999,7 +992,7 @@ async function persist() {
   state.meta.store = document.getElementById('f-store').value;
   state.meta.date = document.getElementById('f-date').value;
   state.meta.manager = document.getElementById('f-manager').value;
-  state.meta.support = document.getElementById('f-support').value;
+  state.meta.fsm = document.getElementById('f-fsm').value;
 
   document.getElementById('saveStatus').textContent = 'Saving...';
   clearTimeout(saveTimeout);
@@ -1025,7 +1018,7 @@ async function loadExisting() {
         document.getElementById('f-store').value = state.meta.store || '';
         document.getElementById('f-date').value = state.meta.date || '';
         document.getElementById('f-manager').value = state.meta.manager || '';
-        document.getElementById('f-support').value = state.meta.support || '';
+        if (state.meta.fsm) { document.getElementById('f-fsm').value = state.meta.fsm; updateStoreOptionsForFsm(); document.getElementById('f-store').value = state.meta.store || ''; }
       }
     }
   } catch (e) { /* fresh visit */ }
@@ -1062,7 +1055,6 @@ async function submitToBOS(){
   const date = document.getElementById('f-date').value;
   const visitType = document.getElementById('f-visittype').value;
   const manager = document.getElementById('f-manager').value;
-  const supportMember = document.getElementById('f-support').value;
 
   if (!fsm || !store || !date) {
     alert('FSM, Store and Date are required before this visit can be logged to BOS.');
@@ -1090,8 +1082,7 @@ async function submitToBOS(){
 
   const ids = allItemIds();
   const doneCount = ids.filter(isChecked).length;
-  const notes = `${visitType} — GRIND Café Visit Checklist. ${doneCount}/${ids.length} items checked. ` +
-    (supportMember ? `Support Member: ${supportMember}. ` : '') +
+  const notes = `${visitType} — GRIND Café Visit Report. ${doneCount}/${ids.length} items checked. ` +
     (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length} sent to Task Tracker).` : 'No flags raised.');
 
   const btn = document.getElementById('submitBtn');
@@ -1130,7 +1121,7 @@ function markComplete() {
 }
 
 function fmtLine(item) {
-  const checked = state.checks[item.id] ? '[x]' : '[ ]';
+  const checked = isChecked(item.id) ? '[x]' : '[ ]';
   const rating = state.ratings[item.id] ? ` — ${state.ratings[item.id]}` : '';
   const comment = state.comments[item.id] ? ` — "${state.comments[item.id]}"` : '';
   const photo = state.photos[item.id] ? ' [photo attached]' : '';
@@ -1142,8 +1133,8 @@ function exportSummary() {
   lines.push('GRIND CAFÉ VISIT SUMMARY');
   lines.push('Store: ' + (state.meta.store || '—'));
   lines.push('Date: ' + (state.meta.date || '—'));
+  lines.push('FSM / Support Member: ' + (state.meta.fsm || '—'));
   lines.push('Manager on Duty: ' + (state.meta.manager || '—'));
-  lines.push('Support Member: ' + (state.meta.support || '—'));
   lines.push('Visit Started: ' + fmtTime(state.meta.startTime) + '  |  Visit Completed: ' + fmtTime(state.meta.endTime));
   lines.push('');
   lines.push('FIXED');
@@ -1201,7 +1192,7 @@ function exportSummary() {
 }
 
 // ---------- INIT ----------
-['f-store','f-date','f-manager','f-support'].forEach(id => {
+['f-store','f-date','f-manager'].forEach(id => {
   document.getElementById(id).addEventListener('change', persist);
 });
 
