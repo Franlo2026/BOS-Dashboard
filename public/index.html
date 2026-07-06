@@ -363,16 +363,28 @@ function calcCPA(openDate){
   const open = new Date(openDate);
   if (isNaN(open)) return null;
   const sub = (d, days) => { const r = new Date(d); r.setDate(r.getDate() - days); return r; };
+  const add = (d, days) => { const r = new Date(d); r.setDate(r.getDate() + days); return r; };
   const fmt = (d) => d.toISOString().slice(0, 10);
   const handover = sub(open, 7);
   const trainingStart = sub(handover, 28);
   const staffDeadline = sub(trainingStart, 56);
   const tabCreated = new Date();
   const recruitCommence = sub(tabCreated, -14);
+  const accountApplicationDue = sub(open, 56); // opening date minus 8 weeks
+  const accountOpeningComplete = sub(open, 42); // opening date minus 6 weeks
+  const openingOrderDate = sub(open, 28); // opening date minus 4 weeks
+  const postSupportWeeks = [1,2,3,4].map(n => ({
+    label: `W${n} Week ${n}`,
+    start: fmt(add(open, (n-1)*7)),
+    end: fmt(add(open, n*7)),
+  }));
+  const archiveDate = fmt(add(open, 28));
   return {
     tabCreated: fmt(tabCreated), recruitCommence: fmt(recruitCommence),
     staffRecruitmentDeadline: fmt(staffDeadline), trainingStart: fmt(trainingStart),
     handoverDate: fmt(handover), oneWeekPrior: fmt(handover), openDate: fmt(open),
+    accountApplicationDue: fmt(accountApplicationDue), accountOpeningComplete: fmt(accountOpeningComplete),
+    openingOrderDate: fmt(openingOrderDate), postSupportWeeks, archiveDate,
   };
 }
 function otExcelSerial(serial){
@@ -521,6 +533,11 @@ FSM_LIST.forEach(f => {
 function gaapOf(store){ const v = DATA.gaap[resolveAlias(store)]; return (v===undefined) ? null : v; }
 function keytechOf(store){ const v = DATA.keytech[resolveAlias(store)]; return (v===undefined) ? null : v; }
 function beelineOf(fsm, store){ const v = (BEELINE_FLAT[fsm]||{})[resolveAlias(store)]; return (v===undefined) ? null : v; }
+function fsmFullName(shortOrFull){
+  if (!shortOrFull) return null;
+  if (FSM_LIST.includes(shortOrFull)) return shortOrFull;
+  return FSM_LIST.find(f => f.split(' ')[0] === shortOrFull) || null;
+}
 
 /* ---------- data upload overrides (Flow/KeyTech + B-Better) ---------- */
 // Uploaded CSVs (store,score) merge into the in-memory lookups immediately
@@ -587,6 +604,7 @@ function ragOf(value, t){
   return 'red';
 }
 function fmtPct(v, dp){ if (v===null||v===undefined||isNaN(v)) return '—'; return v.toFixed(dp===undefined?1:dp) + '%'; }
+function fmtShortDate(iso){ if (!iso) return '—'; const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return iso; return d.toLocaleDateString('en-GB', {day:'2-digit', month:'short'}); }
 function fmtSigned(v, dp){ if (v===null||v===undefined||isNaN(v)) return '—'; const s = v>=0?'+':''; return s + v.toFixed(dp===undefined?1:dp) + '%'; }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function daysAgo(dateStr){ const d = new Date(dateStr); const now = new Date(); return Math.floor((now-d)/86400000); }
@@ -706,7 +724,7 @@ function networkKPIs(){
 /* ---------- UI shell ---------- */
 const TABS = [
   { id:'dashboard', label:'Dashboard' },
-  { id:'logsupport', label:'+ Log Support Visit', editorOnly:true, href:'/log-support-visit.html' },
+  { id:'logsupport', label:'+ Log Café Visit', editorOnly:true, href:'/log-support-visit.html' },
   { id:'actions', label:'Tasks' },
   { id:'ltl', label:'LTL Audits' },
   { id:'bbetter', label:'B-Better' },
@@ -823,7 +841,7 @@ const HOME_GROUPS = [
 ];
 const HOME_META = {
   dashboard:     { icon:'📊', desc:'BOS KPI Tracker — trade, flow, B-Better, visits & tasks at a glance' },
-  logsupport:    { icon:'✅', desc:'GRIND café visit checklist — support visits and trainer visits in one place' },
+  logsupport:    { icon:'✅', desc:'GRIND café visit report — support visits and trainer visits in one place' },
   actions:       { icon:'📋', desc:'Task Tracker — live tasks from GRIND visits, with commentary' },
   ltl:           { icon:'🔍', desc:'LTL Audit Dashboard — per-FSM scores & stores at risk' },
   bbetter:       { icon:'🎓', desc:'B-Better training completion by FSM' },
@@ -2689,18 +2707,38 @@ function viewOpeningTimelines(){
       if (isExp) {
         const cpaRows = s.cpa ? [
           ['Tab Created', s.cpa.tabCreated], ['Recruitment Commences', s.cpa.recruitCommence],
-          ['Staff Recruited By', s.cpa.staffRecruitmentDeadline], ['Training Start', s.cpa.trainingStart],
+          ['Staff Recruited By', s.cpa.staffRecruitmentDeadline],
+          ['Account Application Info Due', s.cpa.accountApplicationDue],
+          ['Account Opening Completion', s.cpa.accountOpeningComplete],
+          ['Training Start', s.cpa.trainingStart],
+          ['Opening Order Date', s.cpa.openingOrderDate],
           ['Handover Date', s.cpa.handoverDate], ['1 Week Prior', s.cpa.oneWeekPrior], ['Opening Date', s.cpa.openDate],
         ].map(([l,d]) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--grey-200);"><span>${l}</span><b>${d}</b></div>`).join('')
           : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
+        const postSupportRows = s.cpa && s.cpa.postSupportWeeks ? s.cpa.postSupportWeeks.map(w =>
+          `<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--grey-200);"><b>${w.label}</b><span>${fmtShortDate(w.start)} – ${fmtShortDate(w.end)}</span></div>`
+        ).join('') : '';
+        const postSupport = s.cpa && s.cpa.postSupportWeeks ? `
+          <div style="margin-top:16px;">
+            <div class="section-title" style="color:var(--gold);">🍯 Post-Support Schedule</div>
+            ${postSupportRows}
+            <div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:6px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>
+          </div>` : '';
         const t = s.training;
         const bars = ['managers','boh','bar','foh'].filter(k => otStoreStructure(s.type)==='full' || k==='managers')
           .map(k => `<div style="margin-bottom:6px;"><div style="display:flex;justify-content:space-between;font-size:11px;"><span>${k}</span><b>${Math.round((t[k]||0)*100)}%</b></div><div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.round((t[k]||0)*100)}%;background:var(--gold);height:100%;border-radius:4px;"></div></div></div>`).join('');
-        detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;display:grid;grid-template-columns:1fr 1fr;gap:20px;">
-          <div><div class="section-title">CPA Timeline</div>${cpaRows}</div>
-          <div><div class="section-title">Training Progress</div>${bars}
+        const fullFsm = fsmFullName(s.fsm);
+        const bb = fullFsm ? beelineOf(fullFsm, s.name) : null;
+        const bbetterSection = bb !== null && bb !== undefined ? `
+          <div style="margin-bottom:10px;"><div style="display:flex;justify-content:space-between;font-size:11px;"><span>Completion</span><b>${Math.round(bb)}%</b></div><div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.round(bb)}%;background:${bb>=85?'var(--green)':bb>=60?'var(--gold)':'var(--red)'};height:100%;border-radius:4px;"></div></div></div>
+          <div style="font-size:10px;color:var(--grey-500);">FSM: ${fullFsm} · Source: B.Better upload</div>`
+          : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data loaded for this store.<br>Upload a B.Better report in the B.Better tab to populate this section.</div>`;
+        detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
+          <div><div class="section-title">📅 CPA Timeline</div>${cpaRows}${postSupport}</div>
+          <div><div class="section-title">📊 Training Progress</div>${bars}
             <div style="margin-top:8px;"><div style="display:flex;justify-content:space-between;font-size:11px;"><span>Overall</span><b>${Math.round((t.overall||0)*100)}%</b></div><div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.round((t.overall||0)*100)}%;background:var(--green);height:100%;border-radius:4px;"></div></div></div>
           </div>
+          <div><div class="section-title">🎓 B.Better Academy</div>${bbetterSection}</div>
         </div>`;
       }
       return `<div class="card" style="margin-bottom:8px;padding:0;">

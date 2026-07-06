@@ -279,7 +279,7 @@ body {
 <div id="bosGate" style="position:fixed;inset:0;z-index:9999;background:#1a1a1a;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;">
   <div style="width:340px;max-width:90vw;text-align:center;background:#fff;border-top:3px solid #c8ae79;border-radius:4px;padding:28px 24px;">
     <div style="font-weight:800;letter-spacing:0.2em;font-size:14px;text-transform:uppercase;color:#1a1a1a;">BOOTLEGGER<span style="color:#c8ae79;">.</span></div>
-    <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 20px;">Log Support Visit</div>
+    <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 20px;">Log Café Visit</div>
     <div id="gateMsg" style="font-size:12px;color:#555;margin-bottom:16px;">Checking session…</div>
     <a href="/" id="gateLink" style="display:none;background:#c8ae79;color:#1a1a1a;padding:10px;border-radius:4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;text-decoration:none;">Sign In via BOS Dashboard</a>
   </div>
@@ -576,6 +576,7 @@ function ratingControl(id) {
   return `<select class="rating-select" onchange="setRating('${id}', this.value)">
     <option value="">Rate /5</option>
     ${[1,2,3,4,5].map(n => `<option value="${n}" ${val==n?'selected':''}>${n}</option>`).join('')}
+    <option value="N/A" ${val==='N/A'?'selected':''}>N/A</option>
   </select>`;
 }
 function ynControl(id) {
@@ -741,7 +742,7 @@ function buildFlagList() {
   FIXED.forEach(f => {
     if (!isChecked(f.id)) {
       flags.push({ id: f.id, text: f.text, source: 'Fixed', reason: 'Incomplete', badge: 'incomplete' });
-    } else if (f.ctrl === 'rating' && state.ratings[f.id] && Number(state.ratings[f.id]) < 4) {
+    } else if (f.ctrl === 'rating' && state.ratings[f.id] && ratingValue(f.id) < 4) {
       flags.push({ id: f.id, text: f.text, source: 'Fixed', reason: `Rating ${state.ratings[f.id]}/5`, badge: 'lowrating' });
     }
   });
@@ -762,14 +763,14 @@ function buildFlagList() {
     items.forEach(t => {
       if (!isChecked(t.id)) {
         flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: 'Incomplete', badge: 'incomplete' });
-      } else if (state.ratings[t.id] && Number(state.ratings[t.id]) < 4) {
+      } else if (state.ratings[t.id] && ratingValue(t.id) < 4) {
         flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: `Rating ${state.ratings[t.id]}/5`, badge: 'lowrating' });
       }
     });
     (state.extraTasting[cat] || []).forEach(t => {
       if (!isChecked(t.id)) {
         flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: 'Incomplete', badge: 'incomplete' });
-      } else if (state.ratings[t.id] && Number(state.ratings[t.id]) < 4) {
+      } else if (state.ratings[t.id] && ratingValue(t.id) < 4) {
         flags.push({ id: t.id, text: t.text, source: 'Inspect / ' + cat, reason: `Rating ${state.ratings[t.id]}/5`, badge: 'lowrating' });
       }
     });
@@ -832,6 +833,12 @@ function setNextStepField(id, field, val) {
 }
 
 // ---------- STATE MUTATORS ----------
+function ratingValue(id) {
+  const v = state.ratings[id];
+  if (v === 'N/A') return 5; // N/A counts as a full pass — never flags to the action list
+  return v ? Number(v) : null;
+}
+
 function setRating(id, val) {
   state.ratings[id] = val;
   const row = document.getElementById('row-' + id);
