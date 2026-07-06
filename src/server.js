@@ -17,7 +17,7 @@ const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '8mb' }));
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {
@@ -81,6 +81,8 @@ async function initDB() {
       completed_at     TIMESTAMPTZ
     );
   `);
+  // Photo attachment support — added later, so migrate existing tables safely.
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS photo_url TEXT;`);
 
   // Cafe Opening Timelines — folded in as a tab. Generic key/value store,
   // same shape as the standalone version's storage API, just reusing this
@@ -356,7 +358,7 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
       department: r.department, cafe: r.cafe, region: r.region,
       escalationLabel: r.escalation_label, escalationHours: r.escalation_hours,
       comments: r.comments, completed: r.completed, completedBy: r.completed_by,
-      completedAt: r.completed_at,
+      completedAt: r.completed_at, photoUrl: r.photo_url,
     })));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -367,15 +369,18 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
 // anyone should be able to flag a problem at a store.
 app.post('/api/ops-tasks', authRequired, async (req, res) => {
   try {
-    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName } = req.body;
+    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl } = req.body;
     if (!department || !cafe || !escalationLabel || !escalationHours) {
       return res.status(400).json({ error: 'department, cafe, escalationLabel and escalationHours are required' });
     }
+    if (photoUrl && photoUrl.length > 6 * 1024 * 1024) {
+      return res.status(400).json({ error: 'Photo is too large — please use a smaller image.' });
+    }
     const id = newId('t');
     await pool.query(
-      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '']
+      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', photoUrl || null]
     );
     res.json({ ok: true, id });
   } catch (e) {
