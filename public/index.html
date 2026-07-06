@@ -379,12 +379,24 @@ function calcCPA(openDate){
     end: fmt(add(open, n*7)),
   }));
   const archiveDate = fmt(add(open, 28));
+  // Biweekly franchisee check-ins running from the staff recruitment deadline
+  // through to opening — a standing touchpoint every 2 weeks across the whole
+  // runway, independent of the fixed CPA milestones. Mirrors the same logic
+  // used in the New Cafes React build.
+  const checkins = [];
+  let cursor = staffDeadline;
+  let n = 1;
+  while (cursor < open) {
+    checkins.push({ key: `checkin${n}`, label: `Franchisee Check-in ${n}`, date: fmt(cursor) });
+    cursor = add(cursor, 14);
+    n++;
+  }
   return {
     tabCreated: fmt(tabCreated), recruitCommence: fmt(recruitCommence),
     staffRecruitmentDeadline: fmt(staffDeadline), trainingStart: fmt(trainingStart),
     handoverDate: fmt(handover), oneWeekPrior: fmt(handover), openDate: fmt(open),
     accountApplicationDue: fmt(accountApplicationDue), accountOpeningComplete: fmt(accountOpeningComplete),
-    openingOrderDate: fmt(openingOrderDate), postSupportWeeks, archiveDate,
+    openingOrderDate: fmt(openingOrderDate), postSupportWeeks, archiveDate, checkins,
   };
 }
 function otExcelSerial(serial){
@@ -410,9 +422,9 @@ const OT_RAW_STORES = [
   { name: "Alzu Rayton Pod", type: "Kiosk", region: "MP", openSerial: 46244, handoverSerial: 46239, trainingSerial: 46181, fsm: "Washington" },
   { name: "Woodmead XS", type: "XS", region: "GP", openSerial: 46225, handoverSerial: 46218, trainingSerial: 46188, fsm: "Nicolene" },
   { name: "Three Rivers", type: "Full Store", region: "GP", openSerial: 46226, handoverSerial: 46219, trainingSerial: 46169, fsm: "Tshepo" },
-  { name: "Alzu Petroport N4 Pod", type: "Kiosk", region: "MP", openSerial: 46261, handoverSerial: 46257, trainingSerial: 46167, fsm: "Washington" },
-  { name: "Parkhurst", type: "Full Store", region: "GP", openSerial: 46264, handoverSerial: 46257, trainingSerial: 46153, fsm: "Nicolene" },
-  { name: "Walmer Park", type: "Full Store", region: "EC", openSerial: 46271, handoverSerial: 46264, trainingSerial: 46202, fsm: "Liam" },
+  { name: "Alzu Petroport N4 Pod", type: "Kiosk", region: "MP", openSerial: 46230, handoverSerial: 46226, trainingSerial: 46167, fsm: "Washington" },
+  { name: "Parkhurst", type: "Full Store", region: "GP", openSerial: 46233, handoverSerial: 46226, trainingSerial: 46153, fsm: "Nicolene" },
+  { name: "Walmer Park", type: "Full Store", region: "EC", openSerial: 46240, handoverSerial: 46233, trainingSerial: 46202, fsm: "Liam" },
   { name: "Springbok XS", type: "XS", region: "NC", openSerial: 46253, handoverSerial: 46247, trainingSerial: null, fsm: "Liam" },
   { name: "Lower Long XS", type: "XS", region: "WC", openSerial: 46254, handoverSerial: 46245, trainingSerial: 46216, fsm: "Charlene" },
   { name: "Haasendal Gables", type: "Full Store", region: "WC", openSerial: 46266, handoverSerial: 46255, trainingSerial: 46223, fsm: "Charlene" },
@@ -2607,6 +2619,7 @@ function viewOpeningTimelines(){
   let extraStores = [];
   let expanded = null;
   let subTab = 'active';
+  let cpaConfirmations = {};
 
   function isArchived(s){
     if (!s.openDate) return false;
@@ -2627,6 +2640,30 @@ function viewOpeningTimelines(){
       method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
       body: JSON.stringify({ value: JSON.stringify(extraStores) })
     });
+  }
+
+  async function loadCpaConfirmations(){
+    try {
+      const r = await apiGet('/api/storage/cpa-confirmations-v1');
+      cpaConfirmations = JSON.parse(r.value || '{}');
+    } catch(e) { cpaConfirmations = {}; }
+  }
+
+  async function saveCpaConfirmations(){
+    try {
+      await fetch('/api/storage/cpa-confirmations-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(cpaConfirmations) })
+      });
+    } catch(e) { toast('Could not save confirmation — check connection'); }
+  }
+
+  async function toggleCpaConfirm(storeName, milestoneKey){
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {});
+    storeConf[milestoneKey] = !storeConf[milestoneKey];
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    renderStoreList();
+    await saveCpaConfirmations();
   }
 
   function allStores(){
@@ -2705,15 +2742,27 @@ function viewOpeningTimelines(){
       const status = days===null?'TBD':days<0?'Opened':days===0?'Today!':days+'d';
       let detail = '';
       if (isExp) {
-        const cpaRows = s.cpa ? [
-          ['Tab Created', s.cpa.tabCreated], ['Recruitment Commences', s.cpa.recruitCommence],
-          ['Staff Recruited By', s.cpa.staffRecruitmentDeadline],
-          ['Account Application Info Due', s.cpa.accountApplicationDue],
-          ['Account Opening Completion', s.cpa.accountOpeningComplete],
-          ['Training Start', s.cpa.trainingStart],
-          ['Opening Order Date', s.cpa.openingOrderDate],
-          ['Handover Date', s.cpa.handoverDate], ['1 Week Prior', s.cpa.oneWeekPrior], ['Opening Date', s.cpa.openDate],
-        ].map(([l,d]) => `<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid var(--grey-200);"><span>${l}</span><b>${d}</b></div>`).join('')
+        const milestoneList = s.cpa ? [
+          { key: 'tabCreated', label: 'Tab Created', date: s.cpa.tabCreated },
+          { key: 'recruitCommence', label: 'Recruitment Commences', date: s.cpa.recruitCommence },
+          { key: 'staffRecruitmentDeadline', label: 'Staff Recruited By', date: s.cpa.staffRecruitmentDeadline },
+          { key: 'accountApplicationDue', label: 'Account Application Info Due', date: s.cpa.accountApplicationDue },
+          { key: 'accountOpeningComplete', label: 'Account Opening Completion', date: s.cpa.accountOpeningComplete },
+          { key: 'trainingStart', label: 'Training Start', date: s.cpa.trainingStart },
+          { key: 'openingOrderDate', label: 'Opening Order Date', date: s.cpa.openingOrderDate },
+          { key: 'handoverDate', label: 'Handover Date', date: s.cpa.handoverDate },
+          { key: 'openDate', label: 'Opening Date', date: s.cpa.openDate },
+          ...(s.cpa.checkins || []).map(c => ({ key: c.key, label: '🤝 ' + c.label, date: c.date, isCheckin: true })),
+        ].sort((a,b) => (a.date||'').localeCompare(b.date||'')) : [];
+        const storeConf = cpaConfirmations[s.name] || {};
+        const cpaRows = milestoneList.length ? milestoneList.map(({key, label, date, isCheckin}) => {
+          const confirmed = !!storeConf[key];
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 6px;border-bottom:1px solid var(--grey-200);${isCheckin ? 'background:#e6f6f6;border-radius:3px;' : ''}">
+            <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${label}</span>
+            <b style="white-space:nowrap;">${date || '—'}</b>
+            <input type="checkbox" class="cpaConfirmCheck" data-store="${s.name}" data-key="${key}" ${confirmed ? 'checked' : ''} title="Confirm next phase started successfully" style="cursor:pointer;width:14px;height:14px;flex-shrink:0;">
+          </div>`;
+        }).join('') + '<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully</div>'
           : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
         const postSupportRows = s.cpa && s.cpa.postSupportWeeks ? s.cpa.postSupportWeeks.map(w =>
           `<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--grey-200);"><b>${w.label}</b><span>${fmtShortDate(w.start)} – ${fmtShortDate(w.end)}</span></div>`
@@ -2755,6 +2804,13 @@ function viewOpeningTimelines(){
       expanded = expanded === el.dataset.toggle ? null : el.dataset.toggle;
       renderStoreList();
     }));
+    document.querySelectorAll('.cpaConfirmCheck').forEach(el => {
+      el.addEventListener('click', (e) => e.stopPropagation());
+      el.addEventListener('change', (e) => {
+        e.stopPropagation();
+        toggleCpaConfirm(el.dataset.store, el.dataset.key);
+      });
+    });
   }
 
   document.getElementById('otlSearch').addEventListener('input', renderStoreList);
@@ -2777,6 +2833,7 @@ function viewOpeningTimelines(){
     renderAll();
   });
 
+  loadCpaConfirmations().then(renderStoreList);
   loadExtra();
 }
 
