@@ -353,9 +353,9 @@ const THRESH = {
 };
 
 /* ---------- Ops Tasks config (folded in from the standalone tracker) ---------- */
-const OPS_DEPARTMENTS = ["Conformance","R&M","Marketing","Procurement","Product Development","Projects","Training/Support","General Queries"];
+const OPS_DEPARTMENTS = ["Conformance","R&M","Marketing","Procurement","Product Development","Projects","Training/Support","BOS Development","General Queries"];
 const OPS_TIMEFRAMES = [{label:"24 hrs",hours:24},{label:"48 hrs",hours:48},{label:"72 hrs",hours:72},{label:"7 days",hours:168},{label:"10 days (Marketing)",hours:240,marketingOnly:true},{label:"15 days (Marketing)",hours:360,marketingOnly:true},{label:"Custom date...",hours:null,custom:true}];
-const OPS_DEPT_COLORS = {"Conformance":"#7C3AED","R&M":"#DC2626","Marketing":"#D97706","Procurement":"#059669","Product Development":"#2563EB","Projects":"#0891B2","Training/Support":"#9333EA","General Queries":"#6B7280"};
+const OPS_DEPT_COLORS = {"Conformance":"#7C3AED","R&M":"#DC2626","Marketing":"#D97706","Procurement":"#059669","Product Development":"#2563EB","Projects":"#0891B2","Training/Support":"#9333EA","BOS Development":"#c8a855","General Queries":"#6B7280"};
 
 /* ---------- Opening Timelines data (folded in from the standalone dashboard) ---------- */
 function calcCPA(openDate){
@@ -2316,7 +2316,7 @@ function viewOpsTasks(){
         <select id="otDept">${OPS_DEPARTMENTS.map(d=>`<option>${d}</option>`).join('')}</select>
         <label class="field-label">Café / Store</label>
         <input type="text" id="otCafe" list="otCafeOptions" placeholder="Start typing to search a café..." autocomplete="off">
-        <datalist id="otCafeOptions">${ALL_STORES.slice().sort((a,b)=>a.store.localeCompare(b.store)).map(s=>`<option value="${s.store}">`).join('')}</datalist>
+        <datalist id="otCafeOptions"><option value="HQ Internal">${ALL_STORES.slice().sort((a,b)=>a.store.localeCompare(b.store)).map(s=>`<option value="${s.store}">`).join('')}</datalist>
         <label class="field-label">Reported By</label>
         <select id="otName">
           <option value="">— use my login name —</option>
@@ -2489,7 +2489,7 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
     const dept = document.getElementById('otDept').value;
     const tfValue = document.getElementById('otTimeframe').value;
     const cafe = document.getElementById('otCafe').value.trim();
-    if (!ALL_STORES.some(s => s.store === cafe)) { toast('Please pick a café from the search list'); return; }
+    if (cafe !== 'HQ Internal' && !ALL_STORES.some(s => s.store === cafe)) { toast('Please pick a café from the search list'); return; }
     let escalationLabel, escalationHours;
     if (tfValue === 'custom') {
       const customVal = document.getElementById('otCustomDue').value;
