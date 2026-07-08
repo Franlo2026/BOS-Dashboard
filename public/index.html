@@ -354,8 +354,9 @@ const THRESH = {
 
 /* ---------- Ops Tasks config (folded in from the standalone tracker) ---------- */
 const OPS_DEPARTMENTS = ["Conformance","R&M","Marketing","Procurement","Product Development","Projects","Training/Support","BOS Development","General Queries"];
-const OPS_TIMEFRAMES = [{label:"24 hrs",hours:24},{label:"48 hrs",hours:48},{label:"72 hrs",hours:72},{label:"7 days",hours:168},{label:"10 days (Marketing)",hours:240,marketingOnly:true},{label:"15 days (Marketing)",hours:360,marketingOnly:true},{label:"Custom date...",hours:null,custom:true}];
+const OPS_TIMEFRAMES = [{label:"24 hrs",hours:24},{label:"48 hrs",hours:48},{label:"72 hrs",hours:72},{label:"7 days",hours:168},{label:"10 days (Marketing)",hours:240},{label:"Manual Entry...",hours:null,custom:true}];
 const OPS_DEPT_COLORS = {"Conformance":"#7C3AED","R&M":"#DC2626","Marketing":"#D97706","Procurement":"#059669","Product Development":"#2563EB","Projects":"#0891B2","Training/Support":"#9333EA","BOS Development":"#c8a855","General Queries":"#6B7280"};
+const SUPPORT_TEAM = ["Addright Chigama","Tshepo Goqo","Siphesihle Gwadela","Raabia Isaacs","Mini Mohale","Aphiwe Mqakayi","Johannes Moloto"];
 
 /* ---------- Opening Timelines data (folded in from the standalone dashboard) ---------- */
 function calcCPA(openDate){
@@ -1728,7 +1729,7 @@ function viewActions(){
     return {
       id: 'ops_' + t.id, _isOpsTask: true, _opsId: t.id,
       store: t.cafe, fsm: t.submitterName, pillar: t.department,
-      description: t.comments, owner: t.submitterName,
+      description: t.comments, owner: t.submitterName, responsiblePerson: t.responsiblePerson,
       dueDate: opsTaskDueDate(t), status: t.completed ? 'closed' : 'open',
       createdDate: (t.createdAt||'').slice(0,10), comments: [], photoUrl: t.photoUrl,
     };
@@ -1800,7 +1801,7 @@ function viewActions(){
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
               <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span> ${a.status==='closed'?'<span class="badge green">CLOSED</span>':''} ${a._isOpsTask?'<span class="badge" style="background:var(--grey-100);color:var(--grey-500);margin-left:4px;">+ Add Task</span>':''}</div>
-              <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${a._isOpsTask?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner} · Logged ${a.createdDate||''}</div>
+              <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${a._isOpsTask?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner} · Logged ${a.createdDate||''}${a._isOpsTask&&a.responsiblePerson ? ' · Responsible: '+a.responsiblePerson : ''}</div>
               <div style="background:var(--grey-100);padding:8px 10px;margin-top:8px;font-size:12px;border-left:2px solid var(--grey-300);">${a.description||''}</div>
               ${a.photoUrl ? `<img src="${a.photoUrl}" class="actOpsPhotoThumb" data-src="${a.photoUrl}" style="width:60px;height:60px;object-fit:cover;border-radius:4px;margin-top:8px;cursor:pointer;">` : ''}
             </div>
@@ -2356,8 +2357,15 @@ function viewOpsTasks(){
           <option value="__other__">Other (type name)…</option>
         </select>
         <input type="text" id="otNameOther" placeholder="Enter name" style="display:none;margin-top:6px;">
-        <label class="field-label">Escalation Timeframe</label>
-        <select id="otTimeframe">${OPS_TIMEFRAMES.filter(t=>!t.marketingOnly).map(t=>`<option value="${t.custom?'custom':t.hours}">${t.label}</option>`).join('')}</select>
+        <label class="field-label">Responsible Person</label>
+        <select id="otResponsible">
+          <option value="">— unassigned —</option>
+          ${SUPPORT_TEAM.map(n=>`<option>${n}</option>`).join('')}
+          <option value="__other__">Other (type name)…</option>
+        </select>
+        <input type="text" id="otResponsibleOther" placeholder="Enter name" style="display:none;margin-top:6px;">
+        <label class="field-label">Department Escalation Timeframe</label>
+        <select id="otTimeframe">${OPS_TIMEFRAMES.map(t=>`<option value="${t.custom?'custom':t.hours}">${t.label}</option>`).join('')}</select>
         <input type="datetime-local" id="otCustomDue" style="display:none;margin-top:6px;">
         <label class="field-label">Comments</label>
         <textarea id="otComments" placeholder="Describe the issue..."></textarea>
@@ -2391,17 +2399,16 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
 
   // Marketing gets the extra 10/15-day options
   document.getElementById('otDept').addEventListener('change', () => {
-    const dept = document.getElementById('otDept').value;
-    const tfSel = document.getElementById('otTimeframe');
-    const opts = OPS_TIMEFRAMES.filter(t => !t.marketingOnly || dept === 'Marketing');
-    tfSel.innerHTML = opts.map(t=>`<option value="${t.custom?'custom':t.hours}">${t.label}</option>`).join('');
-    document.getElementById('otCustomDue').style.display = tfSel.value === 'custom' ? 'block' : 'none';
+    document.getElementById('otCustomDue').style.display = document.getElementById('otTimeframe').value === 'custom' ? 'block' : 'none';
   });
   document.getElementById('otTimeframe').addEventListener('change', () => {
     document.getElementById('otCustomDue').style.display = document.getElementById('otTimeframe').value === 'custom' ? 'block' : 'none';
   });
   document.getElementById('otName').addEventListener('change', () => {
     document.getElementById('otNameOther').style.display = document.getElementById('otName').value === '__other__' ? 'block' : 'none';
+  });
+  document.getElementById('otResponsible').addEventListener('change', () => {
+    document.getElementById('otResponsibleOther').style.display = document.getElementById('otResponsible').value === '__other__' ? 'block' : 'none';
   });
 
   let otPhotoDataUrl = '';
@@ -2482,7 +2489,7 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
     rows.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
     document.getElementById('otTableWrap').innerHTML = rows.length ? `
       <table class="data-table">
-        <thead><tr><th>Café</th><th>Department</th><th>Reported By</th><th>Status</th><th>Comments</th><th>Photo</th><th></th></tr></thead>
+        <thead><tr><th>Café</th><th>Department</th><th>Reported By</th><th>Responsible</th><th>Status</th><th>Comments</th><th>Photo</th><th></th></tr></thead>
         <tbody>${rows.map(t => {
           const color = OPS_DEPT_COLORS[t.department] || '#6B7280';
           const status = t.completed ? `<span class="badge green">DONE${t.completedBy ? ' · '+t.completedBy : ''}</span>` : (isOverdue(t) ? '<span class="badge red">OVERDUE</span>' : `<span class="badge amber">${timeLeft(t)}</span>`);
@@ -2490,6 +2497,7 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
             <td>${t.cafe}</td>
             <td><span style="color:${color};font-weight:600;">${t.department}</span></td>
             <td>${t.submitterName}</td>
+            <td>${t.responsiblePerson || '—'}</td>
             <td>${status}</td>
             <td style="max-width:280px;">${t.comments || ''}</td>
             <td>${t.photoUrl ? `<img src="${t.photoUrl}" style="width:44px;height:44px;object-fit:cover;border-radius:4px;cursor:pointer;" class="otPhotoThumb" data-src="${t.photoUrl}">` : ''}</td>
@@ -2515,6 +2523,37 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
 
   document.getElementById('otFilterDept').addEventListener('change', render);
   document.getElementById('otFilterStatus').addEventListener('change', render);
+  function resetOpsTaskForm(){
+    try {
+      const dept = document.getElementById('otDept');
+      const cafe = document.getElementById('otCafe');
+      const name = document.getElementById('otName');
+      const nameOther = document.getElementById('otNameOther');
+      const resp = document.getElementById('otResponsible');
+      const respOther = document.getElementById('otResponsibleOther');
+      const tf = document.getElementById('otTimeframe');
+      const customDue = document.getElementById('otCustomDue');
+      const comments = document.getElementById('otComments');
+      const photo = document.getElementById('otPhoto');
+      const photoWrap = document.getElementById('otPhotoPreviewWrap');
+
+      if (dept) dept.value = dept.options[0] ? dept.options[0].value : '';
+      if (cafe) cafe.value = '';
+      if (name) name.value = '';
+      if (nameOther) { nameOther.value = ''; nameOther.style.display = 'none'; }
+      if (resp) resp.value = '';
+      if (respOther) { respOther.value = ''; respOther.style.display = 'none'; }
+      if (tf) tf.value = tf.options[0] ? tf.options[0].value : '';
+      if (customDue) { customDue.value = ''; customDue.style.display = 'none'; }
+      if (comments) comments.value = '';
+      otPhotoDataUrl = '';
+      if (photo) photo.value = '';
+      if (photoWrap) photoWrap.style.display = 'none';
+    } catch (err) {
+      console.error('Could not fully reset Add Task form:', err);
+    }
+  }
+
   document.getElementById('otSubmit').addEventListener('click', async () => {
     const dept = document.getElementById('otDept').value;
     const tfValue = document.getElementById('otTimeframe').value;
@@ -2534,6 +2573,8 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
     }
     const nameSel = document.getElementById('otName').value;
     const submitterName = nameSel === '__other__' ? document.getElementById('otNameOther').value.trim() : nameSel;
+    const respSel = document.getElementById('otResponsible').value;
+    const responsiblePerson = respSel === '__other__' ? document.getElementById('otResponsibleOther').value.trim() : respSel;
     const body = {
       department: dept,
       cafe,
@@ -2541,19 +2582,24 @@ Department escalation timeframe defaults follow the original Ops Task Tracker: 2
       escalationHours,
       comments: document.getElementById('otComments').value,
       submitterName,
+      responsiblePerson: responsiblePerson || null,
       photoUrl: otPhotoDataUrl || null,
     };
+    const submitBtn = document.getElementById('otSubmit');
+    submitBtn.disabled = true;
     try {
       await apiPost('/api/ops-tasks', body);
-      document.getElementById('otComments').value = '';
-      document.getElementById('otCafe').value = '';
-      document.getElementById('otCustomDue').value = '';
-      otPhotoDataUrl = '';
-      document.getElementById('otPhoto').value = '';
-      document.getElementById('otPhotoPreviewWrap').style.display = 'none';
       toast('Task submitted');
-      await loadTasks();
-    } catch(e) { toast(e.message || 'Could not submit task'); }
+    } catch(e) {
+      toast(e.message || 'Could not submit task');
+      submitBtn.disabled = false;
+      return;
+    }
+    // Reset and refresh happen regardless of any DOM quirk in either step —
+    // a failure in one must never block the other.
+    resetOpsTaskForm();
+    submitBtn.disabled = false;
+    try { await loadTasks(); } catch(e) { /* loadTasks already handles its own error UI */ }
   });
 
   loadTasks();

@@ -83,6 +83,7 @@ async function initDB() {
   `);
   // Photo attachment support — added later, so migrate existing tables safely.
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS photo_url TEXT;`);
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS responsible_person TEXT;`);
 
   // Cafe Opening Timelines — folded in as a tab. Generic key/value store,
   // same shape as the standalone version's storage API, just reusing this
@@ -358,7 +359,7 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
       department: r.department, cafe: r.cafe, region: r.region,
       escalationLabel: r.escalation_label, escalationHours: r.escalation_hours,
       comments: r.comments, completed: r.completed, completedBy: r.completed_by,
-      completedAt: r.completed_at, photoUrl: r.photo_url,
+      completedAt: r.completed_at, photoUrl: r.photo_url, responsiblePerson: r.responsible_person,
     })));
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -369,7 +370,7 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
 // anyone should be able to flag a problem at a store.
 app.post('/api/ops-tasks', authRequired, async (req, res) => {
   try {
-    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl } = req.body;
+    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl, responsiblePerson } = req.body;
     if (!department || !cafe || !escalationLabel || !escalationHours) {
       return res.status(400).json({ error: 'department, cafe, escalationLabel and escalationHours are required' });
     }
@@ -378,9 +379,9 @@ app.post('/api/ops-tasks', authRequired, async (req, res) => {
     }
     const id = newId('t');
     await pool.query(
-      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', photoUrl || null]
+      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url, responsible_person)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', photoUrl || null, responsiblePerson || null]
     );
     res.json({ ok: true, id });
   } catch (e) {
