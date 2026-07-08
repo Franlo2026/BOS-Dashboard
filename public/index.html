@@ -528,6 +528,9 @@ function resolveAlias(name){ return DATA.aliases[name] || name; }
 const FSM_LIST = Object.keys(DATA.fsmStores);
 const MANAGER_OF_FSM = {};
 Object.entries(DATA.managers).forEach(([mgr, fsms]) => fsms.forEach(f => MANAGER_OF_FSM[f] = mgr));
+// Single shared roster used by both "Reported By" and "Responsible Person" in
+// the Add Task form, so the two dropdowns always list the same people.
+const OT_PEOPLE_LIST = Array.from(new Set(["Franlo Geldenhuys", "Tarryn Palmer", ...FSM_LIST, ...SUPPORT_TEAM])).sort();
 
 function fsmOfStore(store){
   for (const f of FSM_LIST) if (DATA.fsmStores[f].includes(store)) return f;
@@ -2351,16 +2354,14 @@ function viewOpsTasks(){
         <label class="field-label">Reported By</label>
         <select id="otName">
           <option value="">— use my login name —</option>
-          <option>Franlo Geldenhuys</option>
-          <option>Tarryn Palmer</option>
-          ${FSM_LIST.map(f=>`<option>${f}</option>`).join('')}
+          ${OT_PEOPLE_LIST.map(f=>`<option>${f}</option>`).join('')}
           <option value="__other__">Other (type name)…</option>
         </select>
         <input type="text" id="otNameOther" placeholder="Enter name" style="display:none;margin-top:6px;">
         <label class="field-label">Responsible Person</label>
         <select id="otResponsible">
           <option value="">— unassigned —</option>
-          ${SUPPORT_TEAM.map(n=>`<option>${n}</option>`).join('')}
+          ${OT_PEOPLE_LIST.map(n=>`<option>${n}</option>`).join('')}
           <option value="__other__">Other (type name)…</option>
         </select>
         <input type="text" id="otResponsibleOther" placeholder="Enter name" style="display:none;margin-top:6px;">
