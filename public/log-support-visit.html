@@ -1,0 +1,1223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GRIND — Café Visit Report</title>
+<style>
+:root {
+  --gold: #c8ae79;
+  --gold-light: rgba(200,174,121,0.12);
+  --black: #1a1a1a;
+  --white: #ffffff;
+  --grey-100: #f7f7f7;
+  --grey-200: #ebebeb;
+  --grey-300: #d4d4d4;
+  --grey-500: #999999;
+  --grey-700: #555555;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif;
+  background: var(--grey-100);
+  color: var(--black);
+}
+
+.nav {
+  background: var(--black);
+  height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  position: sticky;
+  top: 0;
+  z-index: 60;
+}
+.nav .logo { color: var(--white); font-weight: 800; font-size: 13px; letter-spacing: 0.2em; text-transform: uppercase; }
+.nav .logo span { color: var(--gold); }
+.nav .tag {
+  margin-left: 14px; color: var(--grey-500); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.08em; border-left: 1px solid var(--grey-700); padding-left: 14px;
+}
+
+.layout {
+  display: flex;
+  align-items: flex-start;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+/* ---- Vertical GRIND rail ---- */
+.grind-rail {
+  position: sticky;
+  top: 52px;
+  width: 96px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--black);
+  min-height: calc(100vh - 52px);
+}
+.grind-box {
+  padding: 14px 8px;
+  border-left: 4px solid var(--grey-700);
+  text-align: center;
+  transition: border-color .2s, background .2s;
+}
+.grind-box.done { border-left-color: var(--gold); background: rgba(200,174,121,0.08); }
+.grind-box .letter { font-size: 28px; font-weight: 800; color: var(--gold); line-height: 1; }
+.grind-box .label { font-size: 7.5px; text-transform: uppercase; letter-spacing: 0.02em; color: var(--white); margin-top: 5px; line-height: 1.25; }
+
+.wrap { flex: 1; min-width: 0; padding: 22px 20px 90px; }
+
+.page-header {
+  display: flex; justify-content: space-between; align-items: flex-end;
+  border-bottom: 1px solid var(--gold); padding-bottom: 10px; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;
+}
+.page-header h1 { font-size: 18px; font-weight: 800; text-transform: uppercase; margin: 0; }
+.page-header .sub { font-size: 10px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+.badge {
+  background: var(--gold-light); border: 1px solid var(--gold); color: #8f733f;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; padding: 5px 12px; letter-spacing: 0.06em;
+}
+
+/* Visit meta card */
+.meta-card {
+  background: var(--white); border: 1px solid var(--grey-200); padding: 16px 18px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 6px;
+}
+.field label { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--grey-500); margin-bottom: 4px; }
+.field input, .field select { width: 100%; border: none; border-bottom: 1px solid var(--grey-300); padding: 5px 2px; font-size: 13px; font-family: inherit; background: transparent; }
+.field input:focus, .field select:focus { outline: none; border-bottom-color: var(--gold); }
+
+.timestamp-line {
+  font-size: 9.5px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.05em;
+  margin-bottom: 18px; padding: 6px 2px 0;
+}
+.timestamp-line b { color: var(--black); }
+
+/* Intro card */
+.intro-card {
+  background: var(--white); border: 1px solid var(--grey-200); margin-bottom: 18px;
+}
+.intro-card .intro-head {
+  background: var(--black); color: var(--white); padding: 10px 16px;
+  font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+}
+.intro-steps {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0;
+}
+.intro-step {
+  padding: 10px 14px; border-right: 1px solid var(--grey-200); border-bottom: 1px solid var(--grey-200); font-size: 9.5px; line-height: 1.35;
+}
+.intro-step:nth-child(3n) { border-right: none; }
+.intro-step .num { color: var(--gold); font-weight: 800; font-size: 11px; margin-right: 3px; }
+.intro-step .ttl { font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.02em; }
+
+/* progress bar overall */
+.progress-wrap {
+  background: var(--white); border: 1px solid var(--grey-200); padding: 10px 16px; margin-bottom: 20px;
+  display: flex; align-items: center; gap: 14px;
+}
+.progress-track { flex: 1; height: 6px; background: var(--grey-200); position: relative; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--gold); width: 0%; transition: width .3s; }
+.progress-label { font-size: 11px; font-weight: 700; white-space: nowrap; }
+
+/* Section */
+.section { background: var(--white); border: 1px solid var(--grey-200); margin-bottom: 16px; }
+.section-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--grey-200); cursor: pointer; user-select: none; }
+.section-head .tag { background: var(--gold); color: var(--white); font-size: 9px; font-weight: 800; padding: 3px 8px; letter-spacing: 0.05em; text-transform: uppercase; }
+.section-head .tag.admin { background: var(--black); }
+.section-head h2 { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; margin: 0; flex: 1; }
+.section-head .count { font-size: 10px; color: var(--grey-500); font-weight: 600; }
+.section-head .chev { font-size: 11px; color: var(--grey-500); transition: transform .2s; }
+.section.collapsed .chev { transform: rotate(-90deg); }
+.section-body { padding: 4px 16px 14px; }
+.section.collapsed .section-body { display: none; }
+
+/* Checklist rows */
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grey-200); flex-wrap: wrap; }
+.row:last-child { border-bottom: none; }
+.row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--gold); margin-top: 2px; flex-shrink: 0; cursor: pointer; }
+.row .rowtext { flex: 1; min-width: 180px; }
+.row .rowtext b { font-weight: 700; }
+.row.checked .rowtext { text-decoration: line-through; text-decoration-color: var(--grey-300); color: var(--grey-500); }
+
+.row-controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+.rating-select, .yn-select { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 4px 6px; font-family: inherit; background: var(--white); min-width: 62px; }
+.comment-input { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 4px 7px; font-family: inherit; width: 140px; }
+.comment-input::placeholder { color: var(--grey-300); }
+
+.photo-btn {
+  border: 1px dashed var(--grey-300); background: var(--white); font-size: 9px; padding: 4px 8px;
+  text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; color: var(--grey-500);
+  display: flex; align-items: center; gap: 4px;
+}
+.photo-control { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.photo-thumb-wrap { position: relative; display: inline-block; }
+.photo-thumb { width: 28px; height: 28px; object-fit: cover; border: 1px solid var(--grey-300); display: block; }
+.photo-remove-x {
+  position: absolute; top: -6px; right: -6px; background: var(--black); color: var(--white);
+  border-radius: 50%; width: 14px; height: 14px; font-size: 9px; line-height: 14px; text-align: center;
+  cursor: pointer;
+}
+
+/* Portion check block — simplified to item/expected/actual/comment (no pass-fail) */
+.portion-box { margin: 10px 0 6px; border: 1px dashed var(--grey-300); padding: 10px; background: var(--grey-100); }
+.portion-box .ptitle { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.portion-box .ptitle .badge-mini { background: var(--gold); color: var(--white); font-size: 8px; padding: 1px 5px; }
+.portion-row { display: grid; grid-template-columns: 1fr 1.4fr; gap: 5px; align-items: center; margin-bottom: 5px; }
+.portion-row input[type="text"] { border: 1px solid var(--grey-300); font-size: 10px; padding: 4px 6px; font-family: inherit; width: 100%; }
+.portion-labels { display: grid; grid-template-columns: 1fr 1.4fr; gap: 5px; font-size: 8px; text-transform: uppercase; color: var(--grey-500); margin-bottom: 4px; letter-spacing: 0.03em; }
+.portion-row .inline-nextstep { grid-column: 1 / -1; }
+
+/* Tasting categories */
+.tasting-cat { margin-bottom: 14px; }
+.tasting-cat:last-child { margin-bottom: 0; }
+.tasting-cat-title { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; background: var(--grey-100); padding: 6px 10px; border-left: 3px solid var(--gold); margin-bottom: 4px; }
+.add-item-row { display: flex; gap: 6px; align-items: center; padding: 8px 0 2px; flex-wrap: wrap; }
+.add-item-row select, .add-item-row input[type="text"] { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 7px; font-family: inherit; }
+.add-item-row .add-btn { border: 1px solid var(--black); background: var(--black); color: var(--white); font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; padding: 6px 12px; cursor: pointer; }
+.add-item-row .add-btn:hover { background: #333; }
+.remove-x { color: var(--grey-500); font-size: 13px; cursor: pointer; padding: 0 4px; }
+.remove-x:hover { color: var(--red, #a35c5c); }
+.flag-row.flag-resolved { opacity: 0.65; }
+.flag-row.flag-resolved .flag-text b { text-decoration: line-through; }
+
+/* PDF export — hide everything except the generated printable report */
+@media print {
+  body.printing-report > *:not(#printArea) { display: none !important; }
+  #printArea { display: block !important; }
+}
+
+.admin-section .section-body { background: var(--gold-light); }
+
+/* Footer actions */
+.actions-bar {
+  position: sticky; bottom: 0; background: var(--white); border-top: 1px solid var(--grey-200);
+  padding: 12px 20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.btn { border: none; font-family: inherit; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 10px 18px; cursor: pointer; }
+.btn-primary { background: var(--black); color: var(--white); }
+.btn-primary:hover { background: #333; }
+.btn-secondary { background: var(--white); border: 1px solid var(--grey-300); color: var(--black); }
+.btn-secondary:hover { border-color: var(--gold); }
+.save-status { font-size: 10px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.05em; }
+
+.footer-note { font-size: 9.5px; color: var(--grey-500); line-height: 1.5; margin-top: 4px; }
+
+/* Flagged items section */
+.flag-section .section-head { background: var(--black); }
+.flag-section .section-head .tag { background: var(--gold); }
+.flag-section .section-head h2, .flag-section .section-head .count, .flag-section .section-head .chev { color: var(--white); }
+.flag-empty { padding: 16px 0; font-size: 11px; color: var(--grey-500); text-align: center; }
+.flag-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--grey-200); flex-wrap: wrap; }
+.flag-row:last-child { border-bottom: none; }
+.flag-row .flag-text { flex: 1; min-width: 200px; font-size: 11.5px; }
+.flag-row .flag-text .src { display: block; font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--grey-500); margin-bottom: 2px; }
+.flag-badge { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; white-space: nowrap; }
+.flag-badge.incomplete { background: var(--grey-200); color: var(--grey-700); }
+.flag-badge.lowrating { background: var(--gold-light); color: #8f733f; border: 1px solid var(--gold); }
+.flag-badge.fail { background: var(--grey-200); color: var(--grey-700); border: 1px solid var(--grey-300); }
+.flag-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.inline-nextstep { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px; width: 100%; }
+.nextstep-select { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 6px; font-family: inherit; background: var(--white); min-width: 170px; }
+.nextstep-notes { border: 1px solid var(--grey-300); font-size: 10.5px; padding: 5px 7px; font-family: inherit; width: 170px; }
+
+/* Team Q&A widget */
+.teamqa-box { margin: 10px 0 6px; border: 1px dashed var(--grey-300); padding: 10px; background: var(--grey-100); }
+.teamqa-box .ptitle { font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: var(--black); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.teamqa-box .ptitle .badge-mini { background: var(--gold); color: var(--white); font-size: 8px; padding: 1px 5px; }
+.teamqa-area { margin-bottom: 10px; }
+.teamqa-area:last-child { margin-bottom: 0; }
+.teamqa-area-title { font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--white); background: var(--black); padding: 4px 8px; margin-bottom: 5px; display: inline-block; }
+.teamqa-row { display: grid; grid-template-columns: 1.6fr 0.6fr 1.2fr; gap: 6px; margin-bottom: 5px; align-items: center; }
+.teamqa-row input[type="text"], .teamqa-row select { border: 1px solid var(--grey-300); font-size: 10px; padding: 5px 7px; font-family: inherit; width: 100%; }
+.teamqa-row .qlabel { font-size: 8px; color: var(--grey-500); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; display: block; }
+
+@media (max-width: 760px) {
+  .layout { flex-direction: column; }
+  .grind-rail { position: static; width: 100%; flex-direction: row; min-height: auto; overflow-x: auto; }
+  .grind-box { flex: 1; min-width: 58px; border-left: none; border-top: 4px solid var(--grey-700); padding: 10px 4px; }
+  .grind-box.done { border-top-color: var(--gold); }
+  .grind-box .letter { font-size: 20px; }
+  .grind-box .label { font-size: 6.5px; }
+  .meta-card { grid-template-columns: 1fr 1fr; gap: 12px 14px; }
+  .intro-steps { grid-template-columns: 1fr; }
+  .intro-step:nth-child(3n) { border-right: 1px solid var(--grey-200); }
+  .row-controls { width: 100%; justify-content: flex-start; margin-top: 6px; }
+  .comment-input { width: 100%; }
+  .nav .tag { display: none; }
+  .wrap { padding: 14px 12px 90px; }
+
+  /* Prevent iOS Safari from auto-zooming when a field is focused —
+     any input/select/textarea under 16px triggers it. */
+  input, select, textarea { font-size: 16px !important; }
+  .rating-select, .yn-select, .comment-input, .nextstep-select, .nextstep-notes,
+  .portion-row input, .portion-row select, .teamqa-row input, .teamqa-row select,
+  .add-item-row select, .add-item-row input { font-size: 16px !important; padding: 8px 8px !important; }
+
+  /* Portion check + Team Q&A grids are unreadable at phone widths as
+     fixed multi-column grids — switch to a scrollable strip instead of
+     squeezing 4-5 columns into ~340px. */
+  .portion-row, .portion-labels { grid-template-columns: 16px 100px 70px 70px 70px; }
+  .portion-box, .teamqa-box { overflow-x: auto; }
+  .portion-row, .portion-labels { min-width: 340px; }
+  .teamqa-row { grid-template-columns: 1fr; gap: 4px; min-width: 0; }
+  .teamqa-row .qlabel { margin-top: 4px; }
+
+  /* Bigger tap targets throughout */
+  .btn { padding: 12px 16px; min-height: 44px; }
+  .photo-btn { padding: 8px 10px; min-height: 36px; }
+  .row input[type="checkbox"] { width: 20px; height: 20px; }
+  .add-item-row .add-btn { min-height: 40px; padding: 8px 14px; }
+
+  .actions-bar { padding: 10px 12px; gap: 8px; }
+  .actions-bar .btn { flex: 1; text-align: center; }
+
+  .page-header h1 { font-size: 15px; }
+  .field input, .field select { font-size: 16px; padding: 7px 2px; }
+}
+
+@media (max-width: 400px) {
+  .meta-card { grid-template-columns: 1fr; }
+  .grind-box .label { display: none; }
+  .grind-box { padding: 10px 2px; }
+}
+</style>
+</head>
+<body>
+
+<div id="bosGate" style="position:fixed;inset:0;z-index:9999;background:#1a1a1a;display:flex;align-items:center;justify-content:center;font-family:'Montserrat',sans-serif;">
+  <div style="width:340px;max-width:90vw;text-align:center;background:#fff;border-top:3px solid #c8ae79;border-radius:4px;padding:28px 24px;">
+    <div style="font-weight:800;letter-spacing:0.2em;font-size:14px;text-transform:uppercase;color:#1a1a1a;">BOOTLEGGER<span style="color:#c8ae79;">.</span></div>
+    <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.1em;margin:6px 0 20px;">Log Café Visit</div>
+    <div id="gateMsg" style="font-size:12px;color:#555;margin-bottom:16px;">Checking session…</div>
+    <a href="/" id="gateLink" style="display:none;background:#c8ae79;color:#1a1a1a;padding:10px;border-radius:4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;text-decoration:none;">Sign In via BOS Dashboard</a>
+  </div>
+</div>
+
+<div class="nav">
+  <div class="logo">BOOTLEGGER<span>.</span> COFFEE CO.</div>
+  <div class="tag">BOS Dashboard · GRIND Café Visit Report</div>
+  <a href="/" style="margin-left:auto;color:var(--gold);font-size:11px;text-decoration:none;border:1px solid var(--gold);padding:5px 10px;border-radius:4px;">&larr; BOS Dashboard</a>
+  <span id="whoBadge" style="color:var(--grey-500);font-size:11px;margin-left:14px;"></span>
+</div>
+
+<div class="layout">
+
+  <div class="grind-rail" id="grindStrip">
+    <div class="grind-box" data-stage="greet"><div class="letter">G</div><div class="label">Greet &amp; Walk</div></div>
+    <div class="grind-box" data-stage="review"><div class="letter">R</div><div class="label">Review &amp; Support</div></div>
+    <div class="grind-box" data-stage="inspect"><div class="letter">I</div><div class="label">Inspect Quality &amp; Compliance</div></div>
+    <div class="grind-box" data-stage="note"><div class="letter">N</div><div class="label">Note Status</div></div>
+    <div class="grind-box" data-stage="debrief"><div class="letter">D</div><div class="label">Debrief &amp; Feedback</div></div>
+  </div>
+
+  <div class="wrap">
+
+    <div class="page-header">
+      <div>
+        <h1>GRIND Café Visit Report</h1>
+        <div class="sub">Ops Team Field Tool — Live Report</div>
+      </div>
+      <div class="badge" id="statusBadge">Not Started</div>
+    </div>
+
+    <div class="meta-card" style="grid-template-columns: repeat(5, 1fr);">
+      <div class="field"><label>FSM / Support Member</label><select id="f-fsm"><option value="">— select —</option></select></div>
+      <div class="field"><label>Store</label><input type="text" id="f-store" placeholder="e.g. V&A Waterfront"></div>
+      <div class="field"><label>Date</label><input type="date" id="f-date"></div>
+      <div class="field"><label>Visit Type</label>
+        <select id="f-visittype">
+          <option value="Support Visit">Support Visit</option>
+          <option value="Trainer Visit">Trainer Visit</option>
+        </select>
+      </div>
+      <div class="field"><label>Manager on Duty</label><input type="text" id="f-manager" placeholder="Name"></div>
+    </div>
+    <div class="timestamp-line" id="timestampLine">Visit Started: <b>—</b> &nbsp;·&nbsp; Visit Completed: <b>—</b></div>
+
+    <div class="intro-card">
+      <div class="intro-head">Visit Flow — At a Glance</div>
+      <div class="intro-steps">
+        <div class="intro-step"><span class="num">1</span><span class="ttl">Entrance</span>Wait at door until greeted. Read the room first — feel before you check.</div>
+        <div class="intro-step"><span class="num">2</span><span class="ttl">Greet</span>Greet staff and management/franchisee first — can run alongside the walk-through.</div>
+        <div class="intro-step"><span class="num">3</span><span class="ttl">Walk-Through &amp; Support Notes</span>Figure-8 route. Add observation notes for support, and retraining/actioning, during the support phase.</div>
+        <div class="intro-step"><span class="num">4</span><span class="ttl">Support Phase</span>Work through each section, addressing support observations, actioning retraining, and logging next steps. Add clear steps taken and actioning that took place, or action required.</div>
+        <div class="intro-step"><span class="num">5</span><span class="ttl">QC &amp; Status Phase</span>Quality check on menu items, unpacking café status, check servicing records &amp; H&amp;S file, outstanding/open tasks/non-conformances. Full debrief and feedback session with senior management/franchisee on the report.</div>
+      </div>
+    </div>
+
+    <!-- GRIND RESET (combined Fixed + Variable) -->
+    <div class="section" data-stage="note" id="sec-reset">
+      <div class="section-head" onclick="toggleSection('sec-reset')">
+        <span class="tag">Reset</span>
+        <h2>GRIND Reset</h2>
+        <span class="count" id="count-reset"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-reset"></div>
+    </div>
+
+    <!-- SERVICE (FOH) -->
+    <div class="section" data-stage="review" id="sec-service">
+      <div class="section-head" onclick="toggleSection('sec-service')">
+        <span class="tag">FOH</span>
+        <h2>Service (FOH)</h2>
+        <span class="count" id="count-service"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-service"></div>
+    </div>
+
+    <!-- COFFEE (BAR) -->
+    <div class="section" data-stage="review" id="sec-coffee">
+      <div class="section-head" onclick="toggleSection('sec-coffee')">
+        <span class="tag">Bar</span>
+        <h2>Coffee (Bar)</h2>
+        <span class="count" id="count-coffee"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-coffee"></div>
+    </div>
+
+    <!-- QUALITY (BOH) -->
+    <div class="section" data-stage="review" id="sec-quality">
+      <div class="section-head" onclick="toggleSection('sec-quality')">
+        <span class="tag">BOH</span>
+        <h2>Quality (BOH)</h2>
+        <span class="count" id="count-quality"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-quality"></div>
+    </div>
+
+    <!-- QC TASTING -->
+    <div class="section" data-stage="inspect" id="sec-tasting">
+      <div class="section-head" onclick="toggleSection('sec-tasting')">
+        <span class="tag">Inspect</span>
+        <h2>QC Tasting</h2>
+        <span class="count" id="count-tasting"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-tasting"></div>
+    </div>
+
+    <!-- ADMIN SECTION -->
+    <div class="section admin-section" data-stage="debrief" id="sec-admin">
+      <div class="section-head" onclick="toggleSection('sec-admin')">
+        <span class="tag admin">Admin</span>
+        <h2>FSM Only — Status Check</h2>
+        <span class="count" id="count-admin"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-admin"></div>
+    </div>
+
+    <div class="footer-note">
+      No laptop out until the QC &amp; Status Phase. Progress saves automatically as you work. Any question with a comment is automatically flagged — set its next step right there, next to the comment box. When you're done, click <b>Submit to BOS</b> — this logs the visit and creates a real Task Tracker entry for every item you routed there (with an owner and due date), visible immediately in Tasks and in this store's Cafe Overview page.
+    </div>
+
+  </div>
+</div>
+
+<div class="actions-bar">
+  <span class="save-status" id="saveStatus">All changes saved locally</span>
+  <div style="display:flex; gap:8px;">
+    <button class="btn btn-secondary" onclick="resetChecklist()">Reset</button>
+    <button class="btn btn-secondary" onclick="exportSummary()">Export Summary</button>
+    <button class="btn btn-secondary" id="pdfBtn" onclick="downloadReportPDF()" style="display:none;">↓ Download PDF</button>
+    <button class="btn btn-primary" id="submitBtn" onclick="markComplete()">Submit to BOS</button>
+  </div>
+</div>
+
+<input type="file" id="hiddenPhotoInput" accept="image/*" style="display:none">
+<div id="printArea" style="display:none;"></div>
+
+<script>
+// ---------- BOS SESSION + STORAGE (real backend, not local-only) ----------
+window.storage = {
+  async get(key) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('storage get failed: ' + res.status);
+    return res.json();
+  },
+  async set(key, value) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ value }),
+    });
+    if (!res.ok) throw new Error('storage set failed: ' + res.status);
+    return res.json();
+  },
+};
+
+async function checkBosSession() {
+  const token = localStorage.getItem('bos_token');
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) { localStorage.removeItem('bos_token'); return null; }
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+let FSM_STORES = {};
+const SUPPORT_TEAM_ONLY = ['Addright Chigama', 'Tshepo Goqo', 'Siphesihle Gwadela', 'Raabia Isaacs', 'Mini Mohale', 'Aphiwe Mqakayi', 'Johannes Moloto'];
+async function loadFsmStores() {
+  try {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/reference-data', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) return;
+    const data = await res.json();
+    FSM_STORES = data.fsmStores || {};
+    // Combined list = every FSM (has their own store portfolio, cascades the
+    // Store dropdown) plus support team members who aren't FSMs (get the
+    // full store list instead, since they don't have their own portfolio).
+    const names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY])).sort();
+    const fsmSel = document.getElementById('f-fsm');
+    fsmSel.innerHTML = '<option value="">— select —</option>' + names.map(f => `<option>${f}</option>`).join('');
+  } catch (e) { /* leave dropdown empty if this fails */ }
+}
+function updateStoreOptionsForFsm() {
+  const person = document.getElementById('f-fsm').value;
+  // FSMs get their own store portfolio; support-team-only members (with no
+  // portfolio of their own) get every store, since they could visit any of them.
+  const stores = FSM_STORES[person] || Object.values(FSM_STORES).flat().sort();
+  const storeField = document.getElementById('f-store');
+  // Store started life as a free-text input — convert it to a select the first time this runs.
+  if (storeField.tagName === 'INPUT') {
+    const sel = document.createElement('select');
+    sel.id = 'f-store';
+    sel.innerHTML = '<option value="">— select FSM / Support Member first —</option>';
+    storeField.replaceWith(sel);
+    sel.addEventListener('change', persist);
+  }
+  const finalSelect = document.getElementById('f-store');
+  finalSelect.innerHTML = (person && stores.length)
+    ? stores.map(s => `<option>${s}</option>`).join('')
+    : '<option value="">— select FSM / Support Member first —</option>';
+}
+
+checkBosSession().then(me => {
+  if (!me) {
+    document.getElementById('gateMsg').textContent = 'Sign in on the main BOS Dashboard first — this page shares that login.';
+    document.getElementById('gateLink').style.display = 'block';
+    return;
+  }
+  document.getElementById('bosGate').style.display = 'none';
+  document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase();
+  loadFsmStores();
+  document.getElementById('f-fsm').addEventListener('change', () => { updateStoreOptionsForFsm(); persist(); });
+});
+
+// ---------- DATA MODEL ----------
+// Shared items that appear in all three of Service/Coffee/Quality, each
+// tracked independently per section (so a comment logged in Coffee doesn't
+// bleed into Service's copy of the same question).
+const SHARED_ITEMS = [
+  { key: 'checklist', text: 'Checklist (Latest, including related SOP\'s)' },
+  { key: 'hygiene', text: 'Hygiene & cleanliness' },
+];
+
+const SECTIONS = [
+  { key: 'service', label: 'Service (FOH)', extra: [
+      { key: 'stepsofservice', text: 'Steps of Service' },
+    ], portion: false },
+  { key: 'coffee', label: 'Coffee (Bar)', extra: [
+      { key: 'coffeecheck', text: 'Coffee check — shot times & extraction, ask barista to pull a shot' },
+      { key: 'ordertimes', text: 'Order times — spot check bar ticket times' },
+    ], portion: true },
+  { key: 'quality', label: 'Quality (BOH)', extra: [
+      { key: 'ordertimes', text: 'Order times — spot check kitchen ticket times' },
+    ], portion: true },
+];
+const PORTION_ITEMS = 3; // reduced from 5 per section
+
+// GRIND Reset = combined Fixed (remaining, not moved into a section above) + Variable
+const GRIND_RESET = [
+  { id: 'gr-vibe', text: 'Vibe & feel — flow, control, temp, music on, lighting, customer faces' },
+  { id: 'gr-devices', text: 'Devices — MrD & UE tablets on/working, Flow device live to recipe, BBM screens accurate', photo: true },
+  { id: 'gr-mgmt', text: 'Management presence & control' },
+  { id: 'gr-staffing', text: 'Staffing — adequately staffed; mgmt/supervisor on shift & uniformed' },
+  { id: 'gr-retail', text: 'Retail & displays — tags, pricing recon, range, appeal, tidiness vs. planogram, incl. cake & pasteis', photo: true },
+  { id: 'gr-flojet', text: 'Flojet test — works, team can operate, emergency water available (pre-communicate, trade-dependent)' },
+  { id: 'gr-plants', text: 'Plants & plant boxes — condition & clean (store dependent)' },
+  { id: 'gr-masterfile', text: 'Google, App & Masterfile aligned & up to date — if not, log on task tracker' },
+];
+
+const QC_TASTING_CATS = ['Coffee', 'New Beverages', 'New Dishes', 'Base Sauces'];
+
+const ADMIN = [
+  { id: 'a1', text: 'Café status update with franchisee/senior manager — Flow, turnover, B.Better, all KPIs' },
+  { id: 'a2', text: 'Check servicing records' },
+  { id: 'a3', text: 'Outstanding tasks / non-conformances — Tracker & LTL' },
+];
+
+// ---------- STATE ----------
+let state = {
+  meta: { store:'', date:'', manager:'', support:'', startTime:'', endTime:'' },
+  comments: {},          // id -> text. Non-empty comment = flagged.
+  photos: {},            // id -> [dataURL, ...] (multiple photos per item now)
+  customItems: { service: [], coffee: [], quality: [] },   // section -> [{id, text}]
+  teamQA: { service: [], coffee: [], quality: [] },        // section -> [{id, q, c}]
+  portion: { coffee: [], quality: [] },                    // section -> [{item,expected,actual,comment}]
+  tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] }, // cat -> [{id, product, comment, photos:[]}]
+  nextSteps: {},          // id -> {action:'retrained'|'tasktracker', notes, owner, dueDate}
+  submitted: false,
+};
+
+const STORAGE_KEY_PREFIX = 'grind-visit:';
+function keyForToday() {
+  const d = state.meta.date || new Date().toISOString().split('T')[0];
+  const store = state.meta.store || 'unsaved';
+  return STORAGE_KEY_PREFIX + d + ':' + store;
+}
+function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ---------- SHARED UI PIECES ----------
+function commentControl(id, placeholder) {
+  const val = state.comments[id] || '';
+  return `<input type="text" class="comment-input" placeholder="${placeholder||'Comment (leaving this blank means no issue)'}" value="${escapeHtml(val)}" onchange="setComment('${id}', this.value)">`;
+}
+function setComment(id, val) {
+  state.comments[id] = val;
+  renderFlagged();
+  persist();
+}
+
+// Next-step control now lives inline, right next to every comment box,
+// rather than only in the separate Flagged Items summary at the bottom.
+// Same three outcomes, same owner/due-date flow for anything sent to the
+// Task Tracker.
+function nextStepControl(id) {
+  const step = state.nextSteps[id] || { action: '', notes: '', owner: '', dueDate: '' };
+  return `<div class="inline-nextstep">
+    <select class="nextstep-select" onchange="setNextStepAction('${id}', this.value)">
+      <option value="">Next step…</option>
+      <option value="satisfactory" ${step.action==='satisfactory'?'selected':''}>Satisfactory Outcome — No Action</option>
+      <option value="retrained" ${step.action==='retrained'?'selected':''}>Retrained and Rectified</option>
+      <option value="tasktracker" ${step.action==='tasktracker'?'selected':''}>Log on Task Tracker</option>
+    </select>
+    ${step.action==='tasktracker' ? `
+      <input type="text" class="nextstep-notes" placeholder="Owner (who's fixing this)" value="${escapeHtml(step.owner||'')}" onchange="setNextStepField('${id}','owner',this.value)">
+      <input type="date" class="nextstep-notes" value="${step.dueDate||''}" onchange="setNextStepField('${id}','dueDate',this.value)">
+    ` : ''}
+  </div>`;
+}
+
+// Photo control now supports MULTIPLE photos per item.
+function photoControl(id) {
+  const photos = state.photos[id] || [];
+  const thumbs = photos.map((src, i) => `
+    <span class="photo-thumb-wrap">
+      <img class="photo-thumb" src="${src}">
+      <span class="photo-remove-x" onclick="removePhoto('${id}',${i})">✕</span>
+    </span>`).join('');
+  return `<div class="photo-control">
+    ${thumbs}
+    <button type="button" class="photo-btn" onclick="attachPhoto('${id}')">📷 ${photos.length ? 'Add Another' : 'Add Photo'}</button>
+  </div>`;
+}
+function removePhoto(id, idx) {
+  if (!state.photos[id]) return;
+  state.photos[id].splice(idx, 1);
+  refreshCurrentSections();
+  persist();
+}
+
+function renderQuestionRow(id, text, withPhoto) {
+  return `
+  <div class="row" id="row-${id}">
+    <div class="rowtext"><b>${escapeHtml(text)}</b></div>
+    <div class="row-controls">
+      ${withPhoto ? photoControl(id) : ''}
+      ${commentControl(id)}
+      ${nextStepControl(id)}
+    </div>
+  </div>`;
+}
+
+// ---------- SERVICE / COFFEE / QUALITY SECTIONS ----------
+function sectionItemIds(sec) {
+  const ids = SHARED_ITEMS.map(s => `${s.key}-${sec.key}`);
+  sec.extra.forEach(e => ids.push(`${e.key}-${sec.key}`));
+  (state.customItems[sec.key] || []).forEach(c => ids.push(c.id));
+  return ids;
+}
+
+function renderSection(sec) {
+  const sharedRows = SHARED_ITEMS.map(s => renderQuestionRow(`${s.key}-${sec.key}`, s.text, true)).join('');
+  const extraRows = sec.extra.map(e => renderQuestionRow(`${e.key}-${sec.key}`, e.text, false)).join('');
+  const customRows = (state.customItems[sec.key] || []).map(c => `
+    <div class="row" id="row-${c.id}">
+      <div class="rowtext"><b>${escapeHtml(c.text)}</b> <span class="remove-x" onclick="removeCustomItem('${sec.key}','${c.id}')">✕</span></div>
+      <div class="row-controls">${photoControl(c.id)}${commentControl(c.id)}${nextStepControl(c.id)}</div>
+    </div>`).join('');
+  const portionBox = sec.portion ? renderPortionBox(sec.key) : '';
+  const addRow = `
+    <div class="add-item-row">
+      <input type="text" id="addcustom-${sec.key}" placeholder="New question / observation / action…">
+      <button type="button" class="add-btn" onclick="addCustomItem('${sec.key}')">+ Add</button>
+    </div>`;
+  const teamQaBox = renderTeamQABox(sec.key);
+  document.getElementById('body-' + sec.key).innerHTML = sharedRows + extraRows + customRows + addRow + portionBox + teamQaBox;
+}
+
+function addCustomItem(secKey) {
+  const input = document.getElementById('addcustom-' + secKey);
+  const text = input.value.trim();
+  if (!text) return;
+  if (!state.customItems[secKey]) state.customItems[secKey] = [];
+  const id = 'custom-' + secKey + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  state.customItems[secKey].push({ id, text });
+  input.value = '';
+  refreshCurrentSections();
+  persist();
+}
+function removeCustomItem(secKey, id) {
+  state.customItems[secKey] = (state.customItems[secKey]||[]).filter(c => c.id !== id);
+  delete state.comments[id];
+  delete state.photos[id];
+  refreshCurrentSections();
+  persist();
+}
+
+// ---------- PORTION CHECK (Coffee & Quality only, 3 rows, comment-based) ----------
+function renderPortionBox(secKey) {
+  if (!state.portion[secKey] || state.portion[secKey].length < PORTION_ITEMS) {
+    state.portion[secKey] = Array.from({length: PORTION_ITEMS}, (_, i) => (state.portion[secKey] && state.portion[secKey][i]) || {item:'', comment:''});
+  }
+  let rows = '';
+  for (let i = 0; i < PORTION_ITEMS; i++) {
+    const p = state.portion[secKey][i];
+    const id = `portion-${secKey}-${i}`;
+    rows += `
+    <div class="portion-row">
+      <input type="text" placeholder="Item ${i+1}" value="${escapeHtml(p.item)}" onchange="setPortionField('${secKey}',${i},'item', this.value)">
+      <input type="text" class="comment-input" placeholder="Comment (issue?)" value="${escapeHtml(p.comment)}" onchange="setPortionField('${secKey}',${i},'comment', this.value)">
+      ${nextStepControl(id)}
+    </div>`;
+  }
+  return `
+  <div class="portion-box">
+    <div class="ptitle"><span class="badge-mini">${secKey === 'coffee' ? 'Bar' : 'BOH'}</span> Portion Check — 3 Items (weigh/measure vs. recipe spec)</div>
+    <div class="portion-labels"><span>Item</span><span>Comment</span></div>
+    ${rows}
+  </div>`;
+}
+function setPortionField(secKey, i, field, val) {
+  state.portion[secKey][i][field] = val;
+  renderFlagged();
+  persist();
+}
+
+// ---------- TEAM Q&A (folded into each section — question + comment only) ----------
+function renderTeamQABox(secKey) {
+  const rows = (state.teamQA[secKey] || []).map(entry => `
+    <div class="teamqa-row">
+      <div><span class="qlabel">Question</span><input type="text" placeholder="Question asked" value="${escapeHtml(entry.q)}" onchange="setTeamQAField('${secKey}','${entry.id}','q',this.value)"></div>
+      <div><span class="qlabel">Comment</span><input type="text" placeholder="Comment / action" value="${escapeHtml(entry.c)}" onchange="setTeamQAField('${secKey}','${entry.id}','c',this.value)"></div>
+      ${nextStepControl(entry.id)}
+      <span class="remove-x" onclick="removeTeamQA('${secKey}','${entry.id}')">✕</span>
+    </div>`).join('');
+  return `
+  <div class="teamqa-box">
+    <div class="ptitle"><span class="badge-mini">Team</span> Team Q&amp;A</div>
+    ${rows}
+    <div class="add-item-row">
+      <button type="button" class="add-btn" onclick="addTeamQA('${secKey}')">+ Add Question</button>
+    </div>
+  </div>`;
+}
+function addTeamQA(secKey) {
+  if (!state.teamQA[secKey]) state.teamQA[secKey] = [];
+  const id = 'qa-' + secKey + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  state.teamQA[secKey].push({ id, q: '', c: '' });
+  refreshCurrentSections();
+  persist();
+}
+function removeTeamQA(secKey, id) {
+  state.teamQA[secKey] = (state.teamQA[secKey]||[]).filter(e => e.id !== id);
+  refreshCurrentSections();
+  persist();
+}
+function setTeamQAField(secKey, id, field, val) {
+  const entry = (state.teamQA[secKey]||[]).find(e => e.id === id);
+  if (entry) entry[field] = val;
+  renderFlagged();
+  persist();
+}
+
+// ---------- QC TASTING (blank by default, +Add product, comment for feedback) ----------
+function renderTasting() {
+  let html = '';
+  QC_TASTING_CATS.forEach(cat => {
+    const rows = (state.tasting[cat] || []).map(t => `
+      <div class="row" id="row-${t.id}">
+        <div class="rowtext"><b>${escapeHtml(t.product || '(untitled product)')}</b> <span class="remove-x" onclick="removeTastingItem('${cat}','${t.id}')">✕</span></div>
+        <div class="row-controls">${photoControl(t.id)}${commentControl(t.id, 'Feedback')}${nextStepControl(t.id)}</div>
+      </div>`).join('');
+    html += `
+    <div class="tasting-cat">
+      <div class="tasting-cat-title">${cat}</div>
+      ${rows || '<div class="flag-empty" style="padding:8px 0;">Nothing logged yet for this category.</div>'}
+      <div class="add-item-row">
+        <input type="text" id="addtasting-${cat.replace(/\s+/g,'')}" placeholder="Describe product tested…">
+        <button type="button" class="add-btn" onclick="addTastingItem('${cat}')">+ Add</button>
+      </div>
+    </div>`;
+  });
+  document.getElementById('body-tasting').innerHTML = html;
+}
+function addTastingItem(cat) {
+  const inputId = 'addtasting-' + cat.replace(/\s+/g,'');
+  const input = document.getElementById(inputId);
+  const product = input.value.trim();
+  if (!product) return;
+  const id = 'tasting-' + cat.replace(/\s+/g,'') + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  if (!state.tasting[cat]) state.tasting[cat] = [];
+  state.tasting[cat].push({ id, product, comment: '' });
+  input.value = '';
+  renderTasting();
+  persist();
+}
+function removeTastingItem(cat, id) {
+  state.tasting[cat] = (state.tasting[cat]||[]).filter(t => t.id !== id);
+  delete state.comments[id];
+  delete state.photos[id];
+  renderTasting();
+  persist();
+}
+
+// ---------- GRIND RESET (combined Fixed + Variable) ----------
+function renderReset() {
+  document.getElementById('body-reset').innerHTML = GRIND_RESET.map(g => renderQuestionRow(g.id, g.text, !!g.photo)).join('');
+}
+
+// ---------- ADMIN ----------
+function renderAdmin() {
+  document.getElementById('body-admin').innerHTML = ADMIN.map(a => renderQuestionRow(a.id, a.text, false)).join('');
+}
+
+// ---------- PHOTO ATTACH (multi-photo, compressed) ----------
+let currentPhotoTarget = null;
+function attachPhoto(id) {
+  currentPhotoTarget = id;
+  document.getElementById('hiddenPhotoInput').click();
+}
+function resizeImageFile(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const reader = new FileReader();
+    reader.onload = () => { img.src = reader.result; };
+    reader.onerror = reject;
+    img.onload = () => {
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', quality));
+    };
+    img.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+document.getElementById('hiddenPhotoInput').addEventListener('change', async function(e) {
+  const file = e.target.files[0];
+  if (!file || !currentPhotoTarget) return;
+  try {
+    const compressed = await resizeImageFile(file, 1280, 0.7);
+    if (!state.photos[currentPhotoTarget]) state.photos[currentPhotoTarget] = [];
+    state.photos[currentPhotoTarget].push(compressed);
+  } catch (err) {
+    console.error('Could not process photo:', err);
+  }
+  refreshCurrentSections();
+  persist();
+  e.target.value = '';
+});
+
+// ---------- FLAGGED ITEMS & NEXT STEPS ----------
+// New rule: ANY item with a non-empty comment is flagged — ratings/Y-N no
+// longer exist, so "commented" is the only signal that something's off.
+function buildFlagList() {
+  const flags = [];
+  function maybeFlag(id, text, source) {
+    const c = state.comments[id];
+    if (c && c.trim()) flags.push({ id, text, source, comment: c });
+  }
+
+  SECTIONS.forEach(sec => {
+    SHARED_ITEMS.forEach(s => maybeFlag(`${s.key}-${sec.key}`, s.text, sec.label));
+    sec.extra.forEach(e => maybeFlag(`${e.key}-${sec.key}`, e.text, sec.label));
+    (state.customItems[sec.key]||[]).forEach(c => maybeFlag(c.id, c.text, sec.label + ' · Custom'));
+    (state.teamQA[sec.key]||[]).forEach(qa => { if (qa.c && qa.c.trim()) flags.push({ id: qa.id, text: qa.q ? `Team Q&A — ${qa.q}` : 'Team Q&A', source: sec.label, comment: qa.c }); });
+    if (sec.portion) {
+      (state.portion[sec.key]||[]).forEach((p, i) => {
+        if (p.comment && p.comment.trim()) flags.push({ id: `portion-${sec.key}-${i}`, text: 'Portion check — ' + (p.item || `item ${i+1}`), source: sec.label, comment: p.comment });
+      });
+    }
+  });
+
+  GRIND_RESET.forEach(g => maybeFlag(g.id, g.text, 'GRIND Reset'));
+  ADMIN.forEach(a => maybeFlag(a.id, a.text, 'Admin'));
+  QC_TASTING_CATS.forEach(cat => {
+    (state.tasting[cat]||[]).forEach(t => { if (t.comment && t.comment.trim()) flags.push({ id: t.id, text: `QC Tasting — ${cat}: ${t.product}`, source: 'QC Tasting', comment: t.comment }); });
+  });
+
+  return flags;
+}
+
+function renderFlagged() {
+  // The old standalone "Flagged Items & Next Steps" section has been removed —
+  // every question now carries its own next-step control right next to its
+  // comment box. buildFlagList() is still used by submitToBOS(), the PDF
+  // export, and the text export, just not rendered as its own section here.
+}
+
+function setNextStepAction(id, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
+  state.nextSteps[id].action = val;
+  refreshCurrentSections(); // re-render so owner/due-date fields show/hide inline immediately
+  persist();
+}
+function setNextStepNotes(id, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
+  state.nextSteps[id].notes = val;
+  persist();
+}
+function setNextStepField(id, field, val) {
+  if (!state.nextSteps[id]) state.nextSteps[id] = { action: '', notes: '', owner: '', dueDate: '' };
+  state.nextSteps[id][field] = val;
+  persist();
+}
+
+// ---------- SECTION TOGGLE ----------
+function toggleSection(id) {
+  document.getElementById(id).classList.toggle('collapsed');
+}
+
+// ---------- RENDER ORCHESTRATION ----------
+function refreshCurrentSections() {
+  SECTIONS.forEach(renderSection);
+  renderTasting();
+  renderReset();
+  renderAdmin();
+  renderFlagged();
+  updateSectionCounts();
+}
+function renderAll() { refreshCurrentSections(); updateTimestampLine(); }
+
+function updateSectionCounts() {
+  SECTIONS.forEach(sec => {
+    const ids = sectionItemIds(sec);
+    const flagged = ids.filter(id => state.comments[id] && state.comments[id].trim()).length;
+    document.getElementById('count-' + sec.key).textContent = flagged ? flagged + ' flagged' : '';
+  });
+  const resetFlagged = GRIND_RESET.filter(g => state.comments[g.id] && state.comments[g.id].trim()).length;
+  document.getElementById('count-reset').textContent = resetFlagged ? resetFlagged + ' flagged' : '';
+  const adminFlagged = ADMIN.filter(a => state.comments[a.id] && state.comments[a.id].trim()).length;
+  document.getElementById('count-admin').textContent = adminFlagged ? adminFlagged + ' flagged' : '';
+  let tastingCount = 0;
+  QC_TASTING_CATS.forEach(cat => { tastingCount += (state.tasting[cat]||[]).length; });
+  document.getElementById('count-tasting').textContent = tastingCount ? tastingCount + ' logged' : '';
+
+  const badge = document.getElementById('statusBadge');
+  badge.textContent = state.submitted ? 'Submitted to BOS' : ((state.meta.store && state.meta.date) ? 'In Progress' : 'Not Started');
+}
+
+// ---------- TIMESTAMPS ----------
+function fmtTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+function updateTimestampLine() {
+  document.getElementById('timestampLine').innerHTML =
+    `Visit Started: <b>${fmtTime(state.meta.startTime)}</b> &nbsp;·&nbsp; Visit Completed: <b>${fmtTime(state.meta.endTime)}</b>`;
+}
+
+// ---------- PERSISTENCE ----------
+let saveTimeout;
+async function persist() {
+  state.meta.store = document.getElementById('f-store').value;
+  state.meta.date = document.getElementById('f-date').value;
+  state.meta.manager = document.getElementById('f-manager').value;
+  state.meta.support = document.getElementById('f-fsm').value;
+  clearTimeout(saveTimeout);
+  document.getElementById('saveStatus').textContent = 'Saving…';
+  saveTimeout = setTimeout(async () => {
+    try {
+      await window.storage.set(keyForToday(), JSON.stringify(state));
+      document.getElementById('saveStatus').textContent = 'All changes saved';
+    } catch (e) {
+      document.getElementById('saveStatus').textContent = 'Could not save — check connection';
+    }
+  }, 500);
+}
+function persistLight() { persist(); }
+
+async function loadExisting() {
+  try {
+    const existing = await window.storage.get(keyForToday());
+    if (existing && existing.value) {
+      const loaded = JSON.parse(existing.value);
+      state = Object.assign({}, state, loaded);
+    }
+  } catch (e) { /* nothing saved yet for this store/date — start fresh */ }
+  if (!state.comments) state.comments = {};
+  if (!state.photos) state.photos = {};
+  if (!state.customItems) state.customItems = { service: [], coffee: [], quality: [] };
+  if (!state.teamQA) state.teamQA = { service: [], coffee: [], quality: [] };
+  if (!state.portion) state.portion = { coffee: [], quality: [] };
+  if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
+  if (!state.nextSteps) state.nextSteps = {};
+  if (!state.meta.startTime) state.meta.startTime = new Date().toISOString();
+  document.getElementById('f-fsm').value = state.meta.support || '';
+  document.getElementById('f-manager').value = state.meta.manager || '';
+  renderAll();
+  persist();
+}
+
+// ---------- ACTIONS ----------
+function resetChecklist() {
+  if (!confirm('Reset this checklist? All comments and photos for this visit will be cleared.')) return;
+  state = {
+    meta: { ...state.meta, startTime: new Date().toISOString(), endTime: '' },
+    comments: {}, photos: {}, customItems: { service: [], coffee: [], quality: [] },
+    teamQA: { service: [], coffee: [], quality: [] }, portion: { coffee: [], quality: [] },
+    tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] },
+    nextSteps: {}, submitted: false,
+  };
+  document.getElementById('pdfBtn').style.display = 'none';
+  renderAll();
+  persist();
+}
+
+function pillarForSource(source){
+  if (source.includes('FOH') || source.includes('Service')) return 'People';
+  if (source.includes('Bar') || source.includes('Coffee')) return 'Craft';
+  if (source.includes('BOH') || source.includes('Quality')) return 'Craft';
+  if (source === 'GRIND Reset') return 'Trade';
+  if (source === 'Admin') return 'Partnership';
+  return 'Craft';
+}
+
+async function submitToBOS(){
+  const fsm = document.getElementById('f-fsm').value;
+  const store = document.getElementById('f-store').value;
+  const date = document.getElementById('f-date').value;
+  const visitType = document.getElementById('f-visittype').value;
+
+  if (!fsm || !store || !date) {
+    alert('FSM, Store and Date are required before this visit can be logged to BOS.');
+    return;
+  }
+
+  const flags = buildFlagList();
+  const taskFlags = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'tasktracker');
+  const missingDetails = taskFlags.filter(f => !state.nextSteps[f.id].owner || !state.nextSteps[f.id].dueDate);
+  if (missingDetails.length) {
+    alert(`${missingDetails.length} item(s) routed to Task Tracker are missing an Owner or Due Date — fill those in before submitting.`);
+    return;
+  }
+
+  const actions = taskFlags.map(f => {
+    const step = state.nextSteps[f.id];
+    return {
+      pillar: pillarForSource(f.source),
+      description: f.text + ' — "' + f.comment + '"' + (step.notes ? ' — ' + step.notes : ''),
+      owner: step.owner,
+      dueDate: step.dueDate,
+      source: 'support-visit',
+    };
+  });
+  const retrainedCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'retrained').length;
+  const satisfactoryCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'satisfactory').length;
+
+  const notes = `${visitType} — GRIND Café Visit Report. ` +
+    (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length} to Task Tracker, ${retrainedCount} retrained on the spot, ${satisfactoryCount} satisfactory — no action).` : 'No flags raised.');
+
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  try {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/visits', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ fsm, store, date, type: visitType, notes, actions, fullReport: state }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || ('HTTP ' + res.status));
+    }
+    state.meta.endTime = new Date().toISOString();
+    state.submitted = true;
+    updateTimestampLine();
+    updateSectionCounts();
+    document.getElementById('pdfBtn').style.display = 'inline-block';
+    persist();
+    alert(`Visit logged to BOS.${actions.length ? ' ' + actions.length + ' task(s) created in the Task Tracker.' : ''}`);
+  } catch (e) {
+    alert('Could not submit to BOS — check your connection and try again. (' + e.message + ')');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Submit to BOS';
+  }
+}
+
+function markComplete() {
+  const flags = buildFlagList();
+  const unresolved = flags.filter(f => !state.nextSteps[f.id] || !state.nextSteps[f.id].action);
+  if (unresolved.length) {
+    if (!confirm(`${unresolved.length} flagged item(s) don't have a next step chosen yet. Submit anyway?`)) return;
+  }
+  submitToBOS();
+}
+
+// ---------- PDF EXPORT ----------
+// Builds a clean, print-ready version of the whole report into #printArea,
+// then triggers the browser's print dialog (Save as PDF). Uses display:none
+// on everything else during print rather than visibility:hidden, so we don't
+// get the many-blank-pages bug that hit the Cafe Status PDF earlier.
+function buildPrintableReport() {
+  const flags = buildFlagList();
+  let html = `<div style="font-family:sans-serif;max-width:800px;margin:0 auto;padding:20px;">
+    <h1 style="margin-bottom:4px;">GRIND Café Visit Report</h1>
+    <div style="color:#666;font-size:13px;margin-bottom:16px;">
+      ${escapeHtml(state.meta.store)} · ${escapeHtml(state.meta.date)} · FSM: ${escapeHtml(state.meta.support)} · Manager: ${escapeHtml(state.meta.manager)}
+    </div>`;
+
+  function section(title, ids, getText, getComment) {
+    const rows = ids.map(id => {
+      const c = getComment(id);
+      if (!c) return '';
+      return `<div style="padding:6px 0;border-bottom:1px solid #eee;"><b>${escapeHtml(getText(id))}</b><br><span style="color:#a15c1a;">"${escapeHtml(c)}"</span></div>`;
+    }).join('');
+    if (!rows) return '';
+    return `<h3 style="margin-top:18px;">${title}</h3>${rows}`;
+  }
+
+  SECTIONS.forEach(sec => {
+    const ids = sectionItemIds(sec);
+    const textMap = {};
+    SHARED_ITEMS.forEach(s => textMap[`${s.key}-${sec.key}`] = s.text);
+    sec.extra.forEach(e => textMap[`${e.key}-${sec.key}`] = e.text);
+    (state.customItems[sec.key]||[]).forEach(c => textMap[c.id] = c.text);
+    html += section(sec.label, ids, id => textMap[id] || id, id => state.comments[id]);
+  });
+  html += section('GRIND Reset', GRIND_RESET.map(g=>g.id), id => (GRIND_RESET.find(g=>g.id===id)||{}).text, id => state.comments[id]);
+  html += section('Admin', ADMIN.map(a=>a.id), id => (ADMIN.find(a=>a.id===id)||{}).text, id => state.comments[id]);
+
+  let tastingHtml = '';
+  QC_TASTING_CATS.forEach(cat => {
+    (state.tasting[cat]||[]).forEach(t => {
+      tastingHtml += `<div style="padding:6px 0;border-bottom:1px solid #eee;"><b>${escapeHtml(cat)} — ${escapeHtml(t.product)}</b>${t.comment ? '<br><span style="color:#a15c1a;">"'+escapeHtml(t.comment)+'"</span>' : ''}</div>`;
+    });
+  });
+  if (tastingHtml) html += `<h3 style="margin-top:18px;">QC Tasting</h3>${tastingHtml}`;
+
+  html += `<h3 style="margin-top:18px;">Flagged Items &amp; Resolution</h3>`;
+  if (!flags.length) {
+    html += `<div style="color:#666;">No flags raised on this visit.</div>`;
+  } else {
+    flags.forEach(f => {
+      const step = state.nextSteps[f.id] || {};
+      const label = step.action === 'retrained' ? 'Retrained and Rectified ✓' : step.action === 'satisfactory' ? 'Satisfactory Outcome — No Action ✓' : step.action === 'tasktracker' ? `Logged on Task Tracker${step.owner ? ' — Owner: '+escapeHtml(step.owner) : ''}${step.dueDate ? ', Due: '+step.dueDate : ''}` : 'Not yet assigned';
+      html += `<div style="padding:6px 0;border-bottom:1px solid #eee;"><b>${escapeHtml(f.source)}: ${escapeHtml(f.text)}</b><br><span style="color:#a15c1a;">"${escapeHtml(f.comment)}"</span><br><span style="color:#1a7a44;">→ ${label}</span></div>`;
+    });
+  }
+
+  html += `</div>`;
+  return html;
+}
+
+function downloadReportPDF() {
+  document.getElementById('printArea').innerHTML = buildPrintableReport();
+  document.body.classList.add('printing-report');
+  window.print();
+  setTimeout(() => document.body.classList.remove('printing-report'), 500);
+}
+
+function fmtLine(id, text) {
+  const comment = state.comments[id] ? ` — "${state.comments[id]}"` : '';
+  const photo = (state.photos[id]||[]).length ? ` [${state.photos[id].length} photo(s)]` : '';
+  return `  ${text}${comment}${photo}`;
+}
+
+function exportSummary() {
+  const lines = [];
+  lines.push('GRIND CAFÉ VISIT SUMMARY');
+  lines.push('Store: ' + (state.meta.store || '—'));
+  lines.push('Date: ' + (state.meta.date || '—'));
+  lines.push('FSM / Support Member: ' + (state.meta.support || '—'));
+  lines.push('Manager on Duty: ' + (state.meta.manager || '—'));
+  lines.push('Visit Started: ' + fmtTime(state.meta.startTime) + '  |  Visit Completed: ' + fmtTime(state.meta.endTime));
+  lines.push('');
+  SECTIONS.forEach(sec => {
+    lines.push(sec.label.toUpperCase());
+    SHARED_ITEMS.forEach(s => lines.push(fmtLine(`${s.key}-${sec.key}`, s.text)));
+    sec.extra.forEach(e => lines.push(fmtLine(`${e.key}-${sec.key}`, e.text)));
+    (state.customItems[sec.key]||[]).forEach(c => lines.push(fmtLine(c.id, c.text)));
+    lines.push('');
+  });
+  lines.push('QC TASTING');
+  QC_TASTING_CATS.forEach(cat => {
+    (state.tasting[cat]||[]).forEach(t => lines.push(fmtLine(t.id, `${cat}: ${t.product}`)));
+  });
+  lines.push('');
+  lines.push('GRIND RESET');
+  GRIND_RESET.forEach(g => lines.push(fmtLine(g.id, g.text)));
+  lines.push('');
+  lines.push('ADMIN (FSM ONLY)');
+  ADMIN.forEach(a => lines.push(fmtLine(a.id, a.text)));
+  lines.push('');
+  lines.push('FLAGGED ITEMS & NEXT STEPS');
+  const flags = buildFlagList();
+  if (flags.length === 0) {
+    lines.push('  None — nothing has a comment logged against it.');
+  } else {
+    flags.forEach(f => {
+      const step = state.nextSteps[f.id] || { action: '', notes: '' };
+      const actionLabel = step.action === 'retrained' ? 'Retrained and Rectified'
+        : step.action === 'satisfactory' ? 'Satisfactory Outcome — No Action'
+        : step.action === 'tasktracker' ? 'Log on Task Tracker' : 'Not yet assigned';
+      const notes = step.notes ? ` — "${step.notes}"` : '';
+      lines.push(`  [${f.source}] ${f.text} — "${f.comment}" → ${actionLabel}${notes}`);
+    });
+  }
+  lines.push('');
+  lines.push('Note: photo files are not included in this text export.');
+
+  const text = lines.join('\n');
+  navigator.clipboard?.writeText(text).then(() => {
+    alert('Summary copied to clipboard — paste into the BOS Dashboard store record or task tracker.');
+  }).catch(() => { prompt('Copy this summary manually:', text); });
+}
+
+// ---------- INIT ----------
+['f-store','f-date','f-manager'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('change', persist);
+});
+
+window.addEventListener('DOMContentLoaded', () => {
+  const dateField = document.getElementById('f-date');
+  if (!dateField.value) dateField.value = new Date().toISOString().split('T')[0];
+  loadExisting();
+});
+</script>
+</body>
+</html>
