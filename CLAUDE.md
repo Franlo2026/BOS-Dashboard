@@ -125,6 +125,10 @@ physically lives.
 | PATCH | `/api/ops-tasks/:id/complete` | Mark ops task complete |
 | GET/POST | `/api/storage/:key` | Generic KV get/set (Opening Timelines, Scheduler) |
 | GET/POST | `/api/cafe-status` | Cafe Overview data read/write |
+| GET | `/api/docs` | List Markdown files on the Railway Volume (any role) |
+| GET | `/api/docs/:name` | Read one `.md` file as raw markdown (any role) |
+| POST | `/api/docs` | Upload/replace a `.md` file on the volume (admin) |
+| DELETE | `/api/docs/:name` | Delete a `.md` file (admin) |
 | GET | `/api/reference-data` | Shared lookup/reference data |
 | GET | `/api/admin/photo-stats` | Photo storage stats (admin) |
 | POST | `/api/admin/cleanup-photos` | Purge unused photos (admin) |
@@ -140,6 +144,8 @@ physically lives.
 | `NODE_ENV` | `production` |
 | `DATABASE_URL` | Auto-set by Railway's Postgres service — don't set manually |
 | `PORT` | Auto-set by Railway — don't set manually |
+| `UPLOAD_DIR` | Photo storage dir on the volume (default `/data/uploads`) |
+| `DOCS_DIR` | Markdown docs dir on the volume (default `/data/docs`) |
 
 Once real accounts exist via the Admin tab, `ADMIN_USERNAME` /
 `ADMIN_PASSWORD` can be removed from Variables.
@@ -177,6 +183,26 @@ git commit -m "Brief description of what changed"
 git push
 ```
 Railway auto-redeploys on push, zero downtime, ~60–90 seconds.
+
+### Markdown docs (no-redeploy content uploads)
+
+For content that shouldn't need a code push, admins can upload `.md`
+files straight to the running app from the **Admin tab → "Markdown Docs
+— Railway Volume"** panel (paste text or pick a file). Files land on the
+persistent Railway Volume under `DOCS_DIR` (default `/data/docs`), not in
+Postgres and not in git, so they survive restarts but are independent of
+deploys. Any signed-in user can read a file as raw markdown at
+`/api/docs/<filename>` (JWT required, same as every other API route);
+only admins can upload, replace or delete. Programmatic upload:
+
+```bash
+curl -X POST https://bos-dashboard-production.up.railway.app/api/docs \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"filename":"onboarding.md","content":"# Onboarding\n..."}'
+```
+
+Filenames are sanitised to a single safe `.md` name (no directories /
+path traversal). Max 5 MB per file.
 
 ## Known scope limits (as of last README update)
 

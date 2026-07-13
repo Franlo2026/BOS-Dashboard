@@ -2358,6 +2358,17 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       <div class="section-title">Existing Users</div>
       <div id="admUserTable"></div>
     </div>
+    <div class="section-divider"></div>
+    <div class="card">
+      <div class="section-title">Markdown Docs — Railway Volume</div>
+      <div class="wrap-copy" style="margin-bottom:14px;">Push Markdown (.md) files straight to the live server's persistent volume — no GitHub upload or redeploy needed. Any signed-in user can read a file at <code>/api/docs/&lt;filename&gt;</code>; only admins can upload, replace or delete. Uploading a file with an existing name replaces it.</div>
+      <label class="field-label">Filename</label><input type="text" id="mdFilename" autocomplete="off" placeholder="e.g. onboarding-notes.md">
+      <label class="field-label">Choose a .md file (optional — fills the box below)</label><input type="file" id="mdFile" accept=".md,text/markdown,text/plain">
+      <label class="field-label">…or paste Markdown here</label><textarea id="mdContent" rows="8" placeholder="# Heading&#10;Your content…" style="width:100%;box-sizing:border-box;font-family:monospace;"></textarea>
+      <button class="btn btn-gold" id="mdUpload" style="margin-top:14px;">Upload / Replace</button>
+      <div class="section-title" style="margin-top:24px;">Uploaded Files</div>
+      <div id="mdList"></div>
+    </div>
   `;
   async function loadUsers(){
     try {
@@ -2416,7 +2427,79 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       loadUsers();
     } catch(e) { toast('Could not reach server'); }
   });
+
+  // --- Markdown docs (Railway Volume) ---
+  function mdEsc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function mdFmtBytes(n){ if (n < 1024) return n + ' B'; if (n < 1024*1024) return (n/1024).toFixed(1) + ' KB'; return (n/1024/1024).toFixed(1) + ' MB'; }
+  async function loadDocs(){
+    try {
+      const docs = await apiGet('/api/docs');
+      const list = document.getElementById('mdList');
+      if (!list) return;
+      if (!docs.length){ list.innerHTML = '<div class="empty-state">No files uploaded yet.</div>'; return; }
+      list.innerHTML = `
+        <table class="data-table">
+          <thead><tr><th>File</th><th>Size</th><th>Updated</th><th></th></tr></thead>
+          <tbody>${docs.map(d => `
+            <tr>
+              <td>${mdEsc(d.name)}</td>
+              <td>${mdFmtBytes(d.bytes)}</td>
+              <td>${new Date(d.updatedAt).toLocaleString()}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn btn-outline mdView" data-name="${mdEsc(d.name)}">View</button>
+                <button class="btn btn-outline mdDelete" data-name="${mdEsc(d.name)}" style="color:var(--red);border-color:var(--red);margin-left:4px;">Delete</button>
+              </td>
+            </tr>`).join('')}</tbody>
+        </table>`;
+      list.querySelectorAll('.mdView').forEach(btn => btn.addEventListener('click', async () => {
+        try {
+          const res = await fetch('/api/docs/' + encodeURIComponent(btn.dataset.name), { headers: authHeaders() });
+          if (!res.ok) { toast('Could not open file'); return; }
+          const text = await res.text();
+          const w = window.open('', '_blank');
+          if (w) { w.document.write('<pre style="white-space:pre-wrap;font-family:monospace;padding:20px;">' + mdEsc(text) + '</pre>'); w.document.title = btn.dataset.name; }
+        } catch(e){ toast('Could not open file'); }
+      }));
+      list.querySelectorAll('.mdDelete').forEach(btn => btn.addEventListener('click', async () => {
+        if (!confirm('Delete "' + btn.dataset.name + '"? This cannot be undone.')) return;
+        try {
+          const res = await fetch('/api/docs/' + encodeURIComponent(btn.dataset.name), { method:'DELETE', headers: authHeaders() });
+          if (!res.ok) { const e = await res.json().catch(()=>({})); toast(e.error || 'Could not delete'); return; }
+          toast('File deleted'); loadDocs();
+        } catch(e){ toast('Could not reach server'); }
+      }));
+    } catch(e){
+      if (e.message !== 'unauthorized'){ const list = document.getElementById('mdList'); if (list) list.innerHTML = '<div class="empty-state">Could not load files.</div>'; }
+    }
+  }
+  const mdFileInput = document.getElementById('mdFile');
+  if (mdFileInput) mdFileInput.addEventListener('change', () => {
+    const file = mdFileInput.files && mdFileInput.files[0];
+    if (!file) return;
+    const nameEl = document.getElementById('mdFilename');
+    if (nameEl && !nameEl.value.trim()) nameEl.value = file.name;
+    const reader = new FileReader();
+    reader.onload = () => { document.getElementById('mdContent').value = reader.result; };
+    reader.readAsText(file);
+  });
+  const mdUploadBtn = document.getElementById('mdUpload');
+  if (mdUploadBtn) mdUploadBtn.addEventListener('click', async () => {
+    const filename = document.getElementById('mdFilename').value.trim();
+    const content = document.getElementById('mdContent').value;
+    if (!filename) { toast('A filename is required'); return; }
+    if (!content.trim()) { toast('Nothing to upload — paste some Markdown or choose a file'); return; }
+    try {
+      const data = await apiPost('/api/docs', { filename, content });
+      toast('Uploaded ' + data.name);
+      document.getElementById('mdFilename').value = '';
+      document.getElementById('mdContent').value = '';
+      if (mdFileInput) mdFileInput.value = '';
+      loadDocs();
+    } catch(e){ toast(e.message || 'Could not upload'); }
+  });
+
   loadUsers();
+  loadDocs();
 }
 
 /* ============================================================

@@ -38,6 +38,26 @@ const pool = new Pool({
 const UPLOAD_DIR = process.env.UPLOAD_DIR || '/data/uploads';
 try { fs.mkdirSync(UPLOAD_DIR, { recursive: true }); } catch (e) { console.error('Could not create upload dir:', e.message); }
 
+// ---------- markdown docs (Railway Volume, not the database) ----------
+// Lets an admin push .md files straight to the live server's persistent
+// volume — no GitHub commit / redeploy needed. Kept on the same volume as
+// photos (default /data/docs) so it survives restarts. Only the files live
+// on disk; nothing about them is stored in Postgres.
+const DOCS_DIR = process.env.DOCS_DIR || path.join(path.dirname(UPLOAD_DIR), 'docs');
+try { fs.mkdirSync(DOCS_DIR, { recursive: true }); } catch (e) { console.error('Could not create docs dir:', e.message); }
+
+// Reduce a caller-supplied name to a single safe .md filename: strip any
+// directory part, force the .md extension, and allow only a conservative
+// character set — blocks path traversal (../, absolute paths) outright.
+function safeDocName(name) {
+  if (!name || typeof name !== 'string') return null;
+  let base = path.basename(name.trim());
+  if (!base || base === '.' || base === '..' || base.includes('..')) return null;
+  if (!/\.md$/i.test(base)) base += '.md';
+  if (!/^[A-Za-z0-9 ._-]+$/.test(base)) return null;
+  return base;
+}
+
 function saveBase64Photo(dataUrl, subfolder) {
   if (!dataUrl || !dataUrl.startsWith('data:')) return null;
   const match = dataUrl.match(/^data:image\/(\w+);base64,(.+)$/);
@@ -573,6 +593,70 @@ app.post('/api/cafe-status', authRequired, requireEditor, async (req, res) => {
        ON CONFLICT (store_key) DO UPDATE SET store_name=$2, fsm=$3, region=$4, data=$5, updated_at=NOW()`,
       [store_key, store_name || store_key, fsm || '', region || '', data]
     );
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ---------- Markdown docs on the Railway Volume ----------
+// Upload/replace/delete is admin-only; reading is open to any signed-in role.
+// Files are served back as raw markdown at /api/docs/:name (behind the same
+// JWT the rest of the app uses), so content updates need no redeploy.
+app.get('/api/docs', authRequired, (req, res) => {
+  try {
+    let files = [];
+    try { files = fs.readdirSync(DOCS_DIR); } catch (e) { files = []; }
+    const docs = files
+      .filter(f => /\.md$/i.test(f))
+      .map(f => {
+        const st = fs.statSync(path.join(DOCS_DIR, f));
+        return { name: f, bytes: st.size, updatedAt: st.mtime, url: '/api/docs/' + encodeURIComponent(f) };
+      })
+      .sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+    res.json(docs);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/docs/:name', authRequired, (req, res) => {
+  try {
+    const name = safeDocName(req.params.name);
+    if (!name) return res.status(400).json({ error: 'invalid filename' });
+    const file = path.join(DOCS_DIR, name);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'not found' });
+    res.type('text/markdown; charset=utf-8').send(fs.readFileSync(file, 'utf8'));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/docs', authRequired, requireAdmin, (req, res) => {
+  try {
+    const name = safeDocName(req.body && req.body.filename);
+    if (!name) return res.status(400).json({ error: 'A valid .md filename is required (letters, numbers, spaces, . _ - only).' });
+    let content = req.body && req.body.content;
+    if (typeof content !== 'string') return res.status(400).json({ error: 'content (markdown text) is required' });
+    // Accept a data: URL too, so a file picked in the browser can be sent as-is.
+    const dataUrlMatch = content.match(/^data:[^;]*;base64,([\s\S]+)$/);
+    if (dataUrlMatch) content = Buffer.from(dataUrlMatch[1], 'base64').toString('utf8');
+    if (Buffer.byteLength(content, 'utf8') > 5 * 1024 * 1024) return res.status(400).json({ error: 'File is too large (max 5 MB).' });
+    fs.mkdirSync(DOCS_DIR, { recursive: true });
+    fs.writeFileSync(path.join(DOCS_DIR, name), content, 'utf8');
+    res.json({ ok: true, name, url: '/api/docs/' + encodeURIComponent(name), bytes: Buffer.byteLength(content, 'utf8') });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/docs/:name', authRequired, requireAdmin, (req, res) => {
+  try {
+    const name = safeDocName(req.params.name);
+    if (!name) return res.status(400).json({ error: 'invalid filename' });
+    const file = path.join(DOCS_DIR, name);
+    if (!fs.existsSync(file)) return res.status(404).json({ error: 'not found' });
+    fs.unlinkSync(file);
     res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
