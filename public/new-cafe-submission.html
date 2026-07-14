@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Café Submission — Bootlegger Coffee Co.</title>
+<style>
+:root {
+  --gold: #c8ae79;
+  --gold-light: rgba(200,174,121,0.12);
+  --black: #1a1a1a;
+  --white: #ffffff;
+  --grey-100: #f7f7f7;
+  --grey-200: #ebebeb;
+  --grey-300: #d4d4d4;
+  --grey-500: #999999;
+  --grey-700: #555555;
+  --green: #2e7d32;
+  --green-bg: rgba(46,125,50,0.10);
+  --red: #c62828;
+  --red-bg: rgba(198,40,40,0.10);
+}
+* { box-sizing: border-box; }
+body { margin:0; font-family:-apple-system,'Segoe UI','Helvetica Neue',sans-serif; background:var(--grey-100); color:var(--black); }
+.header { background:var(--black); color:#fff; padding:18px 20px; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px; }
+.header .logo { font-weight:800; letter-spacing:0.2em; font-size:16px; text-transform:uppercase; }
+.header .logo span { color:var(--gold); }
+.header .tagline { font-size:11px; color:var(--gold); text-transform:uppercase; letter-spacing:0.08em; }
+.wrap { max-width:760px; margin:0 auto; padding:20px 16px 60px; }
+.card { background:#fff; border:1px solid var(--grey-200); border-top:3px solid var(--gold); border-radius:4px; padding:20px; margin-bottom:18px; }
+.card h2 { margin:0 0 6px; font-size:15px; }
+.card p.desc { margin:0 0 14px; color:var(--grey-700); font-size:12.5px; line-height:1.5; }
+label { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; color:var(--grey-700); margin-bottom:4px; }
+input[type=text], input[type=file] { width:100%; padding:9px 10px; border:1px solid var(--grey-300); border-radius:3px; font-size:13px; margin-bottom:14px; font-family:inherit; }
+.btn { display:inline-block; padding:10px 20px; border-radius:3px; border:1px solid var(--black); background:var(--black); color:#fff; font-size:13px; font-weight:700; cursor:pointer; text-transform:uppercase; letter-spacing:0.03em; }
+.btn:disabled { opacity:0.5; cursor:not-allowed; }
+.btn-outline { background:#fff; color:var(--black); }
+table { width:100%; border-collapse:collapse; font-size:11.5px; margin-top:6px; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--grey-200); white-space:nowrap; }
+th { color:var(--grey-500); text-transform:uppercase; font-size:9.5px; letter-spacing:0.04em; }
+.tablewrap { overflow-x:auto; border:1px solid var(--grey-200); border-radius:3px; margin-top:10px; }
+.msg { padding:10px 14px; border-radius:3px; font-size:12.5px; margin-top:12px; }
+.msg.error { background:var(--red-bg); color:var(--red); border:1px solid rgba(198,40,40,0.3); }
+.msg.success { background:var(--green-bg); color:var(--green); border:1px solid rgba(46,125,50,0.3); }
+.hint { font-size:11px; color:var(--grey-500); margin-top:8px; line-height:1.6; }
+code { background:var(--grey-100); padding:1px 5px; border-radius:2px; font-size:11px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="logo">BOOTLEGGER<span>.</span></div>
+  <div class="tagline">New Café Submission</div>
+</div>
+
+<div class="wrap">
+
+  <div class="card">
+    <h2>Submit New Café Details</h2>
+    <p class="desc">Use this form to submit details for a newly signed café. Nothing goes live automatically — every submission lands in a review queue and Tarryn or Franlo will approve it before it appears on the BOS Dashboard.</p>
+
+    <label for="submittedBy">Your Name</label>
+    <input type="text" id="submittedBy" placeholder="e.g. Justine">
+
+    <label for="csvFile">CSV File</label>
+    <input type="file" id="csvFile" accept=".csv">
+
+    <div class="hint">
+      Save your store info sheet as CSV directly — <b>one field per row</b>, label in one cell and its value in the
+      next, exactly like the spreadsheet template (Store Name / Walmer Park, then Store Type / Full Store, and so on).
+      One file can hold one café, or several stacked one after another (each starting its own "Store Name" row).<br><br>
+      Row labels used: <code>Store Name</code>, <code>Store Type</code>, <code>Location</code>, <code>Seat No.</code>,
+      <code>Anticipated Turnover</code>, <code>Store Address</code>, <code>Store Opening Date</code>,
+      <code>Franchisee Invoicing Details</code>, then <code>Representative</code> / <code>FSM</code> /
+      <code>Project Manager</code> / <code>Landlord Contact</code> — each followed by its own <code>Email</code> and
+      <code>Contact No.</code> rows underneath.<br><br>
+      Only <b>Store Name</b> and <b>Store Opening Date</b> are required — everything else can be filled in later.
+      Dates can be written as <code>2026-08-31</code>, <code>31-Aug-26</code>, or <code>Thursday, July 30, 2026</code>.<br>
+      Store Type should be one of: Full Store, XS, Kiosk, TEMSA. Region isn't collected here — Tarryn/Franlo add it during review.
+    </div>
+  </div>
+
+  <div class="card" id="previewCard">
+    <h2>Preview</h2>
+    <p class="desc" id="previewSummary">Choose a CSV above to see a preview here before submitting.</p>
+    <div class="tablewrap" id="previewTableWrap" style="display:none;">
+      <table id="previewTable"></table>
+    </div>
+    <div id="msgArea"></div>
+    <div style="margin-top:16px;">
+      <button class="btn" id="submitBtn" disabled>Submit for Approval</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const KEY_PARAM = new URLSearchParams(window.location.search).get('key') || '';
+
+// The New Business Team's actual spreadsheet is a vertical label/value
+// layout — one field per ROW ("Store Name" in one cell, "Walmer Park" in
+// the next), not a flat table with one row per store. These are the
+// standalone (non-repeating) row labels:
+const ROW_LABEL_MAP = {
+  'store name': 'storeName',
+  'store type': 'type',
+  'location': 'location',
+  'seat no': 'seats',
+  'anticipated turnover': 'turnover',
+  'store address': 'address',
+  'store opening date': 'openDate',
+  'franchisee invoicing details': 'invoicingDetails',
+};
+// "Representative", "FSM", "Project Manager", and "Landlord Contact" each
+// kick off a group — the "Email" and "Contact No." rows that follow belong
+// to whichever group came most recently, since those two labels repeat
+// under all four sections.
+const GROUP_CONFIG = {
+  'representative': { nameField: 'representative', prefix: 'representative' },
+  'fsm': { nameField: 'fsm', prefix: 'fsm' },
+  'project manager': { nameField: 'pm', prefix: 'pm' },
+  'landlord contact': { nameField: 'landlordContact', prefix: 'landlord' },
+};
+// Row labels that appear in the real sheet but aren't part of the kept
+// field set (BO Date, Handover Date, Store Size) — recognized deliberately
+// so they're skipped quietly instead of confusing the group-tracking logic.
+const IGNORED_ROW_LABELS = new Set(['bo date', 'beneficial occupation date', 'handover date', 'store size sqm', 'store size', 'store size (m2)']);
+
+function normalizeHeader(h){
+  return h.trim().toLowerCase().replace(/[.:]+$/g, '').replace(/\s+/g, ' ').trim();
+}
+
+// A CSV can contain one store (most common — one file per new café) or
+// several stacked one after another, each starting its own "Store Name" row.
+function parseVerticalStoresCsv(rows){
+  const stores = [];
+  let store = null;
+  let currentGroup = null;
+  rows.forEach(r => {
+    const nonEmpty = r.map(v => (v||'').trim()).filter(v => v !== '');
+    if (!nonEmpty.length) return; // blank row — just a visual section break
+    const label = normalizeHeader(nonEmpty[0]);
+    const value = nonEmpty.length > 1 ? nonEmpty[1] : '';
+    if (label === 'store name') {
+      if (store) stores.push(store);
+      store = { storeName: value };
+      currentGroup = null;
+      return;
+    }
+    if (!store) store = {};
+    if (ROW_LABEL_MAP[label]) {
+      store[ROW_LABEL_MAP[label]] = label === 'store opening date' ? normalizeDate(value) : value;
+      currentGroup = null;
+      return;
+    }
+    if (IGNORED_ROW_LABELS.has(label)) { currentGroup = null; return; }
+    const cfg = GROUP_CONFIG[label];
+    if (cfg) { store[cfg.nameField] = value; currentGroup = cfg; return; }
+    if (label === 'email' && currentGroup) { store[currentGroup.prefix + 'Email'] = value; return; }
+    if ((label === 'contact no' || label === 'contact number') && currentGroup) { store[currentGroup.prefix + 'ContactNumber'] = value; return; }
+  });
+  if (store) stores.push(store);
+  return stores;
+}
+
+// Same dependency-free, BOM/semicolon-safe CSV parser used in the main
+// dashboard's Training Calendar CSV upload — kept in sync deliberately.
+function detectCsvDelimiter(text) {
+  const firstLine = (text.split(/\r\n|\r|\n/)[0]) || '';
+  const commas = (firstLine.match(/,/g) || []).length;
+  const semis = (firstLine.match(/;/g) || []).length;
+  return semis > commas ? ';' : ',';
+}
+function parseCsvText(text, delimiter) {
+  delimiter = delimiter || ',';
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const rows = [];
+  let row = [], field = '', inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQuotes) {
+      if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else { inQuotes = false; } }
+      else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === delimiter) { row.push(field); field = ''; }
+      else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(r => r.some(f => f.trim() !== ''));
+}
+
+function normalizeDate(str) {
+  if (!str) return '';
+  str = str.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+  const m = str.match(/^(\d{1,2})[-\/]([A-Za-z]{3,})[-\/](\d{2,4})$/);
+  if (m) {
+    const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+    const mon = months[m[2].slice(0,3).toLowerCase()];
+    if (mon != null) {
+      let year = parseInt(m[3], 10);
+      if (year < 100) year += 2000;
+      const d = new Date(year, mon, parseInt(m[1], 10));
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+  }
+  const m2 = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m2) {
+    const d = new Date(parseInt(m2[3], 10), parseInt(m2[2], 10) - 1, parseInt(m2[1], 10));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  // "Thursday, July 30, 2026" / "July 30, 2026" / "July 30 2026" — the
+  // format actually used in the New Business Team's real spreadsheet.
+  const m3 = str.match(/^(?:[A-Za-z]+,\s*)?([A-Za-z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  if (m3) {
+    const months = {january:0,february:1,march:2,april:3,may:4,june:5,july:6,august:7,september:8,october:9,november:10,december:11};
+    const mon = months[m3[1].toLowerCase()];
+    if (mon != null) {
+      const d = new Date(parseInt(m3[3], 10), mon, parseInt(m3[2], 10));
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    }
+  }
+  return str; // left as-is — shown in preview so a bad date is obvious before submitting
+}
+
+let parsedStores = [];
+
+document.getElementById('csvFile').addEventListener('change', () => {
+  const file = document.getElementById('csvFile').files[0];
+  if (!file) return;
+  showMsg('', false); // clear any previous message before trying again
+  parsedStores = [];
+  updateSubmitState();
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const rawText = String(reader.result);
+      const delimiter = detectCsvDelimiter(rawText);
+      const rows = parseCsvText(rawText, delimiter);
+      if (rows.length < 2) { showMsg('CSV looks empty — needs at least a Store Name row and a Store Opening Date row.', true); return; }
+      const stores = parseVerticalStoresCsv(rows).filter(s => s.storeName);
+      if (!stores.length) {
+        showMsg('Could not find a "Store Name" row in this file — check it matches the template.', true);
+        return;
+      }
+      const missingOpenDate = stores.filter(s => !s.openDate);
+      if (missingOpenDate.length) {
+        showMsg(`Missing a "Store Opening Date" row for: ${missingOpenDate.map(s => s.storeName).join(', ')}. Add it and re-upload.`, true);
+        return;
+      }
+      parsedStores = stores;
+      renderPreview();
+    } catch (e) {
+      showMsg('Could not read that CSV — check the format and try again. (' + e.message + ')', true);
+    } finally {
+      updateSubmitState();
+    }
+  };
+  reader.readAsText(file);
+});
+
+function updateSubmitState() {
+  document.getElementById('submitBtn').disabled = !parsedStores.length;
+}
+
+function renderPreview() {
+  if (!parsedStores.length) {
+    document.getElementById('previewTableWrap').style.display = 'none';
+    document.getElementById('previewSummary').textContent = 'Choose a CSV above to see a preview here before submitting.';
+    return;
+  }
+  document.getElementById('previewTableWrap').style.display = '';
+  document.getElementById('previewSummary').textContent = `${parsedStores.length} café(s) ready to submit. Double-check these before continuing — this is exactly what Tarryn/Franlo will see in the review queue.`;
+  const cols = ['storeName','type','openDate','address','representative','fsm','pm','landlordContact'];
+  const labels = ['Store Name','Store Type','Open Date','Address','Representative','FSM','PM','Landlord Contact'];
+  let html = '<thead><tr>' + labels.map(l => `<th>${l}</th>`).join('') + '</tr></thead><tbody>';
+  parsedStores.forEach(s => {
+    html += '<tr>' + cols.map(c => `<td>${escapeHtml(s[c] || '—')}</td>`).join('') + '</tr>';
+  });
+  html += '</tbody>';
+  document.getElementById('previewTable').innerHTML = html;
+}
+
+function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function showMsg(text, isError) {
+  document.getElementById('msgArea').innerHTML = text ? `<div class="msg ${isError ? 'error' : 'success'}">${escapeHtml(text)}</div>` : '';
+}
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  if (!parsedStores.length) return;
+  const submittedBy = document.getElementById('submittedBy').value.trim();
+  const btn = document.getElementById('submitBtn');
+  btn.disabled = true; btn.textContent = 'Submitting...';
+  try {
+    const res = await fetch('/api/public/cafe-submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: KEY_PARAM, submittedBy, stores: parsedStores }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    showMsg(`Submitted ${data.count} café(s) for review. Thank you — Tarryn/Franlo will be in touch if anything needs clarifying.`, false);
+    parsedStores = [];
+    document.getElementById('csvFile').value = '';
+    renderPreview();
+  } catch (e) {
+    showMsg('Could not submit — ' + e.message, true);
+  } finally {
+    btn.textContent = 'Submit for Approval';
+    updateSubmitState();
+  }
+});
+
+if (!KEY_PARAM) {
+  showMsg('This link is missing its access key and submissions will be rejected — please use the exact link you were given.', true);
+}
+</script>
+</body>
+</html>
