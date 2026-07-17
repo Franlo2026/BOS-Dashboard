@@ -98,6 +98,7 @@ async function initDB() {
     );
   `);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS photo_url TEXT;`);
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS photo_urls JSONB DEFAULT '[]'::jsonb;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS responsible_person TEXT;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS edit_log JSONB DEFAULT '[]'::jsonb;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS resolution_comment TEXT;`);
@@ -448,14 +449,22 @@ app.post('/api/trainer-visits', authRequired, requireEditor, async (req, res) =>
 app.get('/api/ops-tasks', authRequired, async (req, res) => {
   try {
     const { rows } = await pool.query('SELECT * FROM ops_tasks ORDER BY created_at DESC');
-    res.json(rows.map(r => ({
-      id: r.id, createdAt: r.created_at, submitterName: r.submitter_name,
-      department: r.department, cafe: r.cafe, region: r.region,
-      escalationLabel: r.escalation_label, escalationHours: r.escalation_hours,
-      comments: r.comments, completed: r.completed, completedBy: r.completed_by,
-      completedAt: r.completed_at, photoUrl: r.photo_url, responsiblePerson: r.responsible_person,
-      editLog: r.edit_log || [], resolutionComment: r.resolution_comment,
-    })));
+    res.json(rows.map(r => {
+      // photo_urls is the current multi-photo column; photo_url is the
+      // older single-photo one from before this existed. Merge both so old
+      // tasks (single photo_url only) and new ones (photo_urls array) both
+      // render correctly without duplicating an already-included URL.
+      const urls = Array.isArray(r.photo_urls) ? r.photo_urls.slice() : [];
+      if (r.photo_url && !urls.includes(r.photo_url)) urls.unshift(r.photo_url);
+      return {
+        id: r.id, createdAt: r.created_at, submitterName: r.submitter_name,
+        department: r.department, cafe: r.cafe, region: r.region,
+        escalationLabel: r.escalation_label, escalationHours: r.escalation_hours,
+        comments: r.comments, completed: r.completed, completedBy: r.completed_by,
+        completedAt: r.completed_at, photoUrl: r.photo_url, photoUrls: urls, responsiblePerson: r.responsible_person,
+        editLog: r.edit_log || [], resolutionComment: r.resolution_comment,
+      };
+    }));
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -463,19 +472,31 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
 
 app.post('/api/ops-tasks', authRequired, async (req, res) => {
   try {
-    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl, responsiblePerson } = req.body;
+    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl, photoUrls, responsiblePerson } = req.body;
     if (!department || !cafe || !escalationLabel || !escalationHours) {
       return res.status(400).json({ error: 'department, cafe, escalationLabel and escalationHours are required' });
     }
-    if (photoUrl && photoUrl.length > 6 * 1024 * 1024) {
-      return res.status(400).json({ error: 'Photo is too large — please use a smaller image.' });
+    // photoUrls (array) is the current multi-photo path from the Add Task
+    // form; a lone photoUrl is still accepted for anything older that only
+    // ever sends one. Either way everything ends up saved to disk and
+    // recorded in the new photo_urls column.
+    const incomingPhotos = Array.isArray(photoUrls) ? photoUrls : (photoUrl ? [photoUrl] : []);
+    const MAX_PHOTOS = 6;
+    if (incomingPhotos.length > MAX_PHOTOS) {
+      return res.status(400).json({ error: `Up to ${MAX_PHOTOS} photos per task` });
+    }
+    for (const p of incomingPhotos) {
+      if (p && p.length > 6 * 1024 * 1024) {
+        return res.status(400).json({ error: 'One of those photos is too large — please use smaller images.' });
+      }
     }
     const id = newId('t');
-    const savedPhotoUrl = photoUrl && photoUrl.startsWith('data:') ? saveBase64Photo(photoUrl, 'ops-tasks') : (photoUrl || null);
+    const savedUrls = incomingPhotos.map(p => (p && p.startsWith('data:')) ? saveBase64Photo(p, 'ops-tasks') : p).filter(Boolean);
+    const legacyPhotoUrl = savedUrls[0] || null; // keep first photo mirrored into the old column too, for anything still reading it
     await pool.query(
-      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url, responsible_person)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', savedPhotoUrl, responsiblePerson || null]
+      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url, photo_urls, responsible_person)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', legacyPhotoUrl, JSON.stringify(savedUrls), responsiblePerson || null]
     );
     res.json({ ok: true, id });
   } catch (e) {
@@ -528,6 +549,31 @@ app.patch('/api/ops-tasks/:id', authRequired, requireEditor, async (req, res) =>
       if (newPhotoUrl !== current.photo_url) {
         editLog.push({ field: 'photoUrl', oldValue: current.photo_url ?? null, newValue: newPhotoUrl, editedBy: editor, editedAt: new Date().toISOString() });
         updates.photo_url = newPhotoUrl;
+      }
+    }
+
+    // Full-array replace: the client sends the complete list it wants to
+    // end up with (a mix of already-saved URLs it's keeping, plus any new
+    // data: URLs for photos just added). Anything that was there before
+    // but isn't in the new list gets its file deleted.
+    if (req.body.photoUrls !== undefined) {
+      const incoming = Array.isArray(req.body.photoUrls) ? req.body.photoUrls : [];
+      const MAX_PHOTOS = 6;
+      if (incoming.length > MAX_PHOTOS) {
+        return res.status(400).json({ error: `Up to ${MAX_PHOTOS} photos per task` });
+      }
+      for (const p of incoming) {
+        if (p && p.length > 6 * 1024 * 1024) {
+          return res.status(400).json({ error: 'One of those photos is too large — please use smaller images.' });
+        }
+      }
+      const currentUrls = Array.isArray(current.photo_urls) ? current.photo_urls : (current.photo_url ? [current.photo_url] : []);
+      const newUrls = incoming.map(p => (p && p.startsWith('data:')) ? saveBase64Photo(p, 'ops-tasks') : p).filter(Boolean);
+      currentUrls.filter(u => !newUrls.includes(u)).forEach(u => deletePhotoFile(u));
+      if (JSON.stringify(newUrls) !== JSON.stringify(currentUrls)) {
+        editLog.push({ field: 'photoUrls', oldValue: currentUrls, newValue: newUrls, editedBy: editor, editedAt: new Date().toISOString() });
+        updates.photo_urls = JSON.stringify(newUrls);
+        updates.photo_url = newUrls[0] || null; // keep the legacy single-photo column mirrored to the first photo
       }
     }
 
@@ -654,18 +700,21 @@ const PHOTO_RETENTION_DAYS = 30;
 async function cleanupOldTaskPhotos() {
   try {
     const { rows } = await pool.query(
-      `SELECT id, photo_url FROM ops_tasks
-       WHERE completed = TRUE AND photo_url IS NOT NULL
+      `SELECT id, photo_url, photo_urls FROM ops_tasks
+       WHERE completed = TRUE AND (photo_url IS NOT NULL OR jsonb_array_length(COALESCE(photo_urls, '[]'::jsonb)) > 0)
          AND completed_at < NOW() - INTERVAL '${PHOTO_RETENTION_DAYS} days'`
     );
     if (!rows.length) return;
-    for (const r of rows) deletePhotoFile(r.photo_url);
+    for (const r of rows) {
+      if (r.photo_url) deletePhotoFile(r.photo_url);
+      (Array.isArray(r.photo_urls) ? r.photo_urls : []).forEach(deletePhotoFile);
+    }
     await pool.query(
-      `UPDATE ops_tasks SET photo_url = NULL
-       WHERE completed = TRUE AND photo_url IS NOT NULL
+      `UPDATE ops_tasks SET photo_url = NULL, photo_urls = '[]'::jsonb
+       WHERE completed = TRUE AND (photo_url IS NOT NULL OR jsonb_array_length(COALESCE(photo_urls, '[]'::jsonb)) > 0)
          AND completed_at < NOW() - INTERVAL '${PHOTO_RETENTION_DAYS} days'`
     );
-    console.log(`Photo cleanup: cleared ${rows.length} photo(s) from tasks completed over ${PHOTO_RETENTION_DAYS} days ago.`);
+    console.log(`Photo cleanup: cleared photos from ${rows.length} task(s) completed over ${PHOTO_RETENTION_DAYS} days ago.`);
   } catch (e) {
     console.error('Photo cleanup failed:', e.message);
   }
