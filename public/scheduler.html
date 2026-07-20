@@ -1,0 +1,2444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bootlegger — Team Scheduler</title>
+<script src="/vendor/react.production.min.js" onerror="window.__cdnLoadFailed='React'"></script>
+<script src="/vendor/react-dom.production.min.js" onerror="window.__cdnLoadFailed='ReactDOM'"></script>
+<script src="/vendor/babel.min.js" onerror="window.__cdnLoadFailed='Babel'"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, 'Segoe UI', 'Helvetica Neue', sans-serif; background: #f7f7f7; }
+  #loadingNotice { padding: 60px; text-align: center; color: #999999; font-size: 14px; font-family: -apple-system, sans-serif; }
+
+  /* ── BOS session gate ── */
+  #bosGate { position:fixed; inset:0; z-index:9999; background:#f7f7f7; display:flex; align-items:center; justify-content:center; font-family:-apple-system,sans-serif; }
+  #bosGate .card { width:360px; max-width:90vw; text-align:center; background:#ffffff; border:1px solid #ebebeb; border-top:3px solid #c8ae79; border-radius:6px; padding:28px 24px; }
+  #bosGate .brand { font-size:22px; letter-spacing:2px; color:#1a1a1a; margin-bottom:4px; }
+  #bosGate .sub { font-size:10px; letter-spacing:2px; color:#666; text-transform:uppercase; margin-bottom:24px; }
+  #bosGate .msg { font-size:12px; color:#999999; line-height:1.6; margin-bottom:18px; }
+  #bosGate a.btn { display:block; width:100%; box-sizing:border-box; background:#c8ae79; color:#1a1a1a; padding:11px; border-radius:4px; font-size:12px; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; text-decoration:none; }
+
+  #topBar { display:none; justify-content:space-between; align-items:center; padding:10px 20px; background:#1a1a1a; border-bottom:1px solid #ebebeb; font-family:-apple-system,sans-serif; }
+  #topBar a { color:#c8ae79; text-decoration:none; font-size:12px; border:1px solid #c8ae79; padding:5px 10px; border-radius:4px; }
+  #topBar .who { color:#999999; font-size:11px; }
+
+  /* ── Mobile: this page's calendar grid is inline-styled by the React
+     component itself, so a full mobile redesign isn't possible from CSS
+     alone. This keeps it usable — no forced page-wide zoom/overflow, and
+     text fields large enough that iOS won't auto-zoom on focus — but the
+     week grid itself still scrolls horizontally on a phone rather than
+     reflowing into a phone-friendly layout. That's a real follow-up if
+     this page needs to be fully mobile-native. ── */
+  @media (max-width: 640px) {
+    input, select, textarea { font-size: 16px !important; }
+    body { overflow-x: auto; }
+    #root { min-width: 0; }
+    #topBar { padding: 8px 12px; flex-wrap: wrap; gap: 8px; }
+  }
+  #topBar button { background:none; border:none; color:#666; text-decoration:underline; font-size:10px; cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div id="bosGate">
+  <div class="card">
+    <div class="brand">BOOTLEGGER<span style="color:#c8ae79;">.</span></div>
+    <div class="sub">Team Scheduler</div>
+    <div class="msg" id="gateMsg">Checking session…</div>
+    <a href="/" class="btn" id="gateLink" style="display:none;">Sign In via BOS Dashboard</a>
+  </div>
+</div>
+
+<div id="topBar">
+  <div style="display:flex;align-items:center;">
+    <span style="color:#ffffff;font-weight:800;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;">BOOTLEGGER<span style="color:#c8ae79;">.</span></span>
+    <span style="margin-left:14px;color:#999999;font-size:10px;text-transform:uppercase;letter-spacing:0.08em;border-left:1px solid #555555;padding-left:14px;">Team Scheduler</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <a href="/">&larr; BOS Dashboard</a>
+    <a href="/cafe-overview.html">☕ Cafe Overview</a>
+    <span class="who" id="whoBadge"></span>
+    <button onclick="localStorage.removeItem('bos_token');location.href='/';">Sign Out</button>
+  </div>
+</div>
+
+<div id="root"><div id="loadingNotice">Loading Team Scheduler...</div></div>
+
+<script>
+// Real backend replacement for the claude.ai-only window.storage API —
+// backed by BOS's own Postgres-based generic key/value storage endpoint.
+window.storage = {
+  async get(key) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('storage get failed: ' + res.status);
+    return res.json();
+  },
+  async set(key, value) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ value })
+    });
+    if (!res.ok) throw new Error('storage set failed: ' + res.status);
+    return res.json();
+  }
+};
+
+const FRANCHISEE_MEETING_USERS = ['tarryn', 'franlo'];
+
+function personCanSeeFranchisees(username, displayName) {
+  const u = (username || '').toLowerCase();
+  const d = (displayName || '').toLowerCase();
+  return FRANCHISEE_MEETING_USERS.some(name => u.includes(name) || d.includes(name));
+}
+
+async function checkBosSession() {
+  const token = localStorage.getItem('bos_token');
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) { localStorage.removeItem('bos_token'); return null; }
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+// Kick off the session check immediately; the React app (below) awaits this
+// same promise before rendering anything, instead of relying on dynamically
+// injecting and re-transforming a <script type="text/babel"> tag after the
+// fact — that approach was unreliable and could leave the page stuck on
+// "Loading..." with no visible error if the manual Babel step silently
+// failed.
+window.__bosSessionPromise = checkBosSession().then(me => {
+  if (!me) {
+    document.getElementById('gateMsg').textContent = 'Sign in on the main BOS Dashboard first — this page shares that login.';
+    document.getElementById('gateLink').style.display = 'block';
+    return null;
+  }
+  window.BOS_ROLE = me.role;
+  window.BOS_USERNAME = me.username;
+  window.BOS_DISPLAY_NAME = me.displayName || '';
+  window.BOS_CAN_SEE_FRANCHISEES = personCanSeeFranchisees(me.username, me.displayName);
+
+  document.getElementById('bosGate').style.display = 'none';
+  document.getElementById('topBar').style.display = 'flex';
+  document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase() +
+    (window.BOS_CAN_SEE_FRANCHISEES ? '' : ' · Franchisee meetings hidden (Tarryn/Franlo only)');
+  return me;
+});
+</script>
+
+<script type="text/plain" id="app-jsx-source">
+const { useState, useEffect, useRef } = React;
+
+const STORAGE_KEY = "bl_v18";
+const YEAR = new Date().getFullYear();
+// Data before week 29 has been reset/retired — nothing earlier is navigable
+// in either the Route Grid or the Weekly Schedule.
+const MIN_WEEK = 29;
+const RESCHEDULE_FROM_WEEK = 26; // week of 22 June 2026 — reschedule all prior events
+
+// ─── QUARTERS ────────────────────────────────────────────────────────────────
+const QUARTERS = [
+  { id:"Q1", label:"Q1", range:"Mar–May" },
+  { id:"Q2", label:"Q2", range:"Jun–Aug" },
+  { id:"Q3", label:"Q3", range:"Sep–Nov" },
+  { id:"Q4", label:"Q4", range:"Dec–Feb" },
+];
+const Q_COLORS = ["#c8ae79","#8fbcbb","#d08770","#a3be8c"];
+
+const TYPE_META = {
+  Full:      { color:"#c8ae79", icon:"☕" },
+  XS:        { color:"#8fbcbb", icon:"⚡" },
+  Kiosk:     { color:"#a3be8c", icon:"🛎" },
+  Petroleum: { color:"#d08770", icon:"⛽" },
+};
+
+const REGION_COLORS = {
+  "Western Cape":  "#c8ae79",
+  "Eastern Cape":  "#8fbcbb",
+  "Namibia":       "#d08770",
+  "Northern Cape": "#b48ead",
+};
+
+// ─── GEO ZONES ───────────────────────────────────────────────────────────────
+const GEO_ZONES = {
+  "Monday-Admin":     { label:"Ndabeni Admin",          color:"#555"    },
+  "Home":             { label:"Home Area",              color:"#c8ae79" },
+  "NorthernCT":       { label:"Northern Cape Town",     color:"#a3be8c" },
+  "Brackenfell":      { label:"Brackenfell",            color:"#8fbcbb" },
+  "CityBowlAtlantic": { label:"City Bowl & V&A",        color:"#88c0d0" },
+  "AtlanticSeaboard": { label:"Atlantic Seaboard",      color:"#81a1c1" },
+  "SouthernSubs":     { label:"Southern Suburbs",       color:"#b48ead" },
+  "FalseBay":         { label:"False Bay / Helderberg", color:"#d08770" },
+  "Winelands":        { label:"Winelands",              color:"#ebcb8b" },
+  "WestCoast":        { label:"West Coast",             color:"#a3be8c" },
+  "Overberg":         { label:"Overberg",               color:"#8fbcbb" },
+  "GardenRoute":      { label:"Garden Route",           color:"#d08770" },
+  "EasternCape":      { label:"Eastern Cape",           color:"#bf616a" },
+  "Namibia":          { label:"Namibia",                color:"#b48ead" },
+  "Springbok":        { label:"Springbok (N. Cape)",    color:"#b48ead" },
+};
+
+// ─── GEOGRAPHIC ROUTE ORDERS ──────────────────────────────────────────────────
+// Master route: geo order from Durbanville for each day direction
+// Tue=North(N1/N7) Wed=City Bowl loop Thu=South(M3) Fri=East(N2/R44)
+const GEO_DAY_SITES = {
+  "Tue": ["DV","CA","DVT","TBM","SD","BB","PKV","CC","BW","CWC","PEi","BKXS","N1XS","N1KK","GWXS","CGXS","BFXS"],
+  "Wed": ["SRXS","RLKK","WQ","HS","RWKK","BR","LSXS","FSXS","GC","K112","VH","SCKK","AQ","AQKK","VAKK","GP","CQ","TAB","PM","SPXS","SPHK","BO","HBy"],
+  "Thu": ["BDS","CM","BRA","CVKK","KW","MR","TK","WLXS","MZXS","KB"],
+  "Fri": ["BSW","SSM","PVXS","SBR","GBy","FS","BDR","PLMT","WPXS","SB","ESXS","FK"],
+};
+const MASTER_ROUTE_IDS = [
+  ...GEO_DAY_SITES["Tue"], ...GEO_DAY_SITES["Wed"],
+  ...GEO_DAY_SITES["Thu"], ...GEO_DAY_SITES["Fri"],
+  "LMXS","HMKK","ND","PWXS",
+  "HBos","YS","SKXS","MSC","YC","VP","WPK","BWK","TG","FNB","SBKXS",
+];
+
+// ─── TRIP MONTHS ─────────────────────────────────────────────────────────────
+// Q1: Namibia+Springbok only (no GR or EC in Q1)
+// Q2: GR=Jul wk1, EC=Jul wk3, Namibia=Jun, Springbok=Jun wk3
+// Q3/Q4: normal rotation
+const TRIP_MONTHS = {
+  0: { Namibia:3, Springbok:4 },
+  1: { GardenRoute:7, EasternCape:7, Namibia:6, Springbok:6 },
+  2: { EasternCape:9, GardenRoute:10, Namibia:11, Springbok:9 },
+  3: { Namibia:12, GardenRoute:1, EasternCape:2, Springbok:1 },
+};
+
+// ─── FRANCHISEES ─────────────────────────────────────────────────────────────
+const FRANCHISEES = [
+  { id:"F01", name:"BHO - Shaun Roynon",              region:"Western Cape",  sites:32 },
+  { id:"F02", name:"Sean Dearham",                     region:"Western Cape",  sites:2  },
+  { id:"F03", name:"Johan & Madri Basson",             region:"Western Cape",  sites:4  },
+  { id:"F04", name:"Fayyaz Moosa",                     region:"Western Cape",  sites:6  },
+  { id:"F05", name:"Corne Lotriet",                    region:"Western Cape",  sites:3  },
+  { id:"F06", name:"Michael & Mignon Street",          region:"Western Cape",  sites:1  },
+  { id:"F07", name:"Johann Louw",                      region:"Western Cape",  sites:1  },
+  { id:"F08", name:"Sanjay Daya & Warren Bowers",      region:"Western Cape",  sites:3  },
+  { id:"F09", name:"Stephan Jooste",                   region:"Western Cape",  sites:3  },
+  { id:"F10", name:"Nicola & Collin Villarini",        region:"Western Cape",  sites:1  },
+  { id:"F11", name:"Shaun Gainsford & Andrey Tarakov", region:"Western Cape",  sites:1  },
+  { id:"F12", name:"Rahul Marajh",                     region:"Western Cape",  sites:1  },
+  { id:"F13", name:"Faan & Luzaan Botha",              region:"Western Cape",  sites:2  },
+  { id:"F14", name:"Sergio Madonna",                   region:"Western Cape",  sites:1  },
+  { id:"F15", name:"Graham, Logan & Miche Slaai",      region:"Western Cape",  sites:2  },
+  { id:"F16", name:"Andreas Miliotis",                 region:"Western Cape",  sites:1  },
+  { id:"F17", name:"2 BW Holdings",                    region:"Western Cape",  sites:2  },
+  { id:"F18", name:"Brendan Cottle",                   region:"Western Cape",  sites:1  },
+  { id:"F19", name:"Mark Hinks",                       region:"Western Cape",  sites:1  },
+  { id:"F20", name:"Martin Liebenberg",                region:"Western Cape",  sites:1  },
+  { id:"F21", name:"Abduraghman Allie",                region:"Western Cape",  sites:1  },
+  { id:"F22", name:"Molly Neo Rakau",                  region:"Western Cape",  sites:1  },
+  { id:"F23", name:"Cobus Mostert",                    region:"Western Cape",  sites:1  },
+  { id:"F24", name:"Mazwi Tunyiswa",                   region:"Eastern Cape",  sites:1  },
+  { id:"F25", name:"Darren Mungur",                    region:"Eastern Cape",  sites:2  },
+  { id:"F26", name:"Dwayne & Kristen Pienaar",         region:"Namibia",       sites:2  },
+  { id:"F27", name:"Altus Mostert",                    region:"Northern Cape", sites:1  },
+  { id:"F28", name:"Aalya Kara",                region:"KwaZulu-Natal", sites:1 },
+  { id:"F29", name:"Abigail Nair",              region:"KwaZulu-Natal", sites:1 },
+  { id:"F30", name:"Adam Victor",               region:"Gauteng", sites:4 },
+  { id:"F31", name:"Alicia & Christian Macicek", region:"Western Cape", sites:1 },
+  { id:"F32", name:"Alta Viljoen",              region:"North West", sites:1 },
+  { id:"F33", name:"Arena & Werner Mouton",     region:"Gauteng", sites:1 },
+  { id:"F34", name:"Bhavesh Parbhoo",           region:"Gauteng", sites:1 },
+  { id:"F35", name:"Brent Foster",              region:"Gauteng", sites:2 },
+  { id:"F36", name:"Clint Vallis",              region:"Gauteng", sites:1 },
+  { id:"F37", name:"Conrad Barnard",            region:"Western Cape", sites:1 },
+  { id:"F38", name:"Craig and Karien Records",  region:"Gauteng", sites:1 },
+  { id:"F39", name:"Elmo Oliver",               region:"Mpumalanga", sites:1 },
+  { id:"F40", name:"Jacques Blaauw",            region:"Limpopo", sites:1 },
+  { id:"F41", name:"Jared Chellan and Preshni Moodly", region:"Gauteng", sites:1 },
+  { id:"F42", name:"Lashlen Ramasrai",          region:"Gauteng", sites:1 },
+  { id:"F43", name:"Mario Santana",             region:"Gauteng", sites:2 },
+  { id:"F44", name:"Marnus Bonsma",             region:"Mpumalanga", sites:1 },
+  { id:"F45", name:"Maudi Ramaboea",            region:"Gauteng", sites:1 },
+  { id:"F46", name:"Mubeen Khan",               region:"Gauteng", sites:1 },
+  { id:"F47", name:"Nafiesa Akharwaray",        region:"Northern Cape", sites:1 },
+  { id:"F48", name:"Nick Pretorius",            region:"Free State", sites:2 },
+  { id:"F49", name:"Noluthando Ntshaba",        region:"Gauteng", sites:1 },
+  { id:"F50", name:"Pranill Ramchander/ Daniel", region:"Gauteng", sites:1 },
+  { id:"F51", name:"Qaisar Ali Saley",          region:"Gauteng", sites:1 },
+  { id:"F52", name:"Quinten Wessels",           region:"Gauteng", sites:3 },
+  { id:"F53", name:"Riaz Osman",                region:"Gauteng", sites:1 },
+  { id:"F54", name:"Robert Duncan Toit",        region:"Mpumalanga", sites:3 },
+  { id:"F55", name:"Ryno Terblanch and Lebo Mutloane", region:"Gauteng", sites:1 },
+  { id:"F56", name:"Saudah Hamid / Shabnam Pietersen", region:"Gauteng", sites:1 },
+  { id:"F57", name:"Shiraz Omar",               region:"North West", sites:1 },
+  { id:"F58", name:"Simba Mazhand",             region:"Gauteng", sites:1 },
+  { id:"F59", name:"Solomon Letsatsi",          region:"North West", sites:1 },
+  { id:"F60", name:"Stephan Jack Pinker",       region:"Mpumalanga", sites:1 },
+  { id:"F61", name:"Tahirah Amra & Shaheen",    region:"Gauteng", sites:2 },
+  { id:"F62", name:"Zaheer Ahmed Karodia",      region:"Gauteng", sites:1 },
+  { id:"F63", name:"Zuneid Mohammed Gani",      region:"Gauteng", sites:1 },
+];
+const F_MAP = Object.fromEntries(FRANCHISEES.map(f=>[f.id,f]));
+
+// ─── ALL SITES (77) ───────────────────────────────────────────────────────────
+const ALL_SITES = [
+  { id:"PM",   name:"Point Mall",               town:"Sea Point",        type:"Full",      region:"Western Cape",  zone:"AtlanticSeaboard",  fid:"F02", address:"76 Regent Rd, Sea Point, Cape Town" },
+  { id:"KW",   name:"Kenilworth",               town:"Kenilworth",       type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"323 Main Road, Kenilworth, Cape Town" },
+  { id:"KB",   name:"Kalk Bay",                 town:"Kalk Bay",         type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"125 Main Road, Kalk Bay, Cape Town" },
+  { id:"TK",   name:"Tokai",                    town:"Tokai",            type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"98 Tokai Rd, Tokai, Cape Town" },
+  { id:"GP",   name:"Green Point",              town:"Green Point",      type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"37 Main Road, Green Point, Cape Town" },
+  { id:"CQ",   name:"Cape Quarter",             town:"Green Point",      type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"27 Somerset Rd, Green Point, Cape Town" },
+  { id:"CC",   name:"Century City",             town:"Century City",     type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"5 Esplanade Road, Century City, Cape Town" },
+  { id:"HS",   name:"Harrington Street",        town:"Zonnebloem",       type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"50 Harrington Street, Zonnebloem, Cape Town" },
+  { id:"SB",   name:"Stellenbosch",             town:"Stellenbosch",     type:"Full",      region:"Western Cape",  zone:"Winelands",          fid:"F05", address:"13 Ryneveld Street, Stellenbosch" },
+  { id:"CM",   name:"Claremont",                town:"Claremont",        type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"21 Dreyer Street, Claremont, Cape Town" },
+  { id:"BO",   name:"Bakoven",                  town:"Bakoven",          type:"Full",      region:"Western Cape",  zone:"AtlanticSeaboard",   fid:"F01", address:"38 Victoria Road, Bakoven, Cape Town" },
+  { id:"TAB",  name:"Three Anchor Bay",         town:"Three Anchor Bay", type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F04", address:"257 Main Rd, Three Anchor Bay, Cape Town" },
+  { id:"WQ",   name:"Woodstock Quarter",        town:"Woodstock",        type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F04", address:"193 Sir Lowry Rd, Woodstock, Cape Town" },
+  { id:"K112", name:"112 Kloof Street",         town:"Gardens",          type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"112 Kloof Street, Gardens, Cape Town" },
+  { id:"AQ",   name:"Aquarium",                 town:"V&A Waterfront",   type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F03", address:"Two Oceans Aquarium, V&A Waterfront, Cape Town" },
+  { id:"GC",   name:"Gardens Centre",           town:"Gardens",          type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"Mill St & Buitenkant, Gardens, Cape Town" },
+  { id:"BR",   name:"Bree Street",              town:"CBD",              type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"185 Bree Street, Cape Town CBD" },
+  { id:"BB",   name:"Blouberg",                 town:"Blouberg",         type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"3 Athens Road, Blouberg, Cape Town" },
+  { id:"DV",   name:"Durbanville",              town:"Durbanville",      type:"Full",      region:"Western Cape",  zone:"Home",               fid:"F01", address:"Village Square, Durbanville, Cape Town" },
+  { id:"VH",   name:"Vredehoek",               town:"Vredehoek",        type:"Full",      region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"33 Derry Street, Vredehoek, Cape Town" },
+  { id:"FS",   name:"Frater Square",            town:"Paarl",            type:"Full",      region:"Western Cape",  zone:"Winelands",          fid:"F06", address:"40A Main Rd, Paarl" },
+  { id:"BW",   name:"Bridgewater",              town:"Century City",     type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"4 Conference Lane, Century City, Cape Town" },
+  { id:"BDR",  name:"Drakenstein Sentrum",      town:"Paarl",            type:"Full",      region:"Western Cape",  zone:"Winelands",          fid:"F07", address:"Wemmershoek Rd, Drakenstein, Paarl" },
+  { id:"TBM",  name:"Table Bay Mall",           town:"Sunningdale",      type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"Berkshire Blvd & R27, Sunningdale, Cape Town" },
+  { id:"BSW",  name:"Somerset West",            town:"Somerset West",    type:"Full",      region:"Western Cape",  zone:"FalseBay",           fid:"F08", address:"Cnr Caledon & Drama St, Somerset West" },
+  { id:"SD",   name:"Sandown Retail Crossing",  town:"Parklands",        type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"Wood Drive & Sandown Rd, Parklands, Cape Town" },
+  { id:"SBR",  name:"Strand Beach Road",        town:"Strand",           type:"Full",      region:"Western Cape",  zone:"FalseBay",           fid:"F09", address:"188 Beach Road, Strand" },
+  { id:"MR",   name:"Meadowridge",              town:"Bergvliet",        type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F14", address:"Firgrove Way, Meadowridge, Bergvliet, Cape Town" },
+  { id:"BDS",  name:"Dean Street",              town:"Newlands",         type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F08", address:"Dean Street Arcade, Newlands, Cape Town" },
+  { id:"HBos", name:"Hartenbos",               town:"Hartenbos",        type:"Full",      region:"Western Cape",  zone:"GardenRoute",        fid:"F13", address:"1 Kaap De Goede Hoop Str, Hartenbos" },
+  { id:"BRA",  name:"Rosmead Avenue",           town:"Claremont",        type:"Full",      region:"Western Cape",  zone:"SouthernSubs",       fid:"F08", address:"27 Rosmead Avenue, Claremont, Cape Town" },
+  { id:"GBy",  name:"Gordon's Bay",             town:"Gordon's Bay",     type:"Full",      region:"Western Cape",  zone:"FalseBay",           fid:"F09", address:"33 Beach Road, Gordon's Bay" },
+  { id:"CA",   name:"Clara Anna",               town:"Durbanville",      type:"Full",      region:"Western Cape",  zone:"Home",               fid:"F10", address:"1 Shamwari Close, Durbanville, Cape Town" },
+  { id:"ND",   name:"Ndabeni",                  town:"Pinelands",        type:"Full",      region:"Western Cape",  zone:"Monday-Admin",       fid:"F01", address:"47 Morningside Rd, Ndabeni, Cape Town" },
+  { id:"FK",   name:"Franschhoek",              town:"Franschhoek",      type:"Full",      region:"Western Cape",  zone:"Winelands",          fid:"F11", address:"24 Huguenot St, Franschhoek" },
+  { id:"HBy",  name:"Hout Bay",                 town:"Hout Bay",         type:"Full",      region:"Western Cape",  zone:"AtlanticSeaboard",   fid:"F02", address:"Main Road, Hout Bay, Cape Town" },
+  { id:"CWC",  name:"Canal Walk",               town:"Century City",     type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F01", address:"Century Boulevard, Century City, Cape Town" },
+  { id:"YC",   name:"Yellowoods Centre",        town:"Plettenberg Bay",  type:"Full",      region:"Western Cape",  zone:"GardenRoute",        fid:"F15", address:"15 Main St, Plettenberg Bay" },
+  { id:"MSC",  name:"Milkwood Square Centre",          town:"Knysna",           type:"Full",      region:"Western Cape",  zone:"GardenRoute",        fid:"F15", address:"Main Road, Knysna" },
+  { id:"PKV",  name:"Plattekloof Village",      town:"Plattekloof",      type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F04", address:"Plattekloof Rd, Plattekloof, Cape Town" },
+  { id:"SSM",  name:"Somerset Mall",            town:"Somerset West",    type:"Full",      region:"Western Cape",  zone:"FalseBay",           fid:"F09", address:"Centenary Drive, Somerset West" },
+  { id:"PEi",  name:"Paarden Eiland",           town:"Paarden Eiland",   type:"Full",      region:"Western Cape",  zone:"NorthernCT",         fid:"F12", address:"26 Marine Dr, Paarden Eiland, Cape Town" },
+  { id:"YS",   name:"York Street",              town:"George",           type:"Full",      region:"Western Cape",  zone:"GardenRoute",        fid:"F13", address:"York Street Blvd, George" },
+  { id:"HZG",  name:"Haazendal Gables",        town:"Kuils River",      type:"Full",      region:"Western Cape",  zone:"Brackenfell",        fid:"F31", address:"Shops 19 & 20 Haasendal Gables, 2 Haasendal Blvd, Cnr Saxdowns & Bottelary Rd, Kuils River" },
+  { id:"BFXS", name:"Brackenfell Corner",    town:"Brackenfell",      type:"XS",        region:"Western Cape",  zone:"Brackenfell",        fid:"F01", address:"Frans Conradie & Paradys St, Brackenfell" },
+  { id:"SPXS", name:"Sea Point",             town:"Sea Point",        type:"XS",        region:"Western Cape",  zone:"AtlanticSeaboard",   fid:"F16", address:"39 Regent Rd, Sea Point, Cape Town" },
+  { id:"PWXS", name:"PineworX",              town:"Pinelands",        type:"XS",        region:"Western Cape",  zone:"Monday-Admin",       fid:"F01", address:"Lonsdale Way, Pinelands, Cape Town" },
+  { id:"MZXS", name:"Muizenberg",            town:"Muizenberg",       type:"XS",        region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"80 Beach Road, Muizenberg, Cape Town" },
+  { id:"SRXS", name:"Salt River",            town:"Salt River",       type:"XS",        region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"13 Brickfield Rd, Salt River, Cape Town" },
+  { id:"BKXS", name:"Brooklyn Junction",     town:"Brooklyn",         type:"XS",        region:"Western Cape",  zone:"NorthernCT",         fid:"F03", address:"1 Koeberg Rd, Brooklyn, Cape Town" },
+  { id:"N1XS", name:"N1 Value Centre",       town:"Goodwood",         type:"XS",        region:"Western Cape",  zone:"NorthernCT",         fid:"F17", address:"Solly Schmiedt Road, Goodwood, Cape Town" },
+  { id:"FSXS", name:"Foreshore",             town:"Cape Town CBD",    type:"XS",        region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"14 Christiaan Barnard St, Cape Town" },
+  { id:"PVXS", name:"Paardevlei",            town:"Somerset West",    type:"XS",        region:"Western Cape",  zone:"FalseBay",           fid:"F01", address:"WR Quinan Blvd, Somerset West" },
+  { id:"GWXS", name:"Grandwest",             town:"Goodwood",         type:"XS",        region:"Western Cape",  zone:"NorthernCT",         fid:"F04", address:"Grandwest Casino, Goodwood, Cape Town" },
+  { id:"CGXS", name:"Cape Gate",             town:"Brackenfell",      type:"XS",        region:"Western Cape",  zone:"Brackenfell",        fid:"F01", address:"Okavango & De Bron Rd, Brackenfell" },
+  { id:"WLXS", name:"Westlake",              town:"Westlake",         type:"XS",        region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"Westlake Lifestyle Centre, Cape Town" },
+  { id:"ESXS", name:"Eikestad",              town:"Stellenbosch",     type:"XS",        region:"Western Cape",  zone:"Winelands",          fid:"F05", address:"43 Andringa St, Stellenbosch" },
+  { id:"LMXS", name:"Laguna Mall",           town:"Langebaan",        type:"XS",        region:"Western Cape",  zone:"WestCoast",          fid:"F18", address:"Laguna Mall, Langebaan" },
+  { id:"WPXS", name:"Welgelee Plein",        town:"Wellington",       type:"XS",        region:"Western Cape",  zone:"Winelands",          fid:"F05", address:"Champagne & Piet Retief St, Wellington" },
+  { id:"SKXS", name:"Sandkraal",             town:"George",           type:"XS",        region:"Western Cape",  zone:"GardenRoute",        fid:"F19", address:"4 Sandkraal Road, George" },
+  { id:"LSXS", name:"Jetty Quarter XS",   town:"Cape Town CBD",    type:"XS",        region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F21", address:"Shop 2, 23 Lower Long Street, Cape Town CBD" },
+  { id:"AQKK", name:"Aquarium Kiosk",           town:"V&A Waterfront",   type:"Kiosk",     region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F03", address:"Two Oceans Aquarium, V&A Waterfront, Cape Town" },
+  { id:"VAKK", name:"V&A Waterfront",     town:"V&A Waterfront",   type:"Kiosk",     region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F03", address:"19 Dock Road, V&A Waterfront, Cape Town" },
+  { id:"SCKK", name:"St Cyprians",       town:"Vredehoek",        type:"Kiosk",     region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"7 Gorge Road, Vredehoek, Cape Town" },
+  { id:"SPHK", name:"Sea Point High",     town:"Sea Point",        type:"Kiosk",     region:"Western Cape",  zone:"AtlanticSeaboard",   fid:"F01", address:"Main & Norfolk Rd, Sea Point, Cape Town" },
+  { id:"RWKK", name:"Roamworx",           town:"Zonnebloem",       type:"Kiosk",     region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"50 Harrington Street, Zonnebloem, Cape Town" },
+  { id:"CVKK", name:"Cavendish Mall",     town:"Claremont",        type:"Kiosk",     region:"Western Cape",  zone:"SouthernSubs",       fid:"F01", address:"1 Dreyer Street, Claremont, Cape Town" },
+  { id:"RLKK", name:"Riverlands",         town:"Observatory",      type:"Kiosk",     region:"Western Cape",  zone:"CityBowlAtlantic",   fid:"F01", address:"29 Gogosoa Street, Observatory, Cape Town" },
+  { id:"N1KK", name:"N1 City Kiosk",            town:"Goodwood",         type:"Kiosk",     region:"Western Cape",  zone:"NorthernCT",         fid:"F17", address:"N1 City Checkers Hyper, Goodwood, Cape Town" },
+  { id:"HMKK", name:"Hermanus Kiosk",           town:"Hermanus",         type:"Kiosk",     region:"Western Cape",  zone:"Overberg",           fid:"F20", address:"83 Marine Dr, Hermanus" },
+  { id:"PLMT", name:"Paarl Mall TEMSA",       town:"Paarl",            type:"Petroleum", region:"Western Cape",  zone:"Winelands",          fid:"F22", address:"Nuw Vlei St, Southern Paarl" },
+  { id:"DVT",  name:"Durbanville TEMSA",      town:"Durbanville",      type:"Petroleum", region:"Western Cape",  zone:"Home",               fid:"F23", address:"11 Church Street, Durbanville, Cape Town" },
+  { id:"VP",   name:"Vincent Park",             town:"East London",      type:"Full",      region:"Eastern Cape",  zone:"EasternCape",        fid:"F24", address:"Vincent Park Shopping Centre, East London" },
+  { id:"BWK",  name:"Boardwalk",                town:"Gqeberha",         type:"Full",      region:"Eastern Cape",  zone:"EasternCape",        fid:"F25", address:"Boardwalk Mall, Marine Dr, Gqeberha" },
+  { id:"WPK",  name:"Walmer Park",              town:"Gqeberha",         type:"Full",      region:"Eastern Cape",  zone:"EasternCape",        fid:"F25", address:"Walmer Park Shopping Centre, Gqeberha" },
+  { id:"TG",   name:"The Grove",                town:"Windhoek",         type:"Full",      region:"Namibia",       zone:"Namibia",            fid:"F26", address:"Grove Mall, Chanie Street, Windhoek" },
+  { id:"FNB",  name:"FNB",                       town:"Windhoek",         type:"XS",        region:"Namibia",       zone:"Namibia",            fid:"F26", address:"130 Independence Ave, Windhoek" },
+  { id:"PMPM", name:"Paarl Mall",              town:"Paarl",            type:"Full",      region:"Western Cape",  zone:"Winelands",          fid:"F37", address:"Shop 64, Paarl Mall, Cecilia Street, Paarl, 7646" },
+  { id:"SBKXS",name:"Springbok",             town:"Springbok",        type:"XS",        region:"Northern Cape", zone:"Springbok",          fid:"F27", address:"17 Koperberg Street, Springbok, Northern Cape 8240" },
+
+  // --- Gauteng-team roster (Sipho Mabaso / Nicolene Prinsloo / Washington Dhliwayo) ---
+  // Added to close the known "no Gauteng data in ALL_SITES" gap (see CLAUDE.md).
+  // Region/zone/address sourced from Bootlegger Master Information 2026 workbook
+  // (Gauteng, KZN, Free State, North West, XS Stores, Kiosks, TEMSA tabs).
+  // No `fid` — FRANCHISEES currently only covers Western Cape franchisees, a
+  // separate known gap; Franchisee Visits for these cafés will stay empty
+  // until Gauteng franchisee data is added there.
+  { id:"GNW", name:"Norwood",            town:"Norwood",       type:"Full",  region:"Gauteng",       zone:"RosebankNorwood", fid:"F30", address:"66 Grant Ave, Norwood, Johannesburg" },
+  { id:"GGR", name:"Grayston",           town:"Sandton",       type:"Full",  region:"Gauteng",       zone:"Sandton",         fid:"F30", address:"Cnr Grayston Drive & Helen Rd, Strathavon, Sandton" },
+  { id:"GIL", name:"Irene Link",         town:"Centurion",     type:"Full",  region:"Gauteng",       zone:"CenturionPTA",    fid:"F38", address:"Cnr Impala & Alexandra Rd, Irene, Centurion" },
+  { id:"GTC", name:"Thatchfield",        town:"Centurion",     type:"Full",  region:"Gauteng",       zone:"CenturionPTA",    fid:"F45", address:"Shop 17, Thatchfield Retail Centre, Brakfontein Rd, Centurion" },
+  { id:"GBC", name:"Bedford Centre",     town:"Bedfordview",   type:"Full",  region:"Gauteng",       zone:"Bedfordview",     fid:"F30", address:"Shop U05, Bedford Centre, Cnr Smith & Bradford Rd, Bedford Gardens, Bedfordview" },
+  { id:"GKG", name:"Karaglen",           town:"Edenvale",      type:"Full",  region:"Gauteng",       zone:"Bedfordview",     fid:"F41", address:"11 Baker Road, Eden Glen, Edenvale" },
+  { id:"GTR", name:"Three Rivers",       town:"Vereeniging",   type:"Full",  region:"Gauteng",       zone:"VaalTriangle",    fid:"F46", address:"Shop 01, Cnr General Hertzog & Ring Roads, Three Rivers, Vereeniging" },
+  { id:"GBS", name:"Bedford Square",     town:"Bedfordview",   type:"Kiosk", region:"Gauteng",       zone:"Bedfordview",     fid:"F30", address:"Cnr Smith & Van Der Linde Rd, Bedford Square, Bedfordview" },
+  { id:"GMU", name:"Musgrave Centre",    town:"Durban",        type:"Full",  region:"KwaZulu-Natal", zone:"Durban",          fid:"F29", address:"Shop 308, Musgrave Centre, 115 Musgrave Rd, Berea, Durban" },
+  { id:"GTP", name:"The Pearls",         town:"Durban",        type:"Full",  region:"KwaZulu-Natal", zone:"Durban",          fid:"F04", address:"Shop A1, The Pearls Mall, 6 Lagoon Drive, Umhlanga Rocks, Durban" },
+  { id:"GGW", name:"Gateway",            town:"Durban",        type:"XS",    region:"KwaZulu-Natal", zone:"Durban",          fid:"F28", address:"1 Palm Blvd, Umhlanga Ridge, Durban" },
+  { id:"GPW", name:"Preller Walk",       town:"Bloemfontein",  type:"Full",  region:"Free State",    zone:"Bloemfontein",    fid:"F48", address:"Shopping Centre Preller Walk, Dan Pienaar, Bloemfontein" },
+  { id:"GWH", name:"Woodland Hills",     town:"Bloemfontein",  type:"Full",  region:"Free State",    zone:"Bloemfontein",    fid:"F48", address:"Woodland Hills Boulevard, Woodland Hills Village, Bloemfontein" },
+  { id:"GMM", name:"Mooirivier Mall",    town:"Potchefstroom", type:"Full",  region:"North West",    zone:"Potchefstroom",   fid:"F32", address:"Cnr N12 & Govan Mbeki Ave, Mooirivier Mall, Potchefstroom" },
+  { id:"GLK", name:"Lennox Kimberly",    town:"Kimberley",     type:"Kiosk", region:"Northern Cape", zone:"Kimberley",       fid:"F47", address:"Cnr 94 Du Toitspan Rd, Caltex Lennox, Kimberley" },
+  { id:"GFN", name:"Ferndale",           town:"Randburg",      type:"Full",  region:"Gauteng",       zone:"RandburgCresta",  fid:"F52", address:"Cnr Malibongwe & Republic Rd, Ferndale, Randburg" },
+  { id:"GBQ", name:"Blueberry Square",   town:"Roodepoort",    type:"Full",  region:"Gauteng",       zone:"WestRand",        fid:"F33", address:"Shop 210, Cnr Beyers Naude Dr & Blueberry St, Honeydew, Roodepoort" },
+  { id:"GCH", name:"Chartwell",          town:"Dainfern",      type:"Full",  region:"Gauteng",       zone:"Fourways",        fid:"F52", address:"Shop 17, Chartwell Corner, Cnr Gateside Ave & Cedar Rd, Dainfern, Johannesburg" },
+  { id:"GTZ", name:"The Zone Rosebank",  town:"Rosebank",      type:"Full",  region:"Gauteng",       zone:"RosebankNorwood", fid:"F61", address:"Shop 11D, The Zone, 177 Oxford Rd, Rosebank, Johannesburg" },
+  { id:"GCR", name:"Cresta",             town:"Randburg",      type:"Full",  region:"Gauteng",       zone:"RandburgCresta",  fid:"F35", address:"Beyers Naude Dr & Weltevreden Rd, Cresta, Randburg" },
+  { id:"GDQ", name:"Design Quarter",     town:"Sandton",       type:"Full",  region:"Gauteng",       zone:"Fourways",        fid:"F35", address:"William Nicol Dr & Leslie Ave, Magaliessig, Sandton" },
+  { id:"GOL", name:"Olivedale",          town:"Randburg",      type:"Full",  region:"Gauteng",       zone:"RandburgCresta",  fid:"F49", address:"17 President Fouche Rd, Olivedale, Randburg" },
+  { id:"GRV", name:"Ridgeview",          town:"Johannesburg",  type:"Full",  region:"Gauteng",       zone:"WestRand",        fid:"F52", address:"Shop 19A, Ridgeview Shopping Centre, Helderkruin, Johannesburg" },
+  { id:"GMF", name:"Mushroom Farm Park", town:"Midrand",       type:"Full",  region:"Gauteng",       zone:"Midrand",         fid:"F36", address:"Shop 63, Cnr Allandale & President Dr, Kyalami, Midrand" },
+  { id:"GHP", name:"Hyde Park",          town:"Johannesburg",  type:"Full",  region:"Gauteng",       zone:"RosebankNorwood", fid:"F04", address:"Hyde Park Corner, Cnr Jan Smuts & Winnie Mandela Dr, Hyde Park, Johannesburg" },
+  { id:"GSG", name:"Sandton Gate",       town:"Sandton",       type:"Full",  region:"Gauteng",       zone:"Sandton",         fid:"F42", address:"Sandton Gate Central, Erf 184 Glenadrienne, Sandton" },
+  { id:"GDD", name:"Douglasdale",        town:"Johannesburg",  type:"Full",  region:"Gauteng",       zone:"Fourways",        fid:"F55", address:"Shop 19, Douglasdale Village SC, Cnr Douglas Dr & Leslie Ave, Douglasdale, Johannesburg" },
+  { id:"GPH", name:"Parkhurst",          town:"Randburg",      type:"Full",  region:"Gauteng",       zone:"RandburgCresta",  fid:"F50", address:"20 4th Avenue, Parkhurst, Randburg" },
+  { id:"GSH", name:"Sunninghill",        town:"Sandton",       type:"XS",    region:"Gauteng",       zone:"Sandton",         fid:"F43", address:"Shop G33, 97 Edison Cres, Sunninghill Village, Sunninghill, Sandton" },
+  { id:"GCW", name:"Clearwater",         town:"Roodepoort",    type:"XS",    region:"Gauteng",       zone:"WestRand",        fid:"F43", address:"Hendrik Potgieter Rd & Christiaan de Wet Rd, Strubens Valley, Roodepoort" },
+  { id:"GDC", name:"Delta Central",      town:"Johannesburg",  type:"XS",    region:"Gauteng",       zone:"RandburgCresta",  fid:"F34", address:"Unit 3, Delta Central, 74 Hill Crest Ave, Blairgowrie, Johannesburg" },
+  { id:"GMA", name:"Mall of Africa",     town:"Midrand",       type:"XS",    region:"Gauteng",       zone:"Midrand",         fid:"F61", address:"Shop 1238, Mall of Africa, Magwa Crescent, Midrand" },
+  { id:"GWM", name:"Woodmead",           town:"Johannesburg",  type:"XS",    region:"Gauteng",       zone:"Sandton",         fid:"F56", address:"Block 01, Woodmead Office Park, Woodlands Drive, Woodmead, Johannesburg" },
+  { id:"GBF", name:"Bram Fischer",       town:"Randburg",      type:"XS",    region:"Gauteng",       zone:"RandburgCresta",  fid:"F58", address:"21 Rhodes St, Kensington B, Randburg, Johannesburg" },
+  { id:"GAR", name:"Alzu Rayton",        town:"Rayton",        type:"Petroleum", region:"Gauteng",   zone:"PretoriaEast",    fid:"F54", address:"Alzu (Jan Ellis Centre), Cnr R515 & R104, Rayton, Gauteng" },
+  { id:"GWI", name:"Winchester Hill",    town:"Johannesburg",  type:"Petroleum", region:"Gauteng",   zone:"JoburgSouth",     fid:"F63", address:"Xavier St, Winchester Hills, Johannesburg South" },
+  { id:"GCB", name:"Campbells",          town:"Midrand",       type:"Petroleum", region:"Gauteng",   zone:"Midrand",         fid:"F62", address:"Harry Galaun Dr, Vorna Valley, Midrand" },
+  { id:"GSZ", name:"Sizan",              town:"Boksburg",      type:"Petroleum", region:"Gauteng",   zone:"EastRand",        fid:"F51", address:"144 North Rand Rd, Bardene, Boksburg" },
+  { id:"GSM", name:"Simmonds",           town:"Johannesburg",  type:"Petroleum", region:"Gauteng",   zone:"JoburgSouth",     fid:"F53", address:"8 Simmonds Street, Johannesburg CBD" },
+  { id:"GCS", name:"Cashan",             town:"Rustenburg",    type:"Petroleum", region:"North West", zone:"Rustenburg",     fid:"F59", address:"50 Bokmakierie Road, Cashan Ext 4, Rustenburg" },
+  { id:"GAP", name:"Alzu Petroport N4",  town:"Middelburg",    type:"Petroleum", region:"Mpumalanga", zone:"Middelburg",     fid:"F54", address:"N4 Petroport, Middelburg, Mpumalanga" },
+  { id:"GST", name:"Steiltes",           town:"Nelspruit",     type:"Petroleum", region:"Mpumalanga", zone:"Nelspruit",      fid:"F60", address:"Cnr Schuttle & Aurora St, Steiltes, Nelspruit" },
+  { id:"GMB", name:"Middleburg",         town:"Middelburg",    type:"XS",        region:"Mpumalanga", zone:"Middelburg",     fid:"F39", address:"17 John Magagula Street, Golfsig, Middelburg, Mpumalanga" },
+  { id:"GTH", name:"Thabazimbi",         town:"Thabazimbi",    type:"Petroleum", region:"Limpopo",    zone:"Thabazimbi",     fid:"F40", address:"R510, Total Energies Thabazimbi, Thabazimbi, Limpopo" },
+  { id:"GHD", name:"Hoedspruit",         town:"Hoedspruit",    type:"Petroleum", region:"Limpopo",    zone:"Hoedspruit",     fid:"F54", address:"118 Eland Street, Hoedspruit, Limpopo" },
+  { id:"GMK", name:"Mafikeng",           town:"Mahikeng",      type:"Petroleum", region:"North West", zone:"Mafikeng",       fid:"F57", address:"Shippard Street, Nelson Mandela Dr, Mahikeng" },
+  { id:"GNE", name:"N12 East",           town:"eMalahleni",    type:"Petroleum", region:"Mpumalanga", zone:"Witbank",        fid:"F44", address:"N12 Highway direction Witbank, Dwarsfontein, eMalahleni" },
+];
+const SITE_MAP = Object.fromEntries(ALL_SITES.map(s=>[s.id,s]));
+
+// ─── WEEK HELPERS ─────────────────────────────────────────────────────────────
+const ALL_WEEKS = Array.from({length:52},(_,i)=>i+1).filter(w=>w>=MIN_WEEK);
+
+function isoWeek(date) {
+  const d=new Date(date); d.setHours(0,0,0,0);
+  d.setDate(d.getDate()+3-(d.getDay()+6)%7);
+  const w1=new Date(d.getFullYear(),0,4);
+  return 1+Math.round(((d-w1)/86400000-3+(w1.getDay()+6)%7)/7);
+}
+function weekDates(year,week) {
+  const jan4=new Date(year,0,4);
+  const w1mon=new Date(jan4); w1mon.setDate(jan4.getDate()-(jan4.getDay()+6)%7);
+  const mon=new Date(w1mon); mon.setDate(w1mon.getDate()+(week-1)*7);
+  const fri=new Date(mon); fri.setDate(mon.getDate()+4);
+  return {start:mon,end:fri};
+}
+function weekKey(year,week){return `${year}-W${String(week).padStart(2,"0")}`;}
+function parseWeek(k){return parseInt(k.split("-W")[1]);}
+function weekToQuarter(year,week){
+  const m=weekDates(year,week).start.getMonth();
+  if(m>=2&&m<=4) return 0; if(m>=5&&m<=7) return 1;
+  if(m>=8&&m<=10) return 2; return 3;
+}
+function weeksForQuarter(qi){return ALL_WEEKS.filter(w=>weekToQuarter(YEAR,w)===qi);}
+function weeksForMonth(month){return ALL_WEEKS.filter(w=>weekDates(YEAR,w).start.getMonth()+1===month);}
+function fmtShort(d){return d.toLocaleDateString("en-ZA",{day:"numeric",month:"short"});}
+function fmtLong(d){return d.toLocaleDateString("en-ZA",{day:"numeric",month:"long",year:"numeric"});}
+function fmtTime(decimal){
+  const h=Math.floor(decimal);
+  const m=Math.round((decimal-h)*60);
+  return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+}
+
+// ─── SCHEDULE BUILDER ─────────────────────────────────────────────────────────
+function buildSchedule() {
+  const sched={};
+  const ensure=k=>{if(!sched[k])sched[k]=[];};
+  const qWeeks=[0,1,2,3].map(qi=>weeksForQuarter(qi));
+
+  // ── Out-of-town trips ──
+  // GR: 4 days Tue–Fri (5 stores)
+  // EC: 3 days Tue–Thu (1 store/day)
+  // Namibia: 2 days Thu+Fri (1 store/day)
+  // Springbok: 1 day Tue
+  const GR_SCHED=[{id:"HBos",day:"Tue"},{id:"YS",day:"Wed"},{id:"SKXS",day:"Wed"},{id:"MSC",day:"Thu"},{id:"YC",day:"Fri"}];
+  const EC_SCHED=[{id:"VP",day:"Tue"},{id:"WPK",day:"Wed"},{id:"BWK",day:"Thu"}];
+  const NAM_SCHED=[{id:"TG",day:"Thu"},{id:"FNB",day:"Fri"}];
+
+  const travelWeeks=new Set();
+
+  [0,1,2,3].forEach(qi=>{
+    Object.entries(TRIP_MONTHS[qi]).forEach(([zone,month])=>{
+      const mw=weeksForMonth(month);
+      let wNum;
+      if(qi===1&&month===7&&zone==="GardenRoute")      wNum=mw[0]||mw[0];
+      else if(qi===1&&month===7&&zone==="EasternCape") wNum=mw[2]||mw[mw.length-1];
+      else if(zone==="Springbok")                      wNum=mw[2]||mw[mw.length-1];
+      else                                             wNum=mw[1]||mw[0];
+      const k=weekKey(YEAR,wNum);
+      travelWeeks.add(k);
+      ensure(k);
+      let items=[];
+      if(zone==="GardenRoute")  items=GR_SCHED;
+      else if(zone==="EasternCape") items=EC_SCHED;
+      else if(zone==="Namibia") items=NAM_SCHED;
+      else if(zone==="Springbok") items=[{id:"SBKXS",day:"Tue"}];
+      items.forEach(({id,day})=>{
+        const site=SITE_MAP[id]; if(!site) return;
+        sched[k].push({type:"visit",siteId:site.id,siteName:site.name,siteType:site.type,
+          region:site.region,zone:site.zone,address:site.address,fid:site.fid,
+          scheduledDay:day,confirmed:false,outOfTown:true});
+      });
+    });
+  });
+
+  // ── Monday admin every week ──
+  ALL_WEEKS.forEach(w=>{
+    const k=weekKey(YEAR,w); ensure(k);
+    ["ND","PWXS"].forEach(id=>{
+      const site=SITE_MAP[id]; if(!site) return;
+      sched[k].push({type:"visit",siteId:site.id,siteName:site.name,siteType:site.type,
+        region:site.region,zone:site.zone,address:site.address,fid:site.fid,
+        scheduledDay:"Mon",confirmed:false});
+    });
+  });
+
+  // ── Standalone day trips: Langebaan (Tue) and Hermanus (Thu) ──
+  [1,2,3].forEach(qi=>{
+    const avail=qWeeks[qi];
+    [{zone:"WestCoast",id:"LMXS",day:"Tue",offset:4},
+     {zone:"Overberg",id:"HMKK",day:"Thu",offset:7}].forEach(({id,day,offset})=>{
+      const wNum=avail[offset%avail.length];
+      if(!wNum) return;
+      const k=weekKey(YEAR,wNum); ensure(k);
+      const site=SITE_MAP[id]; if(!site) return;
+      sched[k].push({type:"visit",siteId:site.id,siteName:site.name,siteType:site.type,
+        region:site.region,zone:site.zone,address:site.address,fid:site.fid,
+        scheduledDay:day,confirmed:false});
+    });
+  });
+
+  // ── Local sites: 2 per day in geo pairs, Q2–Q4 only ──
+  [1,2,3].forEach(qi=>{
+    const availWeeks=qWeeks[qi];
+    const daySlots={};
+    Object.keys(GEO_DAY_SITES).forEach(day=>{daySlots[day]=[...availWeeks];});
+    Object.entries(GEO_DAY_SITES).forEach(([day,siteIds])=>{
+      let slotIdx=0;
+      for(let i=0;i<siteIds.length;i+=2){
+        if(slotIdx>=daySlots[day].length) slotIdx=0;
+        const wNum=daySlots[day][slotIdx++];
+        const k=weekKey(YEAR,wNum); ensure(k);
+        [siteIds[i],siteIds[i+1]].forEach(id=>{
+          if(!id) return;
+          const site=SITE_MAP[id]; if(!site) return;
+          sched[k].push({type:"visit",siteId:site.id,siteName:site.name,siteType:site.type,
+            region:site.region,zone:site.zone,address:site.address,fid:site.fid,
+            scheduledDay:day,confirmed:false});
+        });
+      }
+    });
+  });
+
+  // ── Franchisee meetings: natural zone day, Q2–Q4 ──
+  // Out-of-town franchisees meet during their trip week
+  const TRIP_WEEK_F={
+    "F13":"GardenRoute","F15":"GardenRoute","F19":"GardenRoute",
+    "F24":"EasternCape","F25":"EasternCape","F26":"Namibia",
+  };
+  const FDAY={
+    "F01":"Wed","F02":"Wed","F03":"Wed","F04":"Wed","F05":"Fri","F06":"Fri",
+    "F07":"Fri","F08":"Thu","F09":"Fri","F10":"Tue","F11":"Fri","F12":"Tue",
+    "F13":"Tue","F14":"Thu","F15":"Thu","F16":"Wed","F17":"Tue","F18":"Tue",
+    "F19":"Wed","F20":"Thu","F21":"Wed","F22":"Fri","F23":"Tue",
+    "F24":"Tue","F25":"Wed","F26":"Thu","F27":"Tue",
+  };
+  // Build trip week lookup per qi
+  const tripWkByZoneQi={};
+  [0,1,2,3].forEach(qi=>{
+    tripWkByZoneQi[qi]={};
+    Object.entries(TRIP_MONTHS[qi]).forEach(([zone,month])=>{
+      const mw=weeksForMonth(month);
+      let wNum;
+      if(qi===1&&month===7&&zone==="GardenRoute")      wNum=mw[0];
+      else if(qi===1&&month===7&&zone==="EasternCape") wNum=mw[2]||mw[mw.length-1];
+      else if(zone==="Springbok")                      wNum=mw[2]||mw[mw.length-1];
+      else                                             wNum=mw[1]||mw[0];
+      tripWkByZoneQi[qi][zone]=wNum;
+    });
+  });
+
+  const mtgDayUsed={};
+  FRANCHISEES.forEach((f,idx)=>{
+    [1,2,3].forEach(qi=>{
+      const pDay=FDAY[f.id]||"Wed";
+      const tripZone=TRIP_WEEK_F[f.id];
+      let chosenWeek=null;
+      if(tripZone&&tripWkByZoneQi[qi]?.[tripZone]){
+        chosenWeek=tripWkByZoneQi[qi][tripZone];
+      } else {
+        const mid=qWeeks[qi].slice(3,10);
+        for(let a=0;a<mid.length;a++){
+          const wNum=mid[(idx+a)%mid.length];
+          const dk=`${wNum}-${pDay}`;
+          if(!mtgDayUsed[dk]){chosenWeek=wNum;mtgDayUsed[dk]=true;break;}
+        }
+        if(!chosenWeek) chosenWeek=qWeeks[qi].slice(3,10)[idx%7];
+      }
+      const k=weekKey(YEAR,chosenWeek); ensure(k);
+      sched[k].push({type:"meeting",franchiseeId:f.id,franchiseeName:f.name,
+        franchiseeRegion:f.region,siteCount:f.sites,quarter:qi,
+        scheduledDay:pDay,confirmed:false});
+    });
+  });
+
+  return sched;
+}
+
+// ─── AUTO-RESCHEDULE ─────────────────────────────────────────────────────────
+function applyReschedule(sched) {
+  const now=Math.max(isoWeek(new Date()),RESCHEDULE_FROM_WEEK);
+  const out={}; Object.keys(sched).forEach(k=>{out[k]=sched[k].map(e=>({...e}));});
+  // Round-robin counter per target quarter, so overdue visits spread evenly
+  // across every remaining week of the quarter instead of all piling onto
+  // a single week (which is what made "Rescheduled" balloon to 100+ before).
+  const distCounter={};
+  let changed=true,passes=0;
+  while(changed&&passes<8){
+    changed=false; passes++;
+    Object.keys(out).forEach(k=>{
+      const wNum=parseWeek(k);
+      if(wNum>=now) return;
+      out[k]=(out[k]||[]).filter(e=>{
+        if(e.confirmed) return true;
+        const qi=weekToQuarter(YEAR,wNum);
+        let tqi=qi;
+        let remainingWeeks=weeksForQuarter(tqi).filter(w=>w>=now);
+        let att=0;
+        while(remainingWeeks.length===0&&att<4){tqi=(tqi+1)%4;remainingWeeks=weeksForQuarter(tqi).filter(w=>w>=now);att++;}
+        if(remainingWeeks.length===0) return true; // nowhere left to place it — leave as-is
+        distCounter[tqi]=(distCounter[tqi]||0);
+        const tw=remainingWeeks[distCounter[tqi]%remainingWeeks.length];
+        distCounter[tqi]++;
+        const tk=weekKey(YEAR,tw);
+        if(!out[tk]) out[tk]=[];
+        const dup=out[tk].some(x=>x.type===e.type&&(e.type==="visit"?x.siteId===e.siteId:x.franchiseeId===e.franchiseeId));
+        if(!dup){
+          const distDays=["Tue","Wed","Thu","Fri"];
+          const usedDay=e.scheduledDay||distDays[out[tk].length%4];
+          out[tk].push({...e,scheduledDay:usedDay,rescheduled:true,
+            rescheduleCount:(e.rescheduleCount||0)+1,
+            originalWeek:e.originalWeek||wNum,originalQuarter:e.originalQuarter??qi});
+          changed=true;
+        }
+        return false;
+      });
+    });
+  }
+  Object.keys(out).forEach(k=>{if(out[k].length===0)delete out[k];});
+  return out;
+}
+
+// ─── STORAGE WRAPPER ─────────────────────────────────────────────────────────
+const store={
+  async get(key){try{return window.storage?await window.storage.get(key):null;}catch{return null;}},
+  async set(key,val){try{return window.storage?await window.storage.set(key,val):null;}catch{return null;}},
+};
+
+// ─── UI ATOMS ────────────────────────────────────────────────────────────────
+function Pill({label,color,small}){
+  return <span style={{background:color+"18",color,border:`1px solid ${color}40`,
+    padding:small?"1px 5px":"2px 7px",borderRadius:3,fontSize:small?9:10,
+    fontWeight:700,letterSpacing:"0.05em",textTransform:"uppercase",whiteSpace:"nowrap"}}>{label}</span>;
+}
+
+// ─── ADD EVENT MODAL ─────────────────────────────────────────────────────────
+const AD_HOC_TYPES=["Visit","Meeting","Call","Training","Event","Other"];
+function AddEventModal({day,wk,onAdd,onClose}){
+  const [kind,setKind]=useState("Visit");
+  const [siteId,setSiteId]=useState("");
+  const [fId,setFId]=useState("");
+  const [title,setTitle]=useState("");
+  const [notes,setNotes]=useState("");
+  function submit(){
+    if(kind==="Visit"&&!siteId) return;
+    let ev;
+    if(kind==="Visit"){
+      const site=SITE_MAP[siteId];
+      ev={type:"visit",siteId:site.id,siteName:site.name,siteType:site.type,
+        region:site.region,zone:site.zone,address:site.address,fid:site.fid,
+        scheduledDay:day,confirmed:false,adhoc:true};
+    } else if(kind==="Meeting"&&fId){
+      const f=F_MAP[fId];
+      ev={type:"meeting",franchiseeId:f.id,franchiseeName:f.name,
+        franchiseeRegion:f.region,siteCount:f.sites,
+        quarter:weekToQuarter(YEAR,parseWeek(wk)),
+        scheduledDay:day,confirmed:false,adhoc:true};
+    } else {
+      ev={type:"adhoc",title:title||kind,notes,scheduledDay:day,confirmed:false,adhoc:true,kind};
+    }
+    onAdd(wk,ev); onClose();
+  }
+  return(
+    <div style={{position:"fixed",inset:0,background:"#000000aa",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}
+      onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:"#ffffff",border:"1px solid #ebebeb",borderRadius:10,padding:24,width:380,maxWidth:"90vw"}}>
+        <div style={{fontSize:13,fontWeight:800,color:"#1a1a1a",marginBottom:16}}>Add Event — {day}</div>
+        <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:14}}>
+          {AD_HOC_TYPES.map(t=>(
+            <button key={t} onClick={()=>setKind(t)} style={{background:kind===t?"#c8ae79":"transparent",border:`1px solid ${kind===t?"#c8ae79":"#ebebeb"}`,color:kind===t?"#1a1a1a":"#999999",borderRadius:4,padding:"4px 10px",fontSize:10,fontWeight:700,cursor:"pointer"}}>{t}</button>
+          ))}
+        </div>
+        {kind==="Visit"&&(
+          <select value={siteId} onChange={e=>setSiteId(e.target.value)}
+            style={{width:"100%",background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"8px 10px",fontSize:11,marginBottom:10}}>
+            <option value="">Select site…</option>
+            {ALL_SITES.map(s=><option key={s.id} value={s.id}>[{s.type}] {s.name} — {s.town}</option>)}
+          </select>
+        )}
+        {kind==="Meeting"&&(
+          <select value={fId} onChange={e=>setFId(e.target.value)}
+            style={{width:"100%",background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"8px 10px",fontSize:11,marginBottom:10}}>
+            <option value="">Select franchisee…</option>
+            {FRANCHISEES.map(f=><option key={f.id} value={f.id}>{f.name} — {f.region}</option>)}
+          </select>
+        )}
+        {!["Visit","Meeting"].includes(kind)&&(
+          <>
+            <input value={title} onChange={e=>setTitle(e.target.value)} placeholder={`${kind} title…`}
+              style={{width:"100%",background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"8px 10px",fontSize:11,marginBottom:10,boxSizing:"border-box"}}/>
+            <input value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Notes (optional)…"
+              style={{width:"100%",background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"8px 10px",fontSize:11,marginBottom:10,boxSizing:"border-box"}}/>
+          </>
+        )}
+        <div style={{display:"flex",gap:8,marginTop:6}}>
+          <button onClick={submit} style={{flex:1,background:"#c8ae79",color:"#1a1a1a",border:"none",borderRadius:5,padding:"9px",fontSize:12,fontWeight:800,cursor:"pointer"}}>Add to Schedule</button>
+          <button onClick={onClose} style={{background:"transparent",color:"#555",border:"1px solid #ebebeb",borderRadius:5,padding:"9px 16px",fontSize:12,cursor:"pointer"}}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── DAY CARD (proper component, no IIFE) ────────────────────────────────────
+function DayCard({day,di,viewWeek,schedule,qc,onToggle,onReschedule,onAddModal}){
+  const today=new Date();
+  const mon=weekDates(YEAR,viewWeek).start;
+  const d=new Date(mon); d.setDate(mon.getDate()+di);
+  const isTod=d.toDateString()===today.toDateString();
+  const isAdmin=day==="Mon";
+  const wk=weekKey(YEAR,viewWeek);
+
+  // Get events for this day
+  const all=(schedule[wk]||[]).filter(e=>e.scheduledDay===day);
+  const visits=all.filter(e=>e.type==="visit");
+  const mtgs=(window.BOS_CAN_SEE_FRANCHISEES !== false) ? all.filter(e=>e.type==="meeting") : [];
+  const adhocs=all.filter(e=>e.type==="adhoc");
+  const total=visits.length+mtgs.length+adhocs.length;
+  const done=all.filter(e=>e.confirmed).length;
+
+  const sortedVisits=[...visits].sort((a,b)=>{
+    const ai=MASTER_ROUTE_IDS.indexOf(a.siteId);
+    const bi=MASTER_ROUTE_IDS.indexOf(b.siteId);
+    return(ai===-1?999:ai)-(bi===-1?999:bi);
+  });
+
+  function evIdx(e){return (schedule[wk]||[]).indexOf(e);}
+
+  // Time slots: 08:00–09:00 admin, visits from 09:00 at 2.5h each, 15:00–16:00 admin
+  const SLOT=2.5;
+  function startTime(idx){return 9+idx*SLOT;}
+
+  const AdminBlock=({start,end,label})=>(
+    <div onClick={()=>onAddModal(day)} style={{display:"flex",alignItems:"center",gap:10,
+      background:"#ffffff",border:"1px dashed #ffffff",borderLeft:"3px solid #ebebeb",
+      borderRadius:6,padding:"8px 14px",cursor:"pointer"}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor="#555"}
+      onMouseLeave={e=>e.currentTarget.style.borderColor="#ffffff"}>
+      <div style={{flex:1}}>
+        <div style={{fontSize:9,color:"#555",fontWeight:700,marginBottom:2}}>{fmtTime(start)} – {fmtTime(end)} · 1h</div>
+        <div style={{fontSize:11,color:"#555555",fontWeight:600}}>{label}</div>
+        <div style={{fontSize:9,color:"#999999"}}>Tap to add a meeting, call or note</div>
+      </div>
+      <div style={{fontSize:16,color:"#c8ae79"}}>+</div>
+    </div>
+  );
+
+  return(
+    <div style={{background:isTod?"#fdf8ee":"#ffffff",border:`1px solid ${isTod?qc+"55":"#1a1a1a"}`,
+      borderLeft:`4px solid ${isTod?qc:isAdmin?"#ebebeb":"#ffffff"}`,borderRadius:7,overflow:"hidden"}}>
+
+      {/* Day header */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"10px 16px",
+        background:isTod?"#1a1a14":isAdmin?"#0f0f0f":"#ffffff",
+        borderBottom:"1px solid #ffffff"}}>
+        <div style={{display:"flex",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
+          <span style={{fontSize:11,fontWeight:900,color:isTod?qc:"#555",letterSpacing:"0.12em"}}>{day.toUpperCase()}</span>
+          <span style={{fontSize:17,fontWeight:900,color:"#1a1a1a"}}>{fmtLong(d)}</span>
+          {isTod&&<span style={{fontSize:9,color:"#a3be8c",fontWeight:700}}>● TODAY</span>}
+          {isAdmin&&<span style={{fontSize:9,color:"#999999"}}>ADMIN · NDABENI BASE</span>}
+        </div>
+        <div style={{display:"flex",alignItems:"center",gap:10,flexShrink:0}}>
+          {total>0&&<>
+            <span style={{fontSize:10,color:done===total?"#a3be8c":"#555"}}>{done}/{total} confirmed</span>
+            <div style={{width:50,background:"#ffffff",borderRadius:2,height:3}}>
+              <div style={{width:`${total?(done/total)*100:0}%`,background:done===total?"#a3be8c":qc,height:3,borderRadius:2,transition:"width 0.3s"}}/>
+            </div>
+          </>}
+          {!isAdmin&&(
+            <button onClick={()=>onAddModal(day)} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#999999",fontSize:10,padding:"3px 9px",cursor:"pointer",fontWeight:700}}>+ Add</button>
+          )}
+        </div>
+      </div>
+
+      {/* Events body */}
+      <div style={{padding:"10px 14px",display:"flex",flexDirection:"column",gap:6}}>
+
+        {isAdmin&&total===0&&(
+          <div style={{color:"#999999",fontSize:10,fontStyle:"italic",padding:"4px 0"}}>Office base — admin, reporting & planning</div>
+        )}
+
+        {!isAdmin&&<AdminBlock start={8} end={9} label="Morning admin / Focus block"/>}
+
+        {total===0&&!isAdmin&&(
+          <div style={{color:"#999999",fontSize:10,fontStyle:"italic",padding:"4px 0"}}>No visits scheduled · tap + Add above</div>
+        )}
+
+        {/* Adhoc events */}
+        {adhocs.map((e,i)=>(
+          <div key={`a${i}`} style={{display:"flex",alignItems:"center",gap:12,background:e.confirmed?"#fdf8ee":"#ffffff",border:`1px solid ${e.confirmed?"#c8ae7944":"#c8ae79"}`,borderLeft:"4px solid #ebcb8b",borderRadius:6,padding:"9px 14px"}}>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:9,color:"#555",fontWeight:600,marginBottom:2}}>{fmtTime(startTime(i))} – {fmtTime(startTime(i)+SLOT)}</div>
+              <div style={{fontSize:9,color:"#ebcb8b",fontWeight:800,letterSpacing:"0.1em",marginBottom:2}}>{(e.kind||"EVENT").toUpperCase()} · AD HOC</div>
+              <div style={{fontSize:13,fontWeight:700,color:"#1a1a1a"}}>{e.title}</div>
+              {e.notes&&<div style={{fontSize:9,color:"#555",marginTop:2}}>{e.notes}</div>}
+            </div>
+            <div style={{display:"flex",gap:5,flexShrink:0}}>
+              <button onClick={()=>onToggle(wk,evIdx(e))} style={{background:e.confirmed?"#ebcb8b":"transparent",border:"1px solid #ebcb8b",borderRadius:4,color:e.confirmed?"#1a1a1a":"#ebcb8b",fontSize:10,padding:"4px 10px",cursor:"pointer",fontWeight:800}}>{e.confirmed?"✓":"Confirm"}</button>
+              {!e.confirmed&&<button onClick={()=>onReschedule(wk,evIdx(e))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#8fbcbb",fontSize:10,padding:"4px 10px",cursor:"pointer",fontWeight:700}}>↻</button>}
+            </div>
+          </div>
+        ))}
+
+        {/* Franchisee meetings */}
+        {mtgs.map((e,i)=>(
+          <div key={`m${i}`} style={{display:"flex",alignItems:"center",gap:12,background:e.confirmed?"#fdf8ee":"#ffffff",border:`1px solid ${e.confirmed?"#c8ae7966":"#c8ae7922"}`,borderLeft:"4px solid #c8ae79",borderRadius:6,padding:"11px 14px"}}>
+            <div style={{fontSize:18,color:"#c8ae79",flexShrink:0}}>◆</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:9,color:"#555",fontWeight:600,marginBottom:2}}>{fmtTime(startTime(adhocs.length+i))} – {fmtTime(startTime(adhocs.length+i)+SLOT)}</div>
+              <div style={{fontSize:9,color:"#c8ae79",fontWeight:800,letterSpacing:"0.1em",marginBottom:2}}>FRANCHISEE MEETING{e.adhoc?" · AD HOC":""}{e.autoFilled?" · ⚡ AUTO-FILLED":""}</div>
+              <div style={{fontSize:14,fontWeight:700,color:"#1a1a1a",marginBottom:3}}>{e.franchiseeName||e.title}</div>
+              <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+                {e.franchiseeRegion&&<Pill label={e.franchiseeRegion} color={REGION_COLORS[e.franchiseeRegion]||"#999999"} small/>}
+                {e.siteCount&&<Pill label={`${e.siteCount} sites`} color="#666" small/>}
+                {e.quarter!=null&&<Pill label={QUARTERS[e.quarter]?.label||""} color={Q_COLORS[e.quarter]||"#999999"} small/>}
+              </div>
+            </div>
+            <div style={{display:"flex",gap:5,flexShrink:0}}>
+              <button onClick={()=>onToggle(wk,evIdx(e))} style={{background:e.confirmed?"#c8ae79":"transparent",border:"1px solid #c8ae79",borderRadius:5,color:e.confirmed?"#1a1a1a":"#c8ae79",fontSize:10,padding:"5px 12px",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{e.confirmed?"✓ Done":"Confirm"}</button>
+              {!e.confirmed&&<button onClick={()=>onReschedule(wk,evIdx(e))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#8fbcbb",fontSize:10,padding:"4px 8px",cursor:"pointer",fontWeight:700}}>↻</button>}
+            </div>
+          </div>
+        ))}
+
+        {/* Site visits — numbered, geo-ordered */}
+        {sortedVisits.map((e,i)=>{
+          const tm=TYPE_META[e.siteType]||TYPE_META.Full;
+          const z=GEO_ZONES[e.zone];
+          const col=z?.color||tm.color;
+          const franchisee=e.fid?F_MAP[e.fid]:null;
+          const eStart=startTime(adhocs.length+mtgs.length+i);
+          return(
+            <div key={`v${i}`} style={{display:"flex",alignItems:"flex-start",gap:12,background:e.confirmed?"#e3f3e9":"#1a1a1a",border:`1px solid ${e.confirmed?"#b8e0c8":"#ffffff"}`,borderLeft:`4px solid ${col}`,borderRadius:6,padding:"11px 14px"}}>
+              <div style={{width:28,height:28,borderRadius:"50%",flexShrink:0,marginTop:2,background:col+"20",border:`2px solid ${col}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:900,color:col}}>{i+1}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:9,color:"#555",fontWeight:600,marginBottom:3}}>{fmtTime(eStart)} – {fmtTime(eStart+SLOT)}</div>
+                <div style={{fontSize:14,fontWeight:700,color:"#1a1a1a",marginBottom:4,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{tm.icon} {e.siteName}</div>
+                <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:4}}>
+                  <Pill label={e.siteType} color={tm.color} small/>
+                  {z&&<Pill label={z.label} color={z.color} small/>}
+                  <Pill label={e.region} color={REGION_COLORS[e.region]||"#999999"} small/>
+                  {e.rescheduled&&<Pill label={`↻ ×${e.rescheduleCount||1}`} color="#8fbcbb" small/>}
+                  {e.outOfTown&&<Pill label="✈ Out of Town" color="#bf616a" small/>}
+                  {e.adhoc&&<Pill label="Ad hoc" color="#ebcb8b" small/>}
+                  {e.autoFilled&&<Pill label="⚡ Auto-filled" color="#a3be8c" small/>}
+                </div>
+                {e.address&&<div style={{fontSize:10,color:"#484848",lineHeight:1.4,marginBottom:franchisee?3:0}}>{e.address}</div>}
+                {franchisee&&<div style={{fontSize:9,color:"#555555"}}>Franchisee: <span style={{color:"#545454"}}>{franchisee.name}</span></div>}
+              </div>
+              <div style={{flexShrink:0,display:"flex",flexDirection:"column",alignItems:"flex-end",gap:6,paddingTop:2}}>
+                <button onClick={()=>onToggle(wk,evIdx(e))} style={{background:e.confirmed?"#a3be8c":"transparent",border:`1px solid ${e.confirmed?"#a3be8c":"#ebebeb"}`,borderRadius:5,color:e.confirmed?"#1a1a1a":"#555",fontSize:11,padding:"7px 16px",cursor:"pointer",fontWeight:800,whiteSpace:"nowrap"}}>{e.confirmed?"✓ Done":"Confirm"}</button>
+                {!e.confirmed&&<button onClick={()=>onReschedule(wk,evIdx(e))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#8fbcbb",fontSize:10,padding:"4px 10px",cursor:"pointer",fontWeight:700}}>↻ Reschedule</button>}
+                {e.address&&<a href={`https://maps.google.com/?q=${encodeURIComponent(e.address)}`} target="_blank" rel="noreferrer" style={{fontSize:9,color:col,textDecoration:"none",fontWeight:600}}>📍 Maps</a>}
+              </div>
+            </div>
+          );
+        })}
+
+        {!isAdmin&&<AdminBlock start={15} end={16} label="Afternoon admin / Focus block"/>}
+      </div>
+    </div>
+  );
+}
+
+// ─── WEEKLY VIEW ──────────────────────────────────────────────────────────────
+function WeeklyView({schedule,onToggle,onReschedule,onAdd,onRemove}){
+  const today=new Date();
+  const todayWk=Math.max(MIN_WEEK, isoWeek(today));
+  const [viewWeek,setViewWeek]=useState(todayWk);
+  const [addModal,setAddModal]=useState(null);
+  const DAY_KEYS=["Mon","Tue","Wed","Thu","Fri"];
+
+  const qi=weekToQuarter(YEAR,viewWeek);
+  const qc=Q_COLORS[qi];
+  const {start:wMon,end:wFri}=weekDates(YEAR,viewWeek);
+
+  function qStats(q){
+    const ev=weeksForQuarter(q).flatMap(w=>(schedule[weekKey(YEAR,w)]||[]));
+    const vis=ev.filter(e=>e.type==="visit");
+    return{visits:vis.length,confirmed:vis.filter(e=>e.confirmed).length};
+  }
+
+  return(
+    <div>
+      {addModal&&<AddEventModal day={addModal} wk={weekKey(YEAR,viewWeek)} onAdd={onAdd} onClose={()=>setAddModal(null)}/>}
+
+      {/* Quarter cards */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginBottom:16}}>
+        {[0,1,2,3].map(q=>{
+          const s=qStats(q);const active=q===qi;
+          return(
+            <div key={q} onClick={()=>setViewWeek(weeksForQuarter(q)[0])}
+              style={{background:active?"#1a1a1a":"#ffffff",border:`1px solid ${active?Q_COLORS[q]+"66":Q_COLORS[q]+"22"}`,borderTop:`3px solid ${Q_COLORS[q]}`,borderRadius:6,padding:"10px 14px",cursor:"pointer"}}>
+              <div style={{fontSize:10,color:Q_COLORS[q],fontWeight:800,letterSpacing:"0.1em",marginBottom:6}}>
+                {QUARTERS[q].label} · {QUARTERS[q].range}
+                {q===0&&<span style={{fontSize:8,color:"#555",marginLeft:6}}>TRIPS ONLY</span>}
+              </div>
+              <div style={{display:"flex",gap:12,marginBottom:6}}>
+                <div><div style={{fontSize:20,fontWeight:900,color:"#1a1a1a",lineHeight:1}}>{s.visits}</div><div style={{fontSize:8,color:"#555555"}}>visits</div></div>
+                <div><div style={{fontSize:20,fontWeight:900,color:Q_COLORS[q],lineHeight:1}}>{s.confirmed}</div><div style={{fontSize:8,color:"#555555"}}>done</div></div>
+              </div>
+              <div style={{background:"#ffffff",borderRadius:2,height:2}}>
+                <div style={{width:`${s.visits?(s.confirmed/s.visits)*100:0}%`,background:Q_COLORS[q],height:2,borderRadius:2,transition:"width 0.4s"}}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Week nav */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,background:"#ffffff",border:"1px solid #1a1a1a",borderRadius:6,padding:"10px 14px"}}>
+        <button onClick={()=>setViewWeek(w=>Math.max(MIN_WEEK,w-4))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#555",padding:"4px 9px",cursor:"pointer",fontSize:13}}>«</button>
+        <button onClick={()=>setViewWeek(w=>Math.max(MIN_WEEK,w-1))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#999999",padding:"4px 9px",cursor:"pointer",fontSize:13}}>‹</button>
+        <div style={{flex:1,textAlign:"center"}}>
+          <div style={{fontSize:13,fontWeight:800,color:"#1a1a1a"}}>Week {viewWeek} · {fmtShort(wMon)} – {fmtShort(wFri)} {YEAR}</div>
+          <div style={{fontSize:10,color:qc,marginTop:2}}>{QUARTERS[qi].label} · {QUARTERS[qi].range}{viewWeek===todayWk?<span style={{color:"#a3be8c",marginLeft:8}}>● This week</span>:null}</div>
+        </div>
+        <button onClick={()=>setViewWeek(w=>Math.min(52,w+1))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#999999",padding:"4px 9px",cursor:"pointer",fontSize:13}}>›</button>
+        <button onClick={()=>setViewWeek(w=>Math.min(52,w+4))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#555",padding:"4px 9px",cursor:"pointer",fontSize:13}}>»</button>
+        <button onClick={()=>setViewWeek(todayWk)} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#555",padding:"4px 10px",cursor:"pointer",fontSize:10,marginLeft:4}}>Today</button>
+      </div>
+
+      {/* Day cards */}
+      <div style={{display:"flex",flexDirection:"column",gap:8}}>
+        {DAY_KEYS.map((day,di)=>(
+          <DayCard key={day} day={day} di={di} viewWeek={viewWeek}
+            schedule={schedule} qc={qc}
+            onToggle={onToggle} onReschedule={onReschedule}
+            onAddModal={setAddModal}/>
+        ))}
+      </div>
+
+      {/* Week strip */}
+      <div style={{marginTop:14,paddingTop:12,borderTop:"1px solid #ffffff"}}>
+        <div style={{fontSize:9,color:"#555555",fontWeight:700,letterSpacing:"0.1em",marginBottom:6}}>JUMP TO WEEK</div>
+        <div style={{display:"flex",gap:2,flexWrap:"wrap"}}>
+          {ALL_WEEKS.map(w=>{
+            const k=weekKey(YEAR,w);const ev=schedule[k]||[];
+            const hasV=ev.some(e=>e.type==="visit"||e.type==="meeting");
+            const hasOOT=ev.some(e=>e.outOfTown);
+            const isCur=w===viewWeek;const isNow=w===todayWk;
+            const qci=Q_COLORS[weekToQuarter(YEAR,w)];
+            return(
+              <div key={w} onClick={()=>setViewWeek(w)}
+                title={`W${w} · ${fmtShort(weekDates(YEAR,w).start)}`}
+                style={{width:20,height:26,borderRadius:3,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:1,
+                  background:isCur?qci:hasOOT?"#fdf8ee":hasV?"#ffffff":"#ffffff",
+                  border:isCur?`2px solid ${qci}`:isNow?"1px solid #555":"1px solid #1a1a1a"}}>
+                <div style={{fontSize:6,color:isCur?"#1a1a1a":hasOOT?"#d08770":"#555555",fontWeight:800,lineHeight:1}}>{w}</div>
+                {hasOOT&&<div style={{width:4,height:4,borderRadius:"50%",background:isCur?"#1a1a1a":"#d08770"}}/>}
+                {!hasOOT&&hasV&&<div style={{width:3,height:3,borderRadius:"50%",background:isCur?"#1a1a1a":qci+"88"}}/>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── FRANCHISEE VIEW ──────────────────────────────────────────────────────────
+function FranchiseeView({schedule}){
+  const [search,setSearch]=useState("");
+  const mtgMap={};
+  Object.values(schedule).flat().forEach(e=>{
+    if(e.type!=="meeting") return;
+    if(!mtgMap[e.franchiseeId]) mtgMap[e.franchiseeId]={};
+    mtgMap[e.franchiseeId][e.quarter]=e;
+  });
+  const filtered=FRANCHISEES.filter(f=>!search||f.name.toLowerCase().includes(search.toLowerCase()));
+  return(
+    <div>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search franchisee…"
+        style={{width:"100%",background:"#ffffff",border:"1px solid #ffffff",color:"#1a1a1a",borderRadius:4,padding:"8px 12px",fontSize:12,marginBottom:14,boxSizing:"border-box"}}/>
+      <div style={{display:"grid",gridTemplateColumns:"1fr repeat(4,90px)",gap:6,marginBottom:8,padding:"0 4px"}}>
+        <div style={{fontSize:9,color:"#555555",fontWeight:700}}>FRANCHISEE</div>
+        {[0,1,2,3].map(q=><div key={q} style={{fontSize:9,color:Q_COLORS[q],fontWeight:700,textAlign:"center"}}>{QUARTERS[q].label}</div>)}
+      </div>
+      {filtered.map(f=>{
+        const qm=mtgMap[f.id]||{};
+        return(
+          <div key={f.id} style={{display:"grid",gridTemplateColumns:"1fr repeat(4,90px)",gap:6,marginBottom:5,background:"#ffffff",border:"1px solid #ffffff",borderLeft:`3px solid ${REGION_COLORS[f.region]||"#555"}`,borderRadius:5,padding:"9px 12px",alignItems:"center"}}>
+            <div>
+              <div style={{fontSize:12,fontWeight:700,color:"#1a1a1a",marginBottom:2}}>{f.name}</div>
+              <div style={{display:"flex",gap:4}}><Pill label={f.region} color={REGION_COLORS[f.region]||"#999999"} small/><Pill label={`${f.sites} sites`} color="#555" small/></div>
+            </div>
+            {[0,1,2,3].map(q=>{
+              const m=qm[q];
+              return(
+                <div key={q} style={{textAlign:"center",background:m?.confirmed?Q_COLORS[q]+"25":q===0?"#1a1a1a":"#ffffff",border:`1px solid ${m?.confirmed?Q_COLORS[q]+"88":q===0?"#ffffff":m?"#ebebeb":"#1a1a1a"}`,borderRadius:4,padding:"5px 4px",fontSize:10,color:m?.confirmed?Q_COLORS[q]:q===0?"#ebebeb":m?"#555":"#ebebeb"}}>
+                  {q===0?"Trips only":m?(m.confirmed?"✓ Done":"Sched."):"—"}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── SITES VIEW ───────────────────────────────────────────────────────────────
+function SitesView({schedule}){
+  const [search,setSearch]=useState("");
+  const [expandedSite,setExpandedSite]=useState(null);
+  const [refData,setRefData]=useState(null);
+  const [selectedPerson,setSelectedPerson]=useState("");
+  const [weeksAhead,setWeeksAhead]=useState(12);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const token=localStorage.getItem("bos_token");
+        const res=await fetch("/api/reference-data",{headers:token?{Authorization:"Bearer "+token}:{}});
+        if(res.ok) setRefData(await res.json());
+      }catch(e){ /* the person layer just won't show options if this fails */ }
+    })();
+  },[]);
+
+  const managers = (refData && refData.managers) || {};
+  const fsmStores = (refData && refData.fsmStores) || {};
+  const allFsmNames = Object.keys(fsmStores);
+  const managerNames = Object.keys(managers);
+  const allFsmAssigned = Array.from(new Set([].concat(...Object.values(managers))));
+  const supportOnlyByRegion = {};
+  Object.entries(SUPPORT_TEAM_BY_REGION).forEach(([region,names])=>{
+    supportOnlyByRegion[region] = names.filter(n=>!allFsmAssigned.includes(n));
+  });
+  const allSupportOnlyNames = Array.from(new Set([].concat(...Object.values(supportOnlyByRegion))));
+  const personOptions = Array.from(new Set([...managerNames, ...allFsmNames, ...allSupportOnlyNames])).sort();
+
+  // Same three plan-builders the Route Grid itself uses (fsmRoutePlan /
+  // managerRoutePlan / supportRoutePlan) — this reuses that exact rotation
+  // logic rather than a second, separately-maintained copy of it.
+  function planForPerson(person){
+    if (managerNames.includes(person)){
+      const fsms = managers[person]||[];
+      const homeRegion = person==="Franlo" ? "Western Cape" : "Gauteng";
+      const stores = Array.from(new Set([].concat(...fsms.map(f=>fsmStores[f]||[]))));
+      return managerRoutePlan(stores, homeRegion);
+    }
+    if (allFsmNames.includes(person)){
+      const mgrEntry = Object.entries(managers).find(([mgr,fsms])=>fsms.includes(person));
+      const homeRegion = mgrEntry && mgrEntry[0]==="Franlo" ? "Western Cape" : "Gauteng";
+      return fsmRoutePlan(fsmStores[person]||[], homeRegion);
+    }
+    const regionEntry = Object.entries(supportOnlyByRegion).find(([region,names])=>names.includes(person));
+    if (!regionEntry) return [];
+    const [region, roster] = regionEntry;
+    const mgrForRegion = Object.entries(managers).find(([mgr,fsms])=>(mgr==="Franlo"?"Western Cape":"Gauteng")===region);
+    const regionFsms = mgrForRegion ? mgrForRegion[1] : [];
+    const mgrStores = Array.from(new Set([].concat(...regionFsms.map(f=>fsmStores[f]||[]))));
+    const pIdx = roster.indexOf(person);
+    return supportRoutePlan(mgrStores, pIdx, roster.length);
+  }
+
+  function dateForAbsoluteWeekday(absIdx){
+    const weekNum = Math.floor(absIdx/5)+1;
+    const dayIdx = absIdx%5;
+    const {start} = weekDates(YEAR, weekNum);
+    const d = new Date(start); d.setDate(start.getDate()+dayIdx);
+    return d;
+  }
+
+  let personVisits = null;
+  if (selectedPerson && refData){
+    const plan = planForPerson(selectedPerson);
+    const nowWeek = Math.max(MIN_WEEK, isoWeek(new Date()));
+    const startAbsIdx = absoluteWeekdayIndex(nowWeek,0);
+    const DAY_LABELS=["Mon","Tue","Wed","Thu","Fri"];
+    const grouped = {};
+    for(let i=startAbsIdx;i<startAbsIdx+weeksAhead*5 && i<plan.length;i++){
+      (plan[i]||[]).forEach(name=>{
+        if(!grouped[name]) grouped[name]=[];
+        grouped[name].push({date:dateForAbsoluteWeekday(i), day:DAY_LABELS[i%5]});
+      });
+    }
+    personVisits = Object.entries(grouped).map(([name,visits])=>({name,visits})).sort((a,b)=>a.name.localeCompare(b.name));
+  }
+
+  const visitMap={};
+  Object.entries(schedule).forEach(([wk,evs])=>{
+    evs.forEach(e=>{
+      if(e.type!=="visit") return;
+      if(!visitMap[e.siteId]) visitMap[e.siteId]=[];
+      visitMap[e.siteId].push({wk, date: weekDates(YEAR,parseWeek(wk)).start, confirmed: e.confirmed, rescheduled: e.rescheduled, day: e.scheduledDay});
+    });
+  });
+  const filtered=ALL_SITES.filter(s=>!search||[s.name,s.town].some(x=>x?.toLowerCase().includes(search.toLowerCase())))
+    .sort((a,b)=>a.name.localeCompare(b.name));
+  return(
+    <div>
+      <div style={{background:"#ffffff",border:"1px solid #ebebeb",borderTop:"3px solid #c8ae79",borderRadius:6,padding:16,marginBottom:16}}>
+        <div style={{fontSize:11,fontWeight:800,color:"#1a1a1a",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:10}}>View By Support Team Member</div>
+        <div style={{display:"flex",gap:10,flexWrap:"wrap",alignItems:"center",marginBottom:selectedPerson?14:0}}>
+          <select value={selectedPerson} onChange={e=>setSelectedPerson(e.target.value)}
+            style={{background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"7px 10px",fontSize:11,minWidth:200}}>
+            <option value="">— select a team member —</option>
+            {personOptions.map(p=><option key={p} value={p}>{p}</option>)}
+          </select>
+          {selectedPerson && (
+            <select value={weeksAhead} onChange={e=>setWeeksAhead(parseInt(e.target.value,10))}
+              style={{background:"#ffffff",border:"1px solid #ebebeb",color:"#1a1a1a",borderRadius:4,padding:"7px 10px",fontSize:11}}>
+              <option value={4}>Next 4 weeks</option>
+              <option value={8}>Next 8 weeks</option>
+              <option value={12}>Next 12 weeks</option>
+              <option value={26}>Next 26 weeks</option>
+            </select>
+          )}
+        </div>
+        {selectedPerson && !refData && <div style={{fontSize:11,color:"#999999"}}>Loading roster…</div>}
+        {selectedPerson && refData && personVisits && (
+          personVisits.length ? (
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(220px,1fr))",gap:10}}>
+              {personVisits.map(pv=>(
+                <div key={pv.name} style={{border:"1px solid #ebebeb",borderRadius:4,padding:10}}>
+                  <div style={{fontSize:12,fontWeight:700,color:"#1a1a1a",marginBottom:4}}>{pv.name}</div>
+                  <div style={{fontSize:9.5,color:"#8f733f",fontWeight:700,marginBottom:6}}>{pv.visits.length}× in the next {weeksAhead} weeks</div>
+                  <div style={{fontSize:10,color:"#555555",lineHeight:1.6}}>
+                    {pv.visits.map((v,i)=>(<div key={i}>{v.day} {fmtShort(v.date)}</div>))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : <div style={{fontSize:11,color:"#999999"}}>No cafés assigned to this person yet.</div>
+        )}
+      </div>
+
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search café name…"
+        style={{width:"100%",background:"#ffffff",border:"1px solid #ffffff",color:"#1a1a1a",borderRadius:4,padding:"8px 12px",fontSize:11,marginBottom:12}}/>
+      <div style={{fontSize:10,color:"#999999",marginBottom:10}}>{filtered.length} sites — click a café to see who's visiting and when</div>
+      <div style={{background:"#ffffff",border:"1px solid #ffffff",borderRadius:6,overflow:"hidden"}}>
+        {filtered.map(s=>{
+          const visits=(visitMap[s.id]||[]).sort((a,b)=>a.date-b.date);
+          const isExpanded=expandedSite===s.id;
+          return (
+            <div key={s.id} style={{borderBottom:"1px solid #ffffff"}}>
+              <div onClick={()=>setExpandedSite(isExpanded?null:s.id)} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",cursor:"pointer"}}>
+                <span style={{fontSize:12,color:"#1a1a1a",fontWeight:700}}>{s.name}</span>
+                <span style={{fontSize:11,color:visits.length?"#c8ae79":"#ebebeb",fontWeight:800}}>{visits.length} visit{visits.length===1?"":"s"} {isExpanded?"▲":"▼"}</span>
+              </div>
+              {isExpanded && (
+                <div style={{padding:"0 14px 12px",background:"#f7f7f7"}}>
+                  {visits.length ? visits.map((v,i)=>(
+                    <div key={i} style={{display:"flex",justifyContent:"space-between",fontSize:10.5,padding:"5px 0",borderBottom:i<visits.length-1?"1px solid #ffffff":"none"}}>
+                      <span style={{color:"#999999"}}>Franlo{v.day?` · ${v.day}`:""}</span>
+                      <span style={{color:"#666"}}>{fmtShort(v.date)} (W{parseWeek(v.wk)}){v.confirmed?" · ✓ confirmed":v.rescheduled?" · rescheduled":""}</span>
+                    </div>
+                  )) : <div style={{fontSize:10.5,color:"#555555",padding:"6px 0"}}>No visits scheduled for this café.</div>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── OVERDUE VIEW ─────────────────────────────────────────────────────────────
+function OverdueView({schedule,onToggle,onResetShuffle}){
+  const now=Math.max(isoWeek(new Date()),RESCHEDULE_FROM_WEEK);
+  const overdue=[],rescheduled=[];
+  Object.entries(schedule).forEach(([k,evs])=>{
+    const wNum=parseWeek(k);
+    evs.forEach((e,idx)=>{
+      if(e.confirmed) return;
+      if(e.rescheduled) rescheduled.push({...e,wk:k,idx});
+      else if(wNum<now) overdue.push({...e,wk:k,idx});
+    });
+  });
+  const total=overdue.length+rescheduled.length;
+  if(total===0) return(
+    <div style={{display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"60px 0",textAlign:"center"}}>
+      <div style={{fontSize:32,marginBottom:10}}>✓</div>
+      <div style={{fontSize:14,color:"#1a7a44",fontWeight:700}}>All clear</div>
+      <div style={{fontSize:11,color:"#999999",marginTop:4}}>No overdue or rescheduled items</div>
+    </div>
+  );
+  function Card({e,badge,col}){
+    const tm=e.siteType?TYPE_META[e.siteType]||TYPE_META.Full:null;
+    const {start}=weekDates(YEAR,parseWeek(e.wk));
+    return(
+      <div style={{background:"#ffffff",border:`1px solid ${col}33`,borderLeft:`3px solid ${col}`,borderRadius:5,padding:"11px 13px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div style={{flex:1}}>
+          <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:5}}>
+            <Pill label={badge} color={col} small/>
+            {e.rescheduleCount>0&&<Pill label={`×${e.rescheduleCount} rescheduled`} color="#666" small/>}
+            {Number.isFinite(e.originalWeek)&&<span style={{fontSize:9,color:"#999999"}}>Originally W{e.originalWeek}</span>}
+          </div>
+          {e.type==="visit"?(
+            <><div style={{fontSize:12,fontWeight:700,color:"#1a1a1a",marginBottom:3}}>{tm?.icon} {e.siteName}</div>
+            {e.address&&<div style={{fontSize:9,color:"#555555"}}>{e.address}</div>}</>
+          ):e.type==="meeting"?(
+            <><div style={{fontSize:12,fontWeight:700,color:"#1a1a1a",marginBottom:3}}>◆ {e.franchiseeName}</div>
+            {e.franchiseeRegion&&<div style={{fontSize:9,color:"#555555"}}>{e.franchiseeRegion}</div>}</>
+          ):(
+            <div style={{fontSize:12,fontWeight:700,color:"#1a1a1a",marginBottom:3}}>{e.title}</div>
+          )}
+          <div style={{fontSize:9,color:"#555555",marginTop:5}}>→ W{parseWeek(e.wk)} ({fmtShort(start)})</div>
+        </div>
+        <button onClick={()=>onToggle(e.wk,e.idx)} style={{flexShrink:0,marginLeft:10,background:"transparent",border:"1px solid #b8e0c8",borderRadius:3,color:"#1a7a44",fontSize:9,padding:"3px 8px",cursor:"pointer",fontWeight:800}}>DONE ✓</button>
+      </div>
+    );
+  }
+  return(
+    <div>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14,flexWrap:"wrap",gap:8}}>
+        <div style={{fontSize:10,color:"#666"}}>Rescheduled visits spread evenly across the rest of the quarter's remaining weeks.</div>
+        <button onClick={onResetShuffle} style={{background:"#ffffff",border:"1px solid #ebebeb",borderRadius:4,color:"#c8ae79",fontSize:10.5,padding:"6px 12px",cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>
+          ↻ Reset &amp; Shuffle Into Rest of Quarter
+        </button>
+      </div>
+      <div style={{display:"flex",gap:10,marginBottom:20,flexWrap:"wrap"}}>
+        <div style={{background:"#fdf1ec",border:"1px solid #d0877033",borderRadius:6,padding:"12px 18px",flex:1}}>
+          <div style={{fontSize:22,fontWeight:900,color:"#d08770"}}>{overdue.length}</div>
+          <div style={{fontSize:10,color:"#555",marginTop:3}}>OVERDUE</div>
+        </div>
+        <div style={{background:"#eef7f6",border:"1px solid #8fbcbb33",borderRadius:6,padding:"12px 18px",flex:1}}>
+          <div style={{fontSize:22,fontWeight:900,color:"#8fbcbb"}}>{rescheduled.length}</div>
+          <div style={{fontSize:10,color:"#555",marginTop:3}}>RESCHEDULED</div>
+        </div>
+      </div>
+      {overdue.length>0&&<><div style={{fontSize:10,color:"#d08770",fontWeight:800,letterSpacing:"0.1em",marginBottom:8}}>⚠ OVERDUE</div>{overdue.map((e,i)=><Card key={i} e={e} badge="OVERDUE" col="#d08770"/>)}</>}
+      {rescheduled.length>0&&<><div style={{fontSize:10,color:"#8fbcbb",fontWeight:800,letterSpacing:"0.1em",marginBottom:8,marginTop:16}}>↻ RESCHEDULED</div>{rescheduled.map((e,i)=><Card key={i} e={e} badge="RESCHEDULED" col="#8fbcbb"/>)}</>}
+    </div>
+  );
+}
+
+// ─── ROUTE GRID VIEW (WC Master style) ─────────────────────────────────────
+// New, additive view — pre-populated weekly route grid grouped by region,
+// styled to match the rest of BOS (light background, black/gold accents),
+// sitting alongside the existing scheduling mechanism without touching it.
+// FSM roster and café portfolios are pulled live from the same reference
+// data BOS itself uses, so this never drifts out of sync with the main app.
+// Wider support team roster (mirrors BOS's own list) — names here that
+// aren't already one of the FSMs above get a roaming, every-café rotation.
+const SUPPORT_TEAM_BY_REGION = {
+  "Western Cape": ["Tristan Smith", "Aphiwe Mqakayi", "Addright Chigama"],
+  "Gauteng": ["Tshepo Goqo", "Siphesihle Gwadela", "Mini Mohale", "Johannes Moloto"],
+};
+
+const thStyleRG={padding:"8px 10px",textAlign:"left",fontSize:9.5,letterSpacing:"0.05em",textTransform:"uppercase",color:"#8f733f",borderBottom:"2px solid #ebebeb",fontWeight:800};
+const navBtnStyleRG={background:"#fff",border:"1px solid #d4d4d4",borderRadius:4,color:"#555555",padding:"4px 10px",fontSize:10.5,cursor:"pointer",fontFamily:"inherit"};
+
+// Cadence targets, expressed in weekdays between visits:
+//   FSM local ≈ monthly (20 weekdays) · FSM outlying ≈ every 6 weeks (30) · FSM Namibia ≈ every 2 months (40)
+//   Non-FSM support: CPT & Gauteng cafés ≈ monthly (20) · outlying cafés ≈ every 2 months (40)
+//   Regional managers (Franlo/Tarryn) local ≈ monthly (20) · outlying (incl. Namibia) ≈ quarterly (65)
+//   Support team + managers also gap-fill: any day with no café actually due
+//   still gets a visit, cycling through the full list from café #1 onward,
+//   rather than sitting empty.
+const CADENCE = { local: 20, outlying: 30, namibia: 40, supportLocal: 20, supportOutlying: 40, managerLocal: 20, managerOutlying: 65 };
+const NAMIBIA_FALLBACK = new Set(["The Grove", "FNB"]);
+
+// Zones that are technically still "Western Cape" (province) but require a
+// genuine trip out of the Cape Town metro — as opposed to e.g. CityBowlAtlantic
+// or SouthernSubs, which are same-day local visits. Previously, classifyStore
+// only compared province strings, so Stellenbosch/Hartenbos/Hermanus/Franschhoek/
+// Langebaan etc. were all silently getting "local" (monthly) cadence just because
+// they share the "Western Cape" region value with Cape Town proper.
+const OUTLYING_WC_ZONES = new Set(["Winelands","FalseBay","GardenRoute","Overberg","WestCoast"]);
+
+function buildSiteRegionMap(){
+  const map = {};
+  (typeof ALL_SITES !== "undefined" ? ALL_SITES : []).forEach(s => {
+    map[s.name] = { region: s.region, zone: s.zone, areaType: OUTLYING_WC_ZONES.has(s.zone) ? "outlying" : "metro" };
+  });
+  return map;
+}
+const SITE_REGION_MAP = buildSiteRegionMap();
+
+function classifyStore(storeName, homeRegion){
+  const info = SITE_REGION_MAP[storeName];
+  if (info) {
+    if (info.region === "Namibia") return "namibia";
+    if (info.region !== homeRegion) return "outlying"; // different province entirely
+    return info.areaType === "outlying" ? "outlying" : "local"; // same province, but check metro vs out-of-town
+  }
+  if (NAMIBIA_FALLBACK.has(storeName)) return "namibia";
+  // Not in the WC/EC/N.Cape site list at all — most likely a Gauteng café,
+  // since this scheduler's own site list doesn't currently include Gauteng.
+  return homeRegion === "Gauteng" ? "local" : "outlying";
+}
+
+// Support team roams across BOTH Cape Town and Gauteng at once (no single
+// "home region" to compare against), so it needs its own metro-vs-outlying
+// check rather than classifyStore's home-region comparison: metro means
+// Cape Town proper OR Gauteng proper; outlying means anywhere else (Garden
+// Route, Overberg, Winelands, False Bay, EC, Namibia, or a Gauteng-team café
+// that's actually in KZN/Free State/North West/Mpumalanga/Limpopo/N.Cape).
+function isMetroSite(storeName){
+  const info = SITE_REGION_MAP[storeName];
+  if (!info) return false;
+  if (info.region !== "Western Cape" && info.region !== "Gauteng") return false;
+  return info.areaType !== "outlying";
+}
+
+// Every outlying zone that has 2+ cafés anywhere in the system, computed
+// once from the full site list (not from any one person's own slice). This
+// is what lets an FSM's outlying trip and the support team's visit to the
+// SAME zone land on the exact same week — both schedules recognize the zone
+// as "batchable" and synchronize to it identically, regardless of who's
+// asking or which subset of stores they personally cover.
+const ZONE_SITE_NAMES = {};
+(typeof ALL_SITES !== "undefined" ? ALL_SITES : []).forEach(s => {
+  if (s.zone) (ZONE_SITE_NAMES[s.zone] = ZONE_SITE_NAMES[s.zone] || []).push(s.name);
+});
+const BATCHABLE_ZONES = new Set(
+  Object.keys(ZONE_SITE_NAMES).filter(z => ZONE_SITE_NAMES[z].length >= 2 && !isMetroSite(ZONE_SITE_NAMES[z][0]))
+);
+// A stable, deterministic offset per zone name (not derived from any one
+// list's own ordering) — this is the shared "anchor" that keeps an FSM's
+// trip and a support member's trip to the same zone permanently in phase.
+function zonePhaseOffset(zoneName, period){
+  let hash = 0;
+  for (let i=0; i<zoneName.length; i++) hash = (hash*31 + zoneName.charCodeAt(i)) % 100000;
+  return hash % period;
+}
+
+// Deterministic day-by-day rotation: each store has a target cadence (period,
+// in weekdays). Every day, whichever eligible stores are most "overdue"
+// relative to their own period get one of up to 2 slots. This naturally
+// gives busier days on stores with a short period (local, monthly) and rarer
+// appearances for 6-weekly/quarterly/bi-monthly stores, rather than forcing
+// every day to show exactly 2 regardless of whether anything's actually due.
+function buildRotationPlan(storesWithPeriod, horizonDays, slotsPerDay, opts){
+  if (!storesWithPeriod.length) return Array.from({length:horizonDays},()=>[]);
+  opts = opts || {};
+  const fillGaps = !!opts.fillGaps;
+
+  // Outlying zone batching: cafés sharing a zone that are BOTH flagged
+  // "outlying" get their due-dates synced so they come due together, and
+  // once one of them is picked, the rest of that zone's cafés take priority
+  // for the remaining days of that same week — so a multi-café outlying
+  // cluster (e.g. all the Garden Route cafés, or all of Durban) happens as
+  // one week-long sweep instead of scattering across separate weeks/months.
+  // Local zones are unaffected — this only ever applies to cafés already
+  // tagged outlying by their caller (fsmRoutePlan/managerRoutePlan/etc).
+  const zoneGroups = {};
+  storesWithPeriod.forEach(s => {
+    if (s.zone && s.outlying && BATCHABLE_ZONES.has(s.zone)) (zoneGroups[s.zone] = zoneGroups[s.zone] || []).push(s);
+  });
+  const batchZones = new Set(Object.keys(zoneGroups));
+  const batchMemberNames = new Set();
+  batchZones.forEach(zone => zoneGroups[zone].forEach(s => batchMemberNames.add(s.name)));
+
+  const lastVisited = {};
+  storesWithPeriod.forEach((s,i) => { lastVisited[s.name] = -Math.round((i/storesWithPeriod.length)*s.period); });
+  // Synchronize each batch zone's members to a shared, deterministic offset
+  // anchored to the zone name itself (not this particular list's own
+  // average) — so the SAME zone always comes due on the SAME day no matter
+  // whose schedule is being computed, letting an FSM's outlying trip and the
+  // support team's visit to that zone land on the identical week.
+  batchZones.forEach(zone => {
+    const members = zoneGroups[zone];
+    const period = members[0].period;
+    const anchorOffset = -zonePhaseOffset(zone, period);
+    members.forEach(s => { lastVisited[s.name] = anchorOffset; });
+  });
+
+  let fillCursor = 0; // gap-filling round-robin pointer — starts at café #1 (index 0)
+  let activeBatchZones = new Set(); // outlying zones currently being "swept" this week
+  let visitedThisWeek = new Set();
+  const plan = [];
+  for (let day=0; day<horizonDays; day++){
+    // Mondays default to Admin days — no auto-assigned café visits. A café
+    // that happened to be "due" on a Monday simply waits one day; nothing
+    // is skipped or lost, it just shifts to Tuesday. Manual visits can still
+    // be added to a Monday directly in the grid if genuinely needed.
+    if (day % 5 === 0) { plan.push([]); activeBatchZones = new Set(); visitedThisWeek = new Set(); continue; }
+
+    // At the start of a week (Tuesday), lock in any batch zones that have a
+    // due café — each then gets priority for the rest of this week. More
+    // than one zone can be active at once (e.g. Winelands and Garden Route
+    // both due the same week); one large zone should never crowd out another.
+    if (day % 5 === 1) {
+      batchZones.forEach(zone => {
+        if (!activeBatchZones.has(zone) && zoneGroups[zone].some(s => day - lastVisited[s.name] >= s.period)) {
+          activeBatchZones.add(zone);
+        }
+      });
+    }
+
+    const eligible = storesWithPeriod
+      .filter(s => day - lastVisited[s.name] >= s.period)
+      .sort((a,b) => ((day-lastVisited[b.name])/b.period) - ((day-lastVisited[a.name])/a.period));
+
+    const chosen = [];
+
+    // 1) Batch-zone sweep takes priority: fill slots with active zones' not-
+    // yet-visited-this-week cafés first, regardless of individual due date —
+    // they're along for the same trip.
+    for (const zone of activeBatchZones) {
+      if (chosen.length >= slotsPerDay) break;
+      for (const s of zoneGroups[zone]) {
+        if (chosen.length >= slotsPerDay) break;
+        if (!visitedThisWeek.has(s.name)) chosen.push(s);
+      }
+    }
+
+    // 2) Normal most-overdue selection for any remaining slot(s), still
+    // preferring a same-zone pairing where one's available.
+    if (chosen.length < slotsPerDay) {
+      const stillEligible = eligible.filter(s => !chosen.includes(s));
+      if (stillEligible.length && !chosen.length) chosen.push(stillEligible[0]);
+      while (chosen.length < slotsPerDay) {
+        const remaining = stillEligible.filter(s => !chosen.includes(s));
+        if (!remaining.length) break;
+        const sameZone = remaining.find(s => s.zone && chosen.some(c => c.zone === s.zone));
+        chosen.push(sameZone || remaining[0]);
+      }
+    }
+
+    // 3) Gap-filling: if nothing — or not enough — is actually due today,
+    // don't leave the day empty. Cycle through the full list in order,
+    // starting from café #1, so every idle slot still turns into a visit.
+    // This never shortens any café's due cadence; it only adds bonus early
+    // visits on days that would otherwise be blank. Batch-zone members are
+    // skipped here — they should only ever be visited via their zone's
+    // synchronized sweep, or they'd fall out of sync with their group.
+    if (fillGaps) {
+      while (chosen.length < slotsPerDay) {
+        let picked = null;
+        for (let tries=0; tries<storesWithPeriod.length; tries++){
+          const candidate = storesWithPeriod[fillCursor % storesWithPeriod.length];
+          fillCursor++;
+          if (!chosen.includes(candidate) && !batchMemberNames.has(candidate.name)) { picked = candidate; break; }
+        }
+        if (!picked) break;
+        chosen.push(picked);
+      }
+    }
+
+    chosen.forEach(s => { lastVisited[s.name] = day; visitedThisWeek.add(s.name); });
+    plan.push(chosen.map(s => s.name));
+
+    activeBatchZones.forEach(zone => {
+      if (zoneGroups[zone].every(s => visitedThisWeek.has(s.name))) activeBatchZones.delete(zone); // this zone's trip is done — free for a new one next week
+    });
+  }
+  return plan;
+}
+
+// Absolute weekday index since the start of the year — gives every person's
+// rotation a stable, continuous cadence across week navigation instead of
+// resetting each time you flip weeks.
+function absoluteWeekdayIndex(weekNum, dayIdx){ return (weekNum-1)*5 + dayIdx; }
+const ROTATION_HORIZON = 300; // ~60 weeks — comfortably covers a year of navigation
+
+function fsmRoutePlan(storeList, homeRegion){
+  const withPeriod = storeList.map(name => {
+    const cls = classifyStore(name, homeRegion);
+    const zone = (SITE_REGION_MAP[name]||{}).zone || null;
+    return { name, zone, outlying: cls!=="local", period: cls==="local" ? CADENCE.local : cls==="outlying" ? CADENCE.outlying : CADENCE.namibia };
+  });
+  return buildRotationPlan(withPeriod, ROTATION_HORIZON, 2, {fillGaps:true});
+}
+function supportRoutePlan(allStores, personIndex, personCount){
+  // Split the full café list across the support team so each store gets one
+  // assigned person (aligned with whichever FSM visit is nearby, for ease of
+  // travel) rather than every support member redundantly visiting the same
+  // café on the same day.
+  const mySlice = allStores.filter((_, i) => i % personCount === personIndex);
+  const withPeriod = mySlice.map(name => {
+    const zone = (SITE_REGION_MAP[name]||{}).zone || null;
+    const metro = isMetroSite(name);
+    // A café in a batchable outlying cluster (e.g. Garden Route) shares the
+    // FSM's own outlying cadence, not the usual bimonthly support cadence —
+    // that's what keeps the support visit permanently combined with the
+    // FSM's trip to the same zone, rather than drifting apart over time.
+    const period = metro ? CADENCE.supportLocal : (zone && BATCHABLE_ZONES.has(zone) ? CADENCE.outlying : CADENCE.supportOutlying);
+    return { name, zone, outlying: !metro, period };
+  });
+  return buildRotationPlan(withPeriod, ROTATION_HORIZON, 2, {fillGaps:true});
+}
+function managerRoutePlan(storeList, homeRegion){
+  const withPeriod = storeList.map(name => {
+    const cls = classifyStore(name, homeRegion);
+    const zone = (SITE_REGION_MAP[name]||{}).zone || null;
+    return { name, zone, outlying: cls!=="local", period: cls==="local" ? CADENCE.managerLocal : CADENCE.managerOutlying };
+  });
+  return buildRotationPlan(withPeriod, ROTATION_HORIZON, 2, {fillGaps:true});
+}
+
+// Franchisee visits align to a day when the manager is already scheduled to
+// be at one of that franchisee's own cafés — e.g. Stephan Jooste (owns
+// Strand, Gordon's Bay, Somerset Mall) gets his check-in slotted onto
+// whichever of those three the manager's route already touches that week,
+// instead of an independent, unrelated date needing a second trip.
+function buildFranchiseeStoreMap(){
+  const map = {};
+  (typeof ALL_SITES !== "undefined" ? ALL_SITES : []).forEach(s => {
+    if (s.fid) { if (!map[s.fid]) map[s.fid] = []; map[s.fid].push(s.name); }
+  });
+  return map;
+}
+const FRANCHISEE_STORE_MAP = buildFranchiseeStoreMap();
+
+// A franchisee belongs to a manager's region if they own AT LEAST ONE café
+// that manager's FSMs actually visit — not by comparing a single static
+// region string, which breaks the moment a franchisee's cafés span more
+// than one province (e.g. Fayyaz Moosa owns cafés in the Western Cape,
+// Gauteng, AND KwaZulu-Natal all at once).
+function franchiseesForStores(mgrStores){
+  const storeSet = new Set(mgrStores);
+  return FRANCHISEES.filter(f => (FRANCHISEE_STORE_MAP[f.id] || []).some(s => storeSet.has(s))).map(f => f.id);
+}
+
+function franchiseeVisitPlanAligned(franchiseeIds, regionPlan, horizonDays){
+  const period = CADENCE.managerOutlying;
+  const plan = Array.from({length:horizonDays},()=>[]);
+  franchiseeIds.forEach((fid,idx)=>{
+    const linkedStores = FRANCHISEE_STORE_MAP[fid] || [];
+    const franchiseeName = (FRANCHISEES.find(f=>f.id===fid)||{}).name || fid;
+    let nextDue = Math.round((idx/franchiseeIds.length)*period);
+    while (nextDue < horizonDays){
+      let placedDay = nextDue;
+      let alignedStore = null;
+      // Look up to two weeks ahead of the "due" date for a day the manager
+      // is already at one of this franchisee's cafés.
+      for (let look=0; look<14 && nextDue+look<horizonDays; look++){
+        const dayStores = regionPlan[nextDue+look] || [];
+        const match = linkedStores.find(s => dayStores.includes(s));
+        if (match) { placedDay = nextDue+look; alignedStore = match; break; }
+      }
+      plan[placedDay].push(alignedStore ? `${franchiseeName} (at ${alignedStore})` : franchiseeName);
+      nextDue += period;
+    }
+  });
+  return plan;
+}
+
+// ─── FRANCHISEE VISITS VIEW ─────────────────────────────────────────────────
+// Monthly view of Franlo & Tarryn's quarterly franchisee check-ins — the same
+// rotation shown as a badge in the Route Grid, surfaced here as its own
+// dedicated, easy-to-scan list so it doesn't get missed inside the grid.
+function FranchiseeVisitsView(){
+  const [refData,setRefData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [quarterOffset,setQuarterOffset]=useState(0);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const token=localStorage.getItem("bos_token");
+        const res=await fetch("/api/reference-data",{headers:token?{Authorization:"Bearer "+token}:{}});
+        if(res.ok) setRefData(await res.json());
+      }catch(e){}
+      setLoading(false);
+    })();
+  },[]);
+
+  if(loading) return <div style={{padding:24,color:"#999",fontSize:12}}>Loading franchisee visits…</div>;
+  if(!refData) return <div style={{padding:24,color:"#d08770",fontSize:12}}>Could not load data from BOS — check your connection and reload.</div>;
+
+  const managers=refData.managers||{};
+  const currentWeek=Math.max(MIN_WEEK, isoWeek(new Date()));
+  const currentQi=weekToQuarter(YEAR,currentWeek);
+  const targetQi=(currentQi+quarterOffset+4)%4;
+  const quarterWeeks=weeksForQuarter(targetQi).filter(w=>quarterOffset>0 || w>=currentWeek);
+  const qLabel=QUARTERS[targetQi];
+
+  const fsmStores=refData.fsmStores||{};
+  const regions=Object.entries(managers).map(([mgr,fsms])=>({
+    name: mgr==="Franlo" ? "Franlo" : mgr,
+    homeRegion: mgr==="Franlo" ? "Western Cape" : "Gauteng",
+    fsms,
+  }));
+
+  return (
+    <div style={{background:"#fff",borderRadius:6,border:"1px solid #ebebeb",overflow:"hidden",fontFamily:"-apple-system,'Segoe UI','Helvetica Neue',sans-serif"}}>
+      <div style={{background:"#1a1a1a",padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{color:"#c8ae79",fontWeight:800,fontSize:12,letterSpacing:"0.08em"}}>FRANCHISEE VISITS</div>
+          <div style={{color:"#8f733f",fontSize:10,marginTop:2}}>{qLabel.label} · {qLabel.range} · Aligned to café visits</div>
+        </div>
+        <div style={{display:"flex",gap:6}}>
+          <button onClick={()=>setQuarterOffset(o=>o-1)} style={navBtnStyleRG}>← Prev Quarter</button>
+          <button onClick={()=>setQuarterOffset(0)} style={navBtnStyleRG}>This Quarter</button>
+          <button onClick={()=>setQuarterOffset(o=>o+1)} style={navBtnStyleRG}>Next Quarter →</button>
+        </div>
+      </div>
+      <div style={{padding:16}}>
+        {regions.map(region=>{
+          const mgrStores = Array.from(new Set([].concat(...region.fsms.map(f=>fsmStores[f]||[]))));
+          const regionPlan = managerRoutePlan(mgrStores, region.homeRegion);
+          const franchiseeIds = franchiseesForStores(mgrStores);
+          const plan = franchiseeVisitPlanAligned(franchiseeIds, regionPlan, ROTATION_HORIZON);
+          const rows=[];
+          quarterWeeks.forEach(weekNum=>{
+            const wkDates=weekDates(YEAR,weekNum);
+            [0,1,2,3,4].forEach(di=>{
+              const abs=absoluteWeekdayIndex(weekNum,di);
+              const due=(plan[abs]||[])[0];
+              if(due){
+                const d=new Date(wkDates.start); d.setDate(wkDates.start.getDate()+di);
+                const plainName=due.replace(/\s*\(at [^)]+\)$/,"");
+                rows.push({date:d, franchisee:plainName});
+              }
+            });
+          });
+          rows.sort((a,b)=>a.date-b.date);
+          return (
+            <div key={region.name} style={{marginBottom:20}}>
+              <div style={{background:"#c8ae7922",color:"#8f733f",fontWeight:800,fontSize:10.5,letterSpacing:"0.06em",padding:"7px 12px",textTransform:"uppercase",borderRadius:3,marginBottom:8}}>
+                {region.name} — {region.homeRegion}
+              </div>
+              {rows.length ? (
+                <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5}}>
+                  <thead>
+                    <tr style={{background:"#ffffff"}}>
+                      <th style={thStyleRG}>Date</th>
+                      <th style={thStyleRG}>Franchisee</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((r,i)=>(
+                      <tr key={i} style={{borderBottom:"1px solid #f0ece0"}}>
+                        <td style={{padding:"8px 10px"}}>{r.date.toLocaleDateString("en-ZA",{weekday:"short",day:"numeric",month:"short"})}</td>
+                        <td style={{padding:"8px 10px",fontWeight:700,color:"#1a1a1a"}}>🤝 {r.franchisee}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{padding:"8px 12px",color:"#999999",fontSize:10.5}}>No franchisee visits due this quarter for {region.name}.</div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{padding:"9px 18px",fontSize:9.5,color:"#999",borderTop:"1px solid #f0ece0"}}>
+        Franlo and Tarryn each check in with their region's franchisees roughly once a quarter — slotted onto a day they're already visiting one of that franchisee's own cafés, so it's not a separate trip. The same visits also show as a 🤝 badge in the Master Route Grid on the relevant day.
+      </div>
+    </div>
+  );
+}
+
+function RouteGridView({selectedPerson}){
+  const [refData,setRefData]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [viewWeek,setViewWeek]=useState(()=>Math.max(MIN_WEEK, isoWeek(new Date())));
+  const [routes,setRoutes]=useState({});
+  const [expandedPerson,setExpandedPerson]=useState(null);
+  const filterName = selectedPerson && selectedPerson!=="__admin__"
+    ? (selectedPerson.startsWith("__mgr__") ? selectedPerson.replace("__mgr__","") : selectedPerson)
+    : null;
+  useEffect(()=>{ if(filterName) setExpandedPerson(filterName); }, [filterName]);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const token=localStorage.getItem("bos_token");
+        const res=await fetch("/api/reference-data",{headers:token?{Authorization:"Bearer "+token}:{}});
+        if(res.ok) setRefData(await res.json());
+      }catch(e){/* falls back to empty grid below */}
+      setLoading(false);
+    })();
+  },[]);
+
+  useEffect(()=>{
+    (async()=>{
+      const saved=await store.get("route-grid:"+weekKey(YEAR,viewWeek));
+      try{ setRoutes(saved&&saved.value?JSON.parse(saved.value):{}); }catch(e){ setRoutes({}); }
+    })();
+  },[viewWeek]);
+
+  if(loading) return <div style={{padding:24,color:"#999",fontSize:12}}>Loading route grid…</div>;
+  if(!refData) return <div style={{padding:24,color:"#d08770",fontSize:12}}>Could not load the FSM roster from BOS — check your connection and reload.</div>;
+
+  const wk=weekDates(YEAR,viewWeek);
+  // 7 columns: Mon–Fri (auto-populated per the rotation algorithm) plus
+  // Sat/Sun as manual "Support Day" columns — same build (Add Visit,
+  // Confirm/Reschedule/Maps, multi-entry) as any weekday, but never
+  // auto-filled, since the rotation math is weekday-indexed only.
+  const days=Array.from({length:7},(_,i)=>{const d=new Date(wk.start);d.setDate(wk.start.getDate()+i);return d;});
+  const managers=refData.managers||{};
+  const fsmStores=refData.fsmStores||{};
+  const allSupportNames = Array.from(new Set([].concat(...Object.values(managers))));
+  const allStoreNames = Array.from(new Set([].concat(...Object.values(fsmStores))));
+
+  const regions=Object.entries(managers).map(([mgr,fsms])=>({
+    label: mgr==="Franlo" ? "Western Cape — Franlo's Team" : `${mgr}'s Team`,
+    homeRegion: mgr==="Franlo" ? "Western Cape" : "Gauteng",
+    fsms,
+  }));
+
+  const dayStart = absoluteWeekdayIndex(viewWeek, 0);
+
+  function cellKey(person,dayIdx){ return person+"|"+dayIdx; }
+  function getCellEntries(person,dayIdx,planFn){
+    const k=cellKey(person,dayIdx);
+    if(routes[k]!==undefined) return routes[k];
+    if(dayIdx>=5) return []; // Sat/Sun support day — manual only, never auto-filled
+    const plan = planFn();
+    const absDay = dayStart + dayIdx;
+    const stores = plan[absDay] || [];
+    return stores.map((s,i)=>({id:`auto${i}`, text:s, status:""}));
+  }
+  function setCellEntries(person,dayIdx,entries){
+    setRoutes(prev=>{
+      const next={...prev,[cellKey(person,dayIdx)]:entries};
+      store.set("route-grid:"+weekKey(YEAR,viewWeek), JSON.stringify(next));
+      return next;
+    });
+  }
+  function addVisitEntry(person,dayIdx,planFn){
+    const entries = getCellEntries(person,dayIdx,planFn);
+    setCellEntries(person,dayIdx,[...entries, {id:"v"+Date.now().toString(36)+Math.random().toString(36).slice(2,6), text:"", status:""}]);
+  }
+  function updateVisitEntry(person,dayIdx,planFn,visitId,field,value){
+    const entries = getCellEntries(person,dayIdx,planFn);
+    setCellEntries(person,dayIdx, entries.map(e=>e.id===visitId?{...e,[field]:value}:e));
+  }
+  function removeVisitEntry(person,dayIdx,planFn,visitId){
+    const entries = getCellEntries(person,dayIdx,planFn);
+    setCellEntries(person,dayIdx, entries.filter(e=>e.id!==visitId));
+  }
+  function resetWeekToDefaults(){
+    if(!window.confirm("Reset this week's route grid back to the pre-populated defaults? Any manual edits for this week will be lost.")) return;
+    setRoutes({});
+    store.set("route-grid:"+weekKey(YEAR,viewWeek), JSON.stringify({}));
+  }
+  function mapsLinkFor(text){
+    if(!text || !text.trim()) return null;
+    return `https://www.google.com/maps/search/${encodeURIComponent("Bootlegger "+text.trim())}`;
+  }
+
+  // Any team member can be assigned ANY café, regardless of their usual
+  // region — this datalist just makes typing the right name quick, it
+  // doesn't restrict the free-text cell to only their own portfolio.
+  const storeOptionsId = "allStoresDatalist";
+
+  function monthSummaryFor(planFn){
+    // Next 4 weeks of due visits, compact list — the "month" view alongside
+    // this week's detail grid. Full 7-day week (Mon–Sun) so Sat/Sun support
+    // days show up here too, same as they do in the main grid.
+    const plan = planFn();
+    const weeks = [];
+    for (let wi=0; wi<4; wi++){
+      const weekNum = viewWeek + wi;
+      const wkDates = weekDates(YEAR, weekNum);
+      const dayList = Array.from({length:7},(_,i)=>{
+        const d=new Date(wkDates.start); d.setDate(wkDates.start.getDate()+i);
+        const abs = absoluteWeekdayIndex(weekNum, i);
+        return { date: d, stores: i<5 ? (plan[abs]||[]) : [] };
+      });
+      weeks.push({ weekNum, days: dayList });
+    }
+    return weeks;
+  }
+
+  function renderRow(person, planFn){
+    const isExpanded = expandedPerson === person;
+    return (
+      <React.Fragment key={person}>
+      <tr style={{borderBottom:"1px solid #f0ece0"}}>
+        <td style={{padding:"8px 10px",fontWeight:700,color:"#1a1a1a",whiteSpace:"nowrap",verticalAlign:"top"}}>
+          {person}
+          <div style={{marginTop:4}}>
+            <button onClick={()=>setExpandedPerson(isExpanded?null:person)} style={{fontSize:8.5,padding:"2px 6px",borderRadius:3,border:"1px solid #d4d4d4",background:isExpanded?"#1a1a1a":"#fff",color:isExpanded?"#c8ae79":"#999999",cursor:"pointer",fontFamily:"inherit"}}>
+              {isExpanded ? "Hide Month ▲" : "View Month ▼"}
+            </button>
+          </div>
+        </td>
+        {days.map((d,i)=>{
+          const entries = getCellEntries(person,i,planFn);
+          const isMonday = i===0;
+          const isWeekendSupport = i>=5;
+          return (
+            <td key={i} style={{padding:4,verticalAlign:"top",borderLeft:"1px solid #f7f7f7"}}>
+              {entries.length===0 && isMonday && (
+                <div style={{fontSize:9.5,color:"#c8ae79",fontWeight:700,textAlign:"center",padding:"6px 0"}}>Admin Day</div>
+              )}
+              {entries.length===0 && isWeekendSupport && (
+                <div style={{fontSize:9.5,color:"#8fbcbb",fontWeight:700,textAlign:"center",padding:"6px 0"}}>Support Day</div>
+              )}
+              {entries.map(entry=>{
+                const mapsLink=mapsLinkFor(entry.text);
+                return (
+                  <div key={entry.id} style={{border:"1px solid #ebebeb",borderRadius:3,padding:5,marginBottom:5,background:"#fff"}}>
+                    <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                      <input type="text" value={entry.text} list={storeOptionsId}
+                        onChange={e=>updateVisitEntry(person,i,planFn,entry.id,"text",e.target.value)}
+                        placeholder="Café name…"
+                        style={{flex:1,border:"1px solid #ebebeb",borderRadius:3,fontSize:10.5,padding:4,fontFamily:"inherit",color:"#1a1a1a",minWidth:0}}/>
+                      <span onClick={()=>removeVisitEntry(person,i,planFn,entry.id)} style={{cursor:"pointer",color:"#999999",fontSize:12,padding:"0 2px"}}>✕</span>
+                    </div>
+                    {entry.text.trim() && (
+                      <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+                        <button onClick={()=>updateVisitEntry(person,i,planFn,entry.id,"status",entry.status==="confirmed"?"":"confirmed")}
+                          style={{fontSize:9,padding:"3px 6px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                            background:entry.status==="confirmed"?"#e3f3e9":"#f7f7f7",color:entry.status==="confirmed"?"#1a7a44":"#999",border:`1px solid ${entry.status==="confirmed"?"#b8e0c8":"#ebebeb"}`}}>
+                          {entry.status==="confirmed" ? "✓ Confirmed" : "Confirm"}
+                        </button>
+                        <button onClick={()=>updateVisitEntry(person,i,planFn,entry.id,"status",entry.status==="rescheduled"?"":"rescheduled")}
+                          style={{fontSize:9,padding:"3px 6px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                            background:entry.status==="rescheduled"?"#e2ecfb":"#f7f7f7",color:entry.status==="rescheduled"?"#1a4d7a":"#999",border:`1px solid ${entry.status==="rescheduled"?"#b8d0f0":"#ebebeb"}`}}>
+                          ↻ {entry.status==="rescheduled" ? "Rescheduled" : "Reschedule"}
+                        </button>
+                        {entry.status==="rescheduled" && (
+                          <input type="date" value={entry.rescheduledDate||""} onClick={e=>e.stopPropagation()}
+                            onChange={e=>updateVisitEntry(person,i,planFn,entry.id,"rescheduledDate",e.target.value)}
+                            style={{fontSize:9,padding:"3px 6px",borderRadius:3,border:"1px solid #b8d0f0",background:"#e2ecfb",color:"#1a4d7a",fontFamily:"inherit"}}/>
+                        )}
+                        {mapsLink && <a href={mapsLink} target="_blank" rel="noreferrer" style={{fontSize:9,color:"#c62828",textAlign:"center",textDecoration:"none"}}>📍 Maps</a>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+              <button onClick={()=>addVisitEntry(person,i,planFn)} style={{width:"100%",fontSize:9,padding:"4px 0",borderRadius:3,border:"1px dashed #d4d4d4",background:"#ffffff",color:"#8f733f",cursor:"pointer",fontFamily:"inherit"}}>
+                + Add Visit
+              </button>
+            </td>
+          );
+        })}
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={8} style={{padding:"10px 16px",background:"#ffffff",borderBottom:"2px solid #ebebeb"}}>
+            <div style={{fontSize:9.5,fontWeight:800,color:"#8f733f",textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>{person} — Next 4 Weeks</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:10}}>
+              {monthSummaryFor(planFn).map(week=>(
+                <div key={week.weekNum} style={{background:"#fff",border:"1px solid #ebebeb",borderRadius:4,padding:8}}>
+                  <div style={{fontSize:9,fontWeight:800,color:"#555555",marginBottom:5}}>Week {week.weekNum}</div>
+                  {week.days.map((day,di)=>(
+                    <div key={di} style={{fontSize:9.5,color:day.stores.length?"#ebebeb":"#d4d4d4",padding:"2px 0",borderBottom:di<6?"1px solid #f7f7f7":"none"}}>
+                      <b>{day.date.toLocaleDateString("en-ZA",{weekday:"short"})} {fmtShort(day.date)}</b>: {di===0 ? "Admin Day" : di>=5 ? "Support Day" : (day.stores.length ? day.stores.join(", ") : "—")}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </td>
+        </tr>
+      )}
+      </React.Fragment>
+    );
+  }
+
+  return (
+    <div style={{background:"#fff",borderRadius:6,border:"1px solid #ebebeb",overflow:"hidden",fontFamily:"-apple-system,'Segoe UI','Helvetica Neue',sans-serif"}}>
+      <datalist id={storeOptionsId}>{allStoreNames.map(n=><option key={n} value={n}/>)}</datalist>
+      <div style={{background:"#1a1a1a",padding:"12px 18px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8}}>
+        <div>
+          <div style={{color:"#c8ae79",fontWeight:800,fontSize:12,letterSpacing:"0.08em"}}>MASTER ROUTE GRID</div>
+          <div style={{color:"#8f733f",fontSize:10,marginTop:2}}>Week {viewWeek} · {fmtShort(wk.start)} – {fmtShort(days[6])}{filterName ? ` · Showing only ${filterName} (change via the dropdown above)` : ""}</div>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <button onClick={()=>setViewWeek(w=>Math.max(MIN_WEEK,w-1))} style={navBtnStyleRG}>← Prev</button>
+          <button onClick={()=>setViewWeek(Math.max(MIN_WEEK, isoWeek(new Date())))} style={navBtnStyleRG}>This Week</button>
+          <button onClick={()=>setViewWeek(w=>Math.min(52,w+1))} style={navBtnStyleRG}>Next →</button>
+          <button onClick={resetWeekToDefaults} style={{...navBtnStyleRG,color:"#c62828",borderColor:"#f3d4d4"}}>Reset Week</button>
+        </div>
+      </div>
+      <div style={{overflowX:"auto"}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:11.5,minWidth:1080}}>
+          <thead>
+            <tr style={{background:"#ffffff",position:"sticky",top:0,zIndex:5,boxShadow:"0 1px 0 #ebebeb"}}>
+              <th style={{...thStyleRG,minWidth:150,background:"#ffffff"}}>Support Team Member</th>
+              {days.map((d,i)=>(
+                <th key={i} style={{...thStyleRG,background:"#ffffff"}}>
+                  {d.toLocaleDateString("en-ZA",{weekday:"short"})}
+                  <div style={{color:"#999999",fontWeight:400,fontSize:9,textTransform:"none",marginTop:1}}>{fmtShort(d)}</div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* Regional managers — Franlo & Tarryn each reach every local
+                store monthly, outlying (incl. Namibia) quarterly, plus a
+                quarterly franchisee check-in shown as its own line. */}
+            {(!filterName || regions.some(r=>(r.label.includes("Franlo")?"Franlo":r.label.split("'")[0])===filterName)) && (
+              <tr><td colSpan={8} style={{background:"#1a1a1a",color:"#c8ae79",fontWeight:800,fontSize:10,letterSpacing:"0.06em",padding:"7px 12px",textTransform:"uppercase"}}>Regional Managers</td></tr>
+            )}
+            {regions.map(region=>{
+              const mgrName = region.label.includes("Franlo") ? "Franlo" : region.label.split("'")[0];
+              if (filterName && mgrName !== filterName) return null;
+              const mgrStores = Array.from(new Set([].concat(...region.fsms.map(f=>fsmStores[f]||[]))));
+              const franchiseeIds = franchiseesForStores(mgrStores);
+              const planFn = ()=>managerRoutePlan(mgrStores, region.homeRegion);
+              const franchiseePlan = franchiseeVisitPlanAligned(franchiseeIds, planFn(), ROTATION_HORIZON);
+              return (
+                <tr key={mgrName} style={{borderBottom:"1px solid #f0ece0"}}>
+                  <td style={{padding:"8px 10px",fontWeight:700,color:"#1a1a1a",whiteSpace:"nowrap",verticalAlign:"top"}}>{mgrName}<div style={{fontSize:9,color:"#999",fontWeight:400,marginTop:2}}>{region.homeRegion}</div></td>
+                  {days.map((d,i)=>{
+                    const absDay=dayStart+i;
+                    const franchiseeDue = i<5 ? (franchiseePlan[absDay]||[])[0] : null;
+                    const entries = getCellEntries(mgrName,i,planFn);
+                    return (
+                      <td key={i} style={{padding:4,verticalAlign:"top",borderLeft:"1px solid #f7f7f7"}}>
+                        {entries.length===0 && i>=5 && (
+                          <div style={{fontSize:9.5,color:"#8fbcbb",fontWeight:700,textAlign:"center",padding:"6px 0"}}>Support Day</div>
+                        )}
+                        {entries.map(entry=>(
+                          <div key={entry.id} style={{border:"1px solid #ebebeb",borderRadius:3,padding:5,marginBottom:5,background:"#fff"}}>
+                            <div style={{display:"flex",gap:3,alignItems:"center"}}>
+                              <input type="text" value={entry.text} list={storeOptionsId}
+                                onChange={e=>updateVisitEntry(mgrName,i,planFn,entry.id,"text",e.target.value)}
+                                placeholder="Café name…"
+                                style={{flex:1,border:"1px solid #ebebeb",borderRadius:3,fontSize:10.5,padding:4,fontFamily:"inherit",color:"#1a1a1a",minWidth:0}}/>
+                              <span onClick={()=>removeVisitEntry(mgrName,i,planFn,entry.id)} style={{cursor:"pointer",color:"#999999",fontSize:12,padding:"0 2px"}}>✕</span>
+                            </div>
+                            {entry.text.trim() && (
+                              <div style={{display:"flex",flexDirection:"column",gap:3,marginTop:4}}>
+                                <button onClick={()=>updateVisitEntry(mgrName,i,planFn,entry.id,"status",entry.status==="confirmed"?"":"confirmed")}
+                                  style={{fontSize:9,padding:"3px 6px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                                    background:entry.status==="confirmed"?"#e3f3e9":"#f7f7f7",color:entry.status==="confirmed"?"#1a7a44":"#999",border:`1px solid ${entry.status==="confirmed"?"#b8e0c8":"#ebebeb"}`}}>
+                                  {entry.status==="confirmed" ? "✓ Confirmed" : "Confirm"}
+                                </button>
+                                <button onClick={()=>updateVisitEntry(mgrName,i,planFn,entry.id,"status",entry.status==="rescheduled"?"":"rescheduled")}
+                                  style={{fontSize:9,padding:"3px 6px",borderRadius:3,cursor:"pointer",fontFamily:"inherit",fontWeight:700,
+                                    background:entry.status==="rescheduled"?"#e2ecfb":"#f7f7f7",color:entry.status==="rescheduled"?"#1a4d7a":"#999",border:`1px solid ${entry.status==="rescheduled"?"#b8d0f0":"#ebebeb"}`}}>
+                                  ↻ {entry.status==="rescheduled" ? "Rescheduled" : "Reschedule"}
+                                </button>
+                                {entry.status==="rescheduled" && (
+                                  <input type="date" value={entry.rescheduledDate||""} onClick={e=>e.stopPropagation()}
+                                    onChange={e=>updateVisitEntry(mgrName,i,planFn,entry.id,"rescheduledDate",e.target.value)}
+                                    style={{fontSize:9,padding:"3px 6px",borderRadius:3,border:"1px solid #b8d0f0",background:"#e2ecfb",color:"#1a4d7a",fontFamily:"inherit"}}/>
+                                )}
+                                {mapsLinkFor(entry.text) && <a href={mapsLinkFor(entry.text)} target="_blank" rel="noreferrer" style={{fontSize:9,color:"#c62828",textAlign:"center",textDecoration:"none"}}>📍 Maps</a>}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                        <button onClick={()=>addVisitEntry(mgrName,i,planFn)} style={{width:"100%",fontSize:9,padding:"4px 0",borderRadius:3,border:"1px dashed #d4d4d4",background:"#ffffff",color:"#8f733f",cursor:"pointer",fontFamily:"inherit"}}>
+                          + Add Visit
+                        </button>
+                        {franchiseeDue && <div style={{marginTop:3,fontSize:9,color:"#8f733f",background:"#c8ae7922",padding:"2px 5px",borderRadius:2}}>🤝 {franchiseeDue}</div>}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+
+            {/* FSM regions — local monthly, outlying 6-weekly, Namibia bi-monthly */}
+            {regions.map(region=>{
+              const visibleFsms = region.fsms.filter(fsm=>!filterName || fsm===filterName);
+              if (filterName && visibleFsms.length===0) return null;
+              return (
+                <React.Fragment key={region.label}>
+                  <tr>
+                    <td colSpan={8} style={{background:"#c8ae7922",color:"#8f733f",fontWeight:800,fontSize:10,letterSpacing:"0.06em",padding:"7px 12px",textTransform:"uppercase"}}>{region.label}</td>
+                  </tr>
+                  {visibleFsms.map(fsm=>renderRow(fsm, ()=>fsmRoutePlan(fsmStores[fsm]||[], region.homeRegion)))}
+                  {visibleFsms.length===0 && (
+                    <tr><td colSpan={8} style={{padding:"8px 12px",color:"#999999",fontSize:10.5}}>No support team members assigned to this region yet.</td></tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+
+            {/* Non-FSM support — roaming, but scoped per region so WC support
+                only ever cycles WC cafés and Gauteng support only cycles
+                Gauteng cafés. CPT & Gauteng cafés monthly, outlying cafés
+                every 2 months, gap-filled so no weekday goes empty. Outlying
+                visits are synchronized with the FSM covering that same zone
+                (see BATCHABLE_ZONES/zonePhaseOffset) so a support member and
+                an FSM heading to, say, the Garden Route land on the same
+                week and can travel together. */}
+            {regions.map(region=>{
+              const supportRoster = (SUPPORT_TEAM_BY_REGION[region.homeRegion] || []).filter(name => !allSupportNames.includes(name));
+              if (filterName && !supportRoster.includes(filterName)) return null;
+              const mgrStores = Array.from(new Set([].concat(...region.fsms.map(f=>fsmStores[f]||[]))));
+              return (
+                <React.Fragment key={"support-"+region.label}>
+                  {!filterName && (
+                    <tr><td colSpan={8} style={{background:"#1a1a1a",color:"#c8ae79",fontWeight:800,fontSize:10,letterSpacing:"0.06em",padding:"7px 12px",textTransform:"uppercase"}}>{region.homeRegion} Support Team (Roaming — monthly local, every 2 months outlying, combined with FSM outlying trips)</td></tr>
+                  )}
+                  {supportRoster
+                    .map((person,pIdx)=>({person,pIdx}))
+                    .filter(({person})=>!filterName || person===filterName)
+                    .map(({person,pIdx})=>renderRow(person, ()=>supportRoutePlan(mgrStores, pIdx, supportRoster.length)))}
+                  {supportRoster.length===0 && !filterName && (
+                    <tr><td colSpan={8} style={{padding:"8px 12px",color:"#999999",fontSize:10.5}}>No support team members configured for this region yet.</td></tr>
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div style={{padding:"9px 18px",fontSize:9.5,color:"#999",borderTop:"1px solid #f0ece0"}}>
+        Pre-populated by rotation: local cafés ≈ monthly, outlying ≈ every 6 weeks, Namibia ≈ every 2 months, managers monthly/quarterly (gap-filled from café #1 so no weekday sits empty), support team CPT & Gauteng monthly / outlying every 2 months (also gap-filled, and synced to travel alongside the FSM covering that outlying zone). Any cell can be edited to any café — type to search the full list. Changes save automatically per week.
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function App(){
+  const [schedule,setSchedule]=useState(null);
+  const [view,setView]=useState("routegrid");
+  const [saveStatus,setSaveStatus]=useState("saved");
+  const [exportModal,setExportModal]=useState(false);
+  const [exportData,setExportData]=useState("");
+  const [icsModal,setIcsModal]=useState(false);
+  const [icsData,setIcsData]=useState("");
+  const [kpiPerson,setKpiPerson]=useState("__admin__");
+  const [kpiRefData,setKpiRefData]=useState(null);
+  const timer=useRef(null);
+
+  useEffect(()=>{
+    (async()=>{
+      try{
+        const token=localStorage.getItem("bos_token");
+        const res=await fetch("/api/reference-data",{headers:token?{Authorization:"Bearer "+token}:{}});
+        if(res.ok) setKpiRefData(await res.json());
+      }catch(e){/* KPI person-toggle just won't have options if this fails */}
+    })();
+  },[]);
+
+  useEffect(()=>{
+    function dropOldWeeks(sched){
+      // Data before week 29 is retired — strip any such keys out of whatever
+      // was loaded/built so nothing earlier can resurface in the UI.
+      const cleaned = {};
+      Object.entries(sched).forEach(([k,v]) => {
+        const match = k.match(/-W(\d+)$/);
+        if (!match || parseInt(match[1],10) >= MIN_WEEK) cleaned[k] = v;
+      });
+      return cleaned;
+    }
+    async function load(){
+      try{
+        const r=await store.get(STORAGE_KEY);
+        if(r?.value){
+          const p=JSON.parse(r.value);
+          const hasDay=Object.values(p).flat().filter(e=>e.type==="visit").some(e=>e.scheduledDay);
+          setSchedule(dropOldWeeks(applyReschedule(hasDay?p:buildSchedule())));
+        } else setSchedule(dropOldWeeks(applyReschedule(buildSchedule())));
+      } catch(err){ console.warn("Load failed:",err); setSchedule(dropOldWeeks(applyReschedule(buildSchedule()))); }
+    }
+    load();
+  },[]);
+
+  useEffect(()=>{
+    if(!schedule) return;
+    setSaveStatus("saving");
+    clearTimeout(timer.current);
+    timer.current=setTimeout(async()=>{
+      try{await store.set(STORAGE_KEY,JSON.stringify(schedule));setSaveStatus("saved");}
+      catch{setSaveStatus("error");}
+    },800);
+    return()=>clearTimeout(timer.current);
+  },[schedule]);
+
+  if(!schedule) return(
+    <div style={{minHeight:"100vh",background:"#f7f7f7",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontFamily:"-apple-system,'Segoe UI','Helvetica Neue',sans-serif"}}>
+      <div style={{fontSize:13,color:"#c8ae79",letterSpacing:"0.2em",marginBottom:12}}>BOOTLEGGER</div>
+      <div style={{fontSize:11,color:"#555555",letterSpacing:"0.08em"}}>Loading schedule…</div>
+    </div>
+  );
+
+  function toggle(wk,idx){ setSchedule(p=>({...p,[wk]:p[wk].map((e,i)=>i===idx?{...e,confirmed:!e.confirmed}:e)})); }
+  function addEvent(wk,ev){ setSchedule(p=>({...p,[wk]:[...(p[wk]||[]),ev]})); }
+  function removeEvent(wk,idx){ setSchedule(p=>({...p,[wk]:p[wk].filter((_,i)=>i!==idx)})); }
+
+  function resetAndShuffle(){
+    if(!window.confirm("Reset all rescheduled flags and re-shuffle overdue visits evenly across the rest of this quarter?")) return;
+    setSchedule(prev=>{
+      // Put every event back in its ORIGINAL week (undoing any previous
+      // reschedule placement) before re-running the spread-across-the-quarter
+      // logic fresh — otherwise repeated shuffles would compound on top of
+      // each other instead of giving a clean, even redistribution.
+      const restored={};
+      Object.entries(prev).forEach(([k,evs])=>{
+        evs.forEach(e=>{
+          const { rescheduled, rescheduleCount, originalWeek, originalQuarter, ...rest } = e;
+          const targetKey = originalWeek ? weekKey(YEAR,originalWeek) : k;
+          if(!restored[targetKey]) restored[targetKey]=[];
+          restored[targetKey].push(rest);
+        });
+      });
+      const reshuffled = applyReschedule(restored);
+      store.set(STORAGE_KEY, JSON.stringify(reshuffled));
+      return reshuffled;
+    });
+  }
+
+  function rescheduleEvent(wk,idx){
+    setSchedule(p=>{
+      const ev=p[wk]?.[idx]; if(!ev) return p;
+      const wNum=parseWeek(wk);
+      const qi=weekToQuarter(YEAR,wNum);
+      const now=Math.max(isoWeek(new Date()),RESCHEDULE_FROM_WEEK);
+      const candidates=[...weeksForQuarter(qi),...weeksForQuarter((qi+1)%4)].filter(w=>w>wNum&&w>=now);
+      const targetW=candidates[0]||weeksForQuarter((qi+1)%4).slice(-1)[0];
+      const tk=weekKey(YEAR,targetW);
+      const distDays=["Tue","Wed","Thu","Fri"];
+      const usedDay=ev.scheduledDay||distDays[(p[tk]||[]).length%4];
+      const movedEv={...ev,scheduledDay:usedDay,rescheduled:true,
+        rescheduleCount:(ev.rescheduleCount||0)+1,
+        originalWeek:ev.originalWeek||wNum,originalQuarter:ev.originalQuarter??qi};
+      const updated={...p,[wk]:p[wk].filter((_,i)=>i!==idx)};
+      updated[tk]=[...(updated[tk]||[]),movedEv];
+      return updated;
+    });
+  }
+
+  function exportJSON(){
+    const events=[];
+    Object.entries(schedule).forEach(([wk,evs])=>{
+      evs.forEach(e=>{
+        const base={weekKey:wk,scheduledDay:e.scheduledDay||"",type:e.type,
+          confirmed:e.confirmed||false,rescheduled:e.rescheduled||false,
+          adhoc:e.adhoc||false,outOfTown:e.outOfTown||false};
+        if(e.type==="visit"){
+          const site=SITE_MAP[e.siteId]||{};
+          events.push({...base,siteId:e.siteId,siteName:e.siteName,siteType:e.siteType,
+            region:e.region,zone:e.zone||"",address:e.address||site.address||"",
+            franchiseeId:e.fid||site.fid||"",
+            franchiseeName:e.fid?F_MAP[e.fid]?.name||"":""});
+        } else if(e.type==="meeting"){
+          events.push({...base,franchiseeId:e.franchiseeId,franchiseeName:e.franchiseeName,
+            franchiseeRegion:e.franchiseeRegion,siteCount:e.siteCount,quarter:e.quarter});
+        } else if(e.type==="adhoc"){
+          events.push({...base,title:e.title||"",notes:e.notes||"",kind:e.kind||""});
+        }
+      });
+    });
+    const payload=JSON.stringify({exportedAt:new Date().toISOString(),year:YEAR,totalEvents:events.length,events},null,2);
+    setExportData(payload);
+    setExportModal(true);
+  }
+
+  function exportICS(){
+    function eventDate(wk,dayLabel){
+      const week=parseInt(wk.split("-W")[1]);
+      const year=parseInt(wk.split("-W")[0]);
+      const jan4=new Date(year,0,4);
+      const w1mon=new Date(jan4); w1mon.setDate(jan4.getDate()-(jan4.getDay()+6)%7);
+      const mon=new Date(w1mon); mon.setDate(w1mon.getDate()+(week-1)*7);
+      const off={Mon:0,Tue:1,Wed:2,Thu:3,Fri:4}[dayLabel]||0;
+      mon.setDate(mon.getDate()+off);
+      return mon;
+    }
+    function icsDate(d,h=9,m=0){
+      return `${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}T${String(h).padStart(2,"0")}${String(m).padStart(2,"0")}00`;
+    }
+    function esc(s){return (s||"").replace(/,/g,"\\,").replace(/;/g,"\\;").replace(/\n/g,"\\n");}
+    const lines=["BEGIN:VCALENDAR","VERSION:2.0","PRODID:-//Bootlegger Scheduler//EN",
+      "CALSCALE:GREGORIAN","METHOD:PUBLISH","X-WR-CALNAME:BL Field Schedule"];
+    const seen=new Set();
+    let idx=0;
+    Object.entries(schedule).forEach(([wk,evs])=>{
+      evs.forEach(e=>{
+        const day=e.scheduledDay||"Mon";
+        const d=eventDate(wk,day);
+        let title="",location="",desc="";
+        if(e.type==="visit"){
+          const tm=TYPE_META[e.siteType]||TYPE_META.Full;
+          const f=e.fid?F_MAP[e.fid]:null;
+          title=`${tm.icon} ${e.siteName}`;
+          location=esc(e.address||"");
+          desc=esc([`Type: ${e.siteType}`,`Region: ${e.region}`,f?`Franchisee: ${f.name}`:"",e.outOfTown?"✈ Out of Town":"",e.confirmed?"✓ Confirmed":""].filter(Boolean).join("\\n"));
+        } else if(e.type==="meeting"){
+          title=`◆ Mtg — ${e.franchiseeName}`;
+          desc=esc([`Region: ${e.franchiseeRegion}`,`Sites: ${e.siteCount}`,e.confirmed?"✓ Confirmed":""].filter(Boolean).join("\\n"));
+        } else if(e.type==="adhoc"){
+          title=e.title||e.kind||"Ad hoc";
+          desc=esc(e.notes||"");
+        } else { return; }
+        lines.push("BEGIN:VEVENT",
+          `UID:bl-${e.type}-${e.siteId||e.franchiseeId||idx++}-${wk}@bootlegger`,
+          `DTSTART;TZID=Africa/Johannesburg:${icsDate(d,9,0)}`,
+          `DTEND;TZID=Africa/Johannesburg:${icsDate(d,11,30)}`,
+          `SUMMARY:${esc(title)}`,`LOCATION:${location}`,`DESCRIPTION:${desc}`,
+          `STATUS:${e.confirmed?"CONFIRMED":"TENTATIVE"}`,
+          "CATEGORIES:BL Scheduler","END:VEVENT");
+        // Admin blocks (deduplicated per day)
+        const aKey=`${wk}-${day}`;
+        if(!seen.has(aKey)&&day!=="Mon"){
+          seen.add(aKey);
+          ["morning","afternoon"].forEach(t=>{
+            const sh=t==="morning"?8:15, eh=t==="morning"?9:16;
+            lines.push("BEGIN:VEVENT",
+              `UID:bl-admin-${t}-${wk}-${day}@bootlegger`,
+              `DTSTART;TZID=Africa/Johannesburg:${icsDate(d,sh,0)}`,
+              `DTEND;TZID=Africa/Johannesburg:${icsDate(d,eh,0)}`,
+              `SUMMARY:⬜ ${t==="morning"?"Morning":"Afternoon"} Admin / Focus`,
+              "DESCRIPTION:Admin and planning block","STATUS:TENTATIVE",
+              "CATEGORIES:BL Admin","END:VEVENT");
+          });
+        }
+      });
+    });
+    lines.push("END:VCALENDAR");
+    setIcsData(lines.join("\r\n"));
+    setIcsModal(true);
+  }
+
+  const canSeeFranchisees = window.BOS_CAN_SEE_FRANCHISEES !== false;
+  const scheduleForOverdue = canSeeFranchisees ? schedule : Object.fromEntries(
+    Object.entries(schedule).map(([k,evs]) => [k, evs.filter(e => e.type !== "meeting")])
+  );
+  const allEvs=Object.values(schedule).flat();
+  const visits=allEvs.filter(e=>e.type==="visit");
+  const confirmed=visits.filter(e=>e.confirmed).length;
+  const badgeEvs=Object.values(scheduleForOverdue).flat();
+  const overdueCount=badgeEvs.filter(e=>{
+    if(e.confirmed) return false;
+    const wk=Object.keys(scheduleForOverdue).find(k=>(scheduleForOverdue[k]||[]).includes(e));
+    return wk&&parseWeek(wk)<Math.max(isoWeek(new Date()),RESCHEDULE_FROM_WEEK);
+  }).length;
+  const rescheduledCount=badgeEvs.filter(e=>e.rescheduled&&!e.confirmed).length;
+  const saveCol=saveStatus==="saving"?"#555":saveStatus==="error"?"#d08770":"#1a7a44";
+  const saveLabel=saveStatus==="saving"?"⟳ Saving…":saveStatus==="error"?"⚠ Error":"✓ Saved";
+  const navItems=[
+    {key:"routegrid",label:"Route Grid"},
+    {key:"franchiseevisits",label:"Franchisee Visits"},
+    ...(canSeeFranchisees ? [{key:"franchisees",label:"Franchisees"}] : []),
+    {key:"sites",label:"All Sites"},
+    {key:"overdue",label:overdueCount+rescheduledCount>0?`Overdue (${overdueCount+rescheduledCount})`:"Overdue"},
+  ];
+  const typeCounts={};ALL_SITES.forEach(s=>{typeCounts[s.type]=(typeCounts[s.type]||0)+1;});
+
+  return(
+    <div style={{minHeight:"100vh",background:"#f7f7f7",fontFamily:"-apple-system,'Segoe UI','Helvetica Neue',sans-serif",color:"#1a1a1a"}}>
+
+      {/* JSON Export Modal */}
+      {exportModal&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}} onClick={()=>setExportModal(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#ffffff",border:"1px solid #ebebeb",borderRadius:10,padding:24,width:"min(680px,90vw)",maxHeight:"80vh",display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:"#1a1a1a",marginBottom:4}}>schedule.json — Export for SharePoint</div>
+                <div style={{fontSize:11,color:"#666"}}>Click box → <strong style={{color:"#c8ae79"}}>Ctrl+A</strong> → <strong style={{color:"#c8ae79"}}>Ctrl+C</strong> → paste into Notepad → save as <code style={{color:"#c8ae79"}}>schedule.json</code> → upload to SharePoint BL-Scheduler folder</div>
+              </div>
+              <button onClick={()=>setExportModal(false)} style={{background:"transparent",border:"none",color:"#666",fontSize:20,cursor:"pointer",padding:"0 4px"}}>×</button>
+            </div>
+            <div style={{fontSize:10,color:"#555"}}>{exportData.length.toLocaleString()} characters · {Object.values(schedule).flat().length} events</div>
+            <textarea readOnly value={exportData} onFocus={e=>e.target.select()} onClick={e=>e.target.select()}
+              style={{flex:1,minHeight:320,background:"#f7f7f7",border:"2px solid #c8ae7944",color:"#a3be8c",borderRadius:5,padding:12,fontSize:10,fontFamily:"monospace",resize:"none",lineHeight:1.5,cursor:"text"}}/>
+          </div>
+        </div>
+      )}
+
+      {/* ICS Export Modal */}
+      {icsModal&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:300,display:"flex",alignItems:"center",justifyContent:"center",padding:24}} onClick={()=>setIcsModal(false)}>
+          <div onClick={e=>e.stopPropagation()} style={{background:"#ffffff",border:"1px solid #ebebeb",borderRadius:10,padding:24,width:"min(640px,90vw)",maxHeight:"85vh",display:"flex",flexDirection:"column",gap:12}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <div>
+                <div style={{fontSize:14,fontWeight:800,color:"#1a1a1a",marginBottom:4}}>📅 Export to Outlook Calendar</div>
+                <div style={{fontSize:11,color:"#666",lineHeight:1.5}}>Click box → <strong style={{color:"#8fbcbb"}}>Ctrl+A</strong> → <strong style={{color:"#8fbcbb"}}>Ctrl+C</strong> → open Notepad → paste → File → Save As → name it <code style={{color:"#8fbcbb"}}>BL_Schedule.ics</code> → set type to All Files → Save → double-click file to import into Outlook</div>
+              </div>
+              <button onClick={()=>setIcsModal(false)} style={{background:"transparent",border:"none",color:"#666",fontSize:20,cursor:"pointer",padding:"0 4px"}}>×</button>
+            </div>
+            <div style={{background:"#ffffff",border:"1px solid #ffffff",borderRadius:6,padding:"10px 14px",fontSize:10,lineHeight:1.8,color:"#666"}}>
+              <span style={{color:"#1a1a1a",fontWeight:700}}>Outlook Web:</span> Same steps to save → go to outlook.com → Calendar → Add calendar → Upload from file → select BL_Schedule.ics
+            </div>
+            <div style={{fontSize:10,color:"#555"}}>{icsData.split("BEGIN:VEVENT").length-1} calendar events</div>
+            <textarea readOnly value={icsData} onFocus={e=>e.target.select()} onClick={e=>e.target.select()}
+              style={{flex:1,minHeight:280,background:"#f7f7f7",border:"2px solid #8fbcbb44",color:"#8fbcbb",borderRadius:5,padding:12,fontSize:9,fontFamily:"monospace",resize:"none",lineHeight:1.4,cursor:"text"}}/>
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div style={{background:"#ffffff",borderBottom:"1px solid #ffffff",padding:"0 24px",display:"flex",alignItems:"center",justifyContent:"space-between",height:52,position:"sticky",top:0,zIndex:100}}>
+        <div style={{display:"flex",alignItems:"center",gap:12}}>
+          <span style={{fontSize:12,fontWeight:900,letterSpacing:"0.2em",color:"#c8ae79"}}>BOOTLEGGER</span>
+          <span style={{fontSize:10,color:"#555555"}}>·</span>
+          <span style={{fontSize:10,color:"#555555",letterSpacing:"0.05em"}}>REGIONAL SCHEDULER {YEAR}</span>
+          <span style={{fontSize:10,color:"#555555"}}>·</span>
+          <span style={{fontSize:10,color:"#555555"}}>WC · EC · Namibia · N. Cape · Fiscal Q: Mar–Feb</span>
+        </div>
+        <div style={{display:"flex",gap:6,alignItems:"center"}}>
+          <span style={{fontSize:9,color:saveCol}}>{saveLabel}</span>
+          <button onClick={()=>setSchedule(p=>applyReschedule(p))} style={{background:"transparent",border:"1px solid #ebebeb",borderRadius:4,color:"#555555",padding:"3px 9px",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>↻ Reschedule</button>
+          <button onClick={()=>{if(window.confirm("Reset to defaults?"))setSchedule(applyReschedule(buildSchedule()));}} style={{background:"transparent",border:"1px solid #ffffff",borderRadius:4,color:"#555555",padding:"3px 9px",fontSize:9,cursor:"pointer",fontFamily:"inherit"}}>Reset</button>
+          <button onClick={exportJSON} style={{background:"#c8ae7922",border:"1px solid #c8ae7966",borderRadius:4,color:"#c8ae79",padding:"3px 9px",fontSize:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>⬇ Export JSON</button>
+          <button onClick={exportICS} style={{background:"#8fbcbb22",border:"1px solid #8fbcbb66",borderRadius:4,color:"#8fbcbb",padding:"3px 9px",fontSize:9,cursor:"pointer",fontFamily:"inherit",fontWeight:700}}>📅 Export ICS</button>
+          <div style={{width:1,height:16,background:"#ffffff",margin:"0 2px"}}/>
+          {navItems.map(n=>{
+            const isOD=n.key==="overdue"&&overdueCount+rescheduledCount>0;
+            return(<button key={n.key} onClick={()=>setView(n.key)} style={{background:view===n.key?"#ffffff":"transparent",border:view===n.key?`1px solid ${isOD?"#d0877066":"#ffffff"}`:"1px solid transparent",color:view===n.key?(isOD?"#d08770":"#1a1a1a"):(isOD?"#d08770aa":"#555555"),borderRadius:4,padding:"4px 11px",fontSize:11,cursor:"pointer",fontFamily:"inherit"}}>{n.label}</button>);
+          })}
+        </div>
+      </div>
+
+      {/* Stats bar */}
+      <div style={{background:"#ffffff",borderBottom:"1px solid #1a1a1a",padding:"7px 24px",display:"flex",gap:20,alignItems:"center",flexWrap:"wrap"}}>
+        <select value={kpiPerson} onChange={e=>setKpiPerson(e.target.value)} style={{background:"#ffffff",border:"1px solid #ebebeb",borderRadius:4,color:"#c8ae79",fontSize:10,padding:"4px 8px",fontFamily:"inherit"}}>
+          <option value="__admin__">This Login's Schedule (detailed)</option>
+          {kpiRefData && Object.values(kpiRefData.managers||{}).flat().map(fsm=><option key={fsm} value={fsm}>{fsm} (Route Grid)</option>)}
+          {kpiRefData && Object.keys(kpiRefData.managers||{}).map(mgr=><option key={mgr} value={"__mgr__"+mgr}>{mgr==="Franlo"?"Franlo":mgr} — Manager (Route Grid)</option>)}
+        </select>
+        {kpiPerson==="__admin__" ? (
+          [
+            {label:"Sites",value:ALL_SITES.length,color:"#c8ae79"},
+            {label:"Franchisees",value:FRANCHISEES.length,color:"#d08770"},
+            {label:"Visits Planned",value:visits.length,color:"#8fbcbb"},
+            {label:"Confirmed",value:confirmed,color:"#a3be8c"},
+            {label:"Rescheduled",value:rescheduledCount,color:"#8fbcbb"},
+            {label:"Overdue",value:overdueCount,color:overdueCount>0?"#d08770":"#ebebeb"},
+          ].map(s=>(
+            <div key={s.label} style={{display:"flex",alignItems:"center",gap:6}}>
+              <span style={{fontSize:15,fontWeight:800,color:s.color}}>{s.value}</span>
+              <span style={{fontSize:9,color:"#999999",letterSpacing:"0.06em",textTransform:"uppercase"}}>{s.label}</span>
+            </div>
+          ))
+        ) : (
+          (() => {
+            if (!kpiRefData) return <span style={{fontSize:10,color:"#666"}}>Loading…</span>;
+            const fsmStores = kpiRefData.fsmStores||{};
+            const managers = kpiRefData.managers||{};
+            const isManager = kpiPerson.startsWith("__mgr__");
+            const mgrKey = isManager ? kpiPerson.replace("__mgr__","") : null;
+            const homeRegion = isManager ? (mgrKey==="Franlo" ? "Western Cape" : "Gauteng")
+              : (Object.entries(managers).find(([,fsms])=>fsms.includes(kpiPerson))||[])[0]==="Franlo" ? "Western Cape" : "Gauteng";
+            const storeList = isManager
+              ? Array.from(new Set([].concat(...(managers[mgrKey]||[]).map(f=>fsmStores[f]||[]))))
+              : (fsmStores[kpiPerson]||[]);
+            const plan = isManager ? managerRoutePlan(storeList, homeRegion) : fsmRoutePlan(storeList, homeRegion);
+            const thisWeekIdx = isoWeek(new Date());
+            const dayStart = absoluteWeekdayIndex(thisWeekIdx,0);
+            const thisWeekVisits = [0,1,2,3,4].reduce((sum,d)=>sum+(plan[dayStart+d]||[]).length, 0);
+            return (
+              <>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:15,fontWeight:800,color:"#c8ae79"}}>{storeList.length}</span>
+                  <span style={{fontSize:9,color:"#999999",letterSpacing:"0.06em",textTransform:"uppercase"}}>Cafés Assigned</span>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6}}>
+                  <span style={{fontSize:15,fontWeight:800,color:"#8fbcbb"}}>{thisWeekVisits}</span>
+                  <span style={{fontSize:9,color:"#999999",letterSpacing:"0.06em",textTransform:"uppercase"}}>Visits This Week</span>
+                </div>
+                <span style={{fontSize:9,color:"#555",fontStyle:"italic"}}>From the Route Grid's rotation — not a detailed day-by-day itinerary like the admin schedule above.</span>
+              </>
+            );
+          })()
+        )}
+        <div style={{marginLeft:"auto",display:"flex",gap:10}}>
+          {Object.entries(typeCounts).map(([t,n])=><span key={t} style={{fontSize:9,color:"#999999"}}><span style={{color:TYPE_META[t]?.color}}>{TYPE_META[t]?.icon}</span> {t} ({n})</span>)}
+        </div>
+      </div>
+
+      {/* Body */}
+      <div style={{padding:"20px 24px",maxWidth:1300,margin:"0 auto"}}>
+        {/* Weekly Schedule view retired — its confirm/reschedule/add-visit
+            functionality now lives directly in the Route Grid below. */}
+        {view==="routegrid"   && <RouteGridView selectedPerson={kpiPerson}/>}
+        {view==="franchiseevisits" && <FranchiseeVisitsView/>}
+        {view==="franchisees" && canSeeFranchisees && <FranchiseeView schedule={schedule}/>}
+        {view==="sites"       && <SitesView schedule={schedule}/>}
+        {view==="overdue"     && <OverdueView schedule={scheduleForOverdue} onToggle={toggle} onResetShuffle={resetAndShuffle}/>}
+      </div>
+    </div>
+  );
+}
+
+function Root(){
+  const [ready, setReady] = useState(false);
+  const [ok, setOk] = useState(false);
+  useEffect(() => {
+    window.__bosSessionPromise.then(me => {
+      setOk(!!me);
+      setReady(true);
+    });
+  }, []);
+  if (!ready) return null; // the HTML gate overlay is already covering the screen at this point
+  if (!ok) return null;    // gate stays visible with its "sign in" message
+  return <App />;
+}
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<Root />);
+</script>
+
+<script>
+// The transform below needs window.Babel from the CDN script tag in <head>.
+// Under normal conditions that script finishes loading well before this
+// point (it's a blocking, non-async tag near the top of the page) — but on a
+// slow connection, or if the CDN request itself hiccups, it's possible to
+// reach this line before Babel is actually attached to window. Rather than
+// fail immediately with an opaque ReferenceError, wait briefly and retry
+// before giving up, and give a real "reload" affordance if it truly can't load.
+(function(){
+  const source = document.getElementById('app-jsx-source').textContent;
+
+  function showError(message){
+    document.getElementById('root').innerHTML =
+      '<div style="padding:60px;color:#d08770;font-family:-apple-system,sans-serif;max-width:520px;">' +
+      '<div style="margin-bottom:14px;">Could not start the Team Scheduler: ' + message + '</div>' +
+      '<button onclick="location.reload()" style="background:#c8ae79;border:none;border-radius:4px;color:#1a1a1a;padding:8px 16px;font-size:13px;cursor:pointer;font-weight:700;">Reload Page</button>' +
+      '</div>';
+  }
+
+  function runApp(){
+    try {
+      const compiled = Babel.transform(source, { presets: [['react', { runtime: 'classic' }]] }).code;
+      (0, eval)(compiled);
+    } catch (e) {
+      console.error('Team Scheduler failed to load:', e);
+      showError((e && e.message) ? e.message : String(e));
+    }
+  }
+
+  function waitForBabel(attemptsLeft){
+    if (window.__cdnLoadFailed) {
+      console.error('Team Scheduler failed to load: ' + window.__cdnLoadFailed + ' failed to load from the CDN.');
+      showError('A required library (' + window.__cdnLoadFailed + ') failed to load — check your internet connection. Try reloading.');
+      return;
+    }
+    if (typeof Babel !== 'undefined') { runApp(); return; }
+    if (attemptsLeft <= 0) {
+      console.error('Team Scheduler failed to load: Babel did not load from the CDN in time.');
+      showError('The page library (Babel) did not finish loading — this is usually a slow or blocked network request, not a bug in the page itself. Try reloading.');
+      return;
+    }
+    setTimeout(() => waitForBabel(attemptsLeft - 1), 150);
+  }
+
+  waitForBabel(40); // up to ~6 seconds before giving up
+})();
+</script>
+
+</body>
+</html>
