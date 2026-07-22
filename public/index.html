@@ -1921,7 +1921,11 @@ function viewActions(){
     const rows = filteredRows();
     const active = rows.filter(r=>r.status!=='closed');
     const overdue = active.filter(r=>r.dueDate && r.dueDate<todayISO());
-    const nonConformances = active.filter(r=>r.isNonConformance);
+    // Deliberately NOT scoped to the current FSM/Pillar/Status/Search filters
+    // above — this is a standing coverage check, so it should always show
+    // every open non-conformance org-wide regardless of what's selected in
+    // those dropdowns.
+    const nonConformances = [...STATE.actions, ...OPS_AS_TASKS].filter(a => a.isNonConformance && a.status !== 'closed');
     const completed = rows.filter(r=>r.status==='closed');
 
     document.getElementById('taskKpis').innerHTML = `
@@ -1953,13 +1957,13 @@ function viewActions(){
     const overdueToggleHead = document.getElementById('overdueToggleHead');
     if (overdueToggleHead) overdueToggleHead.addEventListener('click', () => { overdueExpanded = !overdueExpanded; render(); });
 
-    document.getElementById('taskNcBanner').innerHTML = nonConformances.length ? `
-      <div class="card" style="border-left:3px solid #c62828;background:rgba(198,40,40,0.06);margin-bottom:14px;">
+    document.getElementById('taskNcBanner').innerHTML = `
+      <div class="card" style="border-left:3px solid #c62828;background:${nonConformances.length ? 'rgba(198,40,40,0.06)' : 'var(--white)'};margin-bottom:14px;">
         <div id="ncToggleHead" style="font-size:11px;font-weight:700;color:#c62828;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;display:flex;align-items:center;justify-content:space-between;${ncExpanded?'margin-bottom:10px;':''}">
           <span>⚠ ${nonConformances.length} Non-Conformance${nonConformances.length===1?'':'s'}</span>
           <span>${ncExpanded ? '▲ Hide' : '▾ Show'}</span>
         </div>
-        ${ncExpanded ? nonConformances.map(a => {
+        ${ncExpanded ? (nonConformances.length ? nonConformances.map(a => {
           const isOps = !!a._isOpsTask;
           const editId = isOps ? a._opsId : a.id;
           const completeClass = isOps ? 'ncOpsCompleteBtn' : 'ncResolveBtn';
@@ -1987,8 +1991,8 @@ function viewActions(){
               </div>
             </div>
           </div>`;
-        }).join('') : ''}
-      </div>` : '';
+        }).join('') : '<div style="color:#999;font-size:11.5px;padding:6px 0;">No open non-conformances right now.</div>') : ''}
+      </div>`;
     const ncToggleHead = document.getElementById('ncToggleHead');
     if (ncToggleHead) ncToggleHead.addEventListener('click', () => { ncExpanded = !ncExpanded; render(); });
     document.querySelectorAll('.ncEditToggleBtn').forEach(btn => btn.addEventListener('click', () => {
@@ -2821,8 +2825,9 @@ function viewVisitReports(){
     const comment = (p.comment || '').trim();
     if (!item && !comment) return '';
     const hasAction = !!(step && step.action);
+    const label = (p.department ? `[${escapeHtmlVR(p.department)}] ` : '') + (item ? escapeHtmlVR(item) : 'Portion check');
     return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
-      <b>${item ? escapeHtmlVR(item) : 'Portion check'}</b>${comment ? ' — ' + escapeHtmlVR(comment) : ''}
+      <b>${label}</b>${comment ? ' — ' + escapeHtmlVR(comment) : ''}
       ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:2px;">→ ${vrActionLabel(step)}</div>` : ''}
     </div>`;
   }
@@ -2905,7 +2910,7 @@ function viewVisitReports(){
     VR_GRIND_RESET.forEach(g => { vrTextMap[g.id] = g.text; });
     (Array.isArray(fr.customItems) ? fr.customItems : Object.values(fr.customItems||{}).flat()).forEach(c => { vrTextMap[c.id] = c.text; });
     portionList.forEach((p, i) => {
-      vrTextMap[`portion-${i}`] = 'Portion check — ' + (p.item || `item ${i+1}`);
+      vrTextMap[`portion-${i}`] = 'Portion Check' + (p.department ? ' (' + p.department + ')' : '') + ' — ' + (p.item || `item ${i+1}`);
       vrCommentMap[`portion-${i}`] = p.comment || '';
     });
     VR_ADMIN.forEach(a => { vrTextMap[a.id] = a.text; });

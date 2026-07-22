@@ -653,31 +653,47 @@ function removeCustomItem(id) {
 }
 
 // ---------- PORTION CHECK (2 items, comment-based) ----------
+// ---------- PORTION CHECK (Bar + Kitchen by default, + option to add more) ----------
 function renderPortionBox() {
-  if (!state.portion || state.portion.length < PORTION_ITEMS) {
-    state.portion = Array.from({length: PORTION_ITEMS}, (_, i) => (state.portion && state.portion[i]) || {item:'', comment:''});
+  if (!state.portion || state.portion.length < 2) {
+    const existing = state.portion || [];
+    state.portion = [
+      existing[0] || { department: 'Bar', item: '', comment: '' },
+      existing[1] || { department: 'Kitchen', item: '', comment: '' },
+    ];
   }
   let rows = '';
-  for (let i = 0; i < PORTION_ITEMS; i++) {
-    const p = state.portion[i];
+  state.portion.forEach((p, i) => {
     const id = `portion-${i}`;
+    const isFixed = i < 2; // Bar / Kitchen — locked; anything added beyond that gets a free-text area label
     rows += `
     <div class="portion-row">
+      <div style="grid-column:1/-1;font-size:9.5px;font-weight:800;color:#8f733f;text-transform:uppercase;letter-spacing:0.03em;">
+        ${isFixed ? escapeHtml(p.department) : `<input type="text" placeholder="Area (e.g. Retail)" value="${escapeHtml(p.department||'')}" onchange="setPortionField(${i},'department', this.value)" style="font-size:9.5px;padding:2px 5px;text-transform:none;font-weight:400;width:auto;">`}
+      </div>
       <input type="text" placeholder="What item did you check? (e.g. Flat White 200ml)" value="${escapeHtml(p.item)}" onchange="setPortionField(${i},'item', this.value)">
       <input type="text" class="comment-input" placeholder="" value="${escapeHtml(p.comment)}" onchange="setPortionField(${i},'comment', this.value)">
       ${nextStepControl(id)}
     </div>`;
-  }
+  });
   return `
   <div class="portion-box">
-    <div class="ptitle"><span class="badge-mini">Portion</span> Portion Check — 2 Items (weigh/measure vs. recipe spec)</div>
+    <div class="ptitle"><span class="badge-mini">Portion</span> Portion Check — Bar &amp; Kitchen (weigh/measure vs. recipe spec)</div>
     <div class="portion-labels"><span>Item</span><span>Comment</span></div>
     ${rows}
+    <div class="add-item-row">
+      <button type="button" class="add-btn" onclick="addPortionCheck()">+ Add Portion Check</button>
+    </div>
   </div>`;
 }
 function setPortionField(i, field, val) {
   state.portion[i][field] = val;
   renderFlagged();
+  persist();
+}
+function addPortionCheck() {
+  state.portion.push({ department: '', item: '', comment: '' });
+  refreshCurrentSections();
   persist();
 }
 
@@ -808,7 +824,7 @@ function buildFlagList() {
   GRIND_RESET.forEach(g => maybeFlag(g.id, g.text, 'GRIND Reset'));
   state.customItems.forEach(c => maybeFlag(c.id, c.text, 'GRIND Reset · Custom'));
   state.portion.forEach((p, i) => {
-    if (p.comment && p.comment.trim()) flags.push({ id: `portion-${i}`, text: 'Portion check — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment });
+    if (p.comment && p.comment.trim()) flags.push({ id: `portion-${i}`, text: 'Portion Check' + (p.department ? ' (' + p.department + ')' : '') + ' — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment });
   });
   ADMIN.forEach(a => maybeFlag(a.id, a.text, 'Admin'));
   QC_TASTING_CATS.forEach(cat => {
@@ -933,7 +949,9 @@ async function loadVisitForEdit(visitId) {
     // were folded into GRIND Reset. Flatten those into the new flat arrays
     // rather than losing the data or crashing on the old shape.
     if (!Array.isArray(state.customItems)) state.customItems = state.customItems ? Object.values(state.customItems).flat() : [];
-    if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat().slice(0, PORTION_ITEMS) : [];
+    if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat() : [];
+    if (state.portion[0] && !state.portion[0].department) state.portion[0].department = 'Bar';
+    if (state.portion[1] && !state.portion[1].department) state.portion[1].department = 'Kitchen';
     if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
     if (!state.nextSteps) state.nextSteps = {};
     state.meta = Object.assign({ store: visit.store, date: visit.date, manager: '', support: visit.fsm, startTime: '', endTime: '' }, state.meta || {});
@@ -967,7 +985,9 @@ async function loadExisting() {
   if (!state.comments) state.comments = {};
   if (!state.photos) state.photos = {};
   if (!Array.isArray(state.customItems)) state.customItems = state.customItems ? Object.values(state.customItems).flat() : [];
-  if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat().slice(0, PORTION_ITEMS) : [];
+  if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat() : [];
+    if (state.portion[0] && !state.portion[0].department) state.portion[0].department = 'Bar';
+    if (state.portion[1] && !state.portion[1].department) state.portion[1].department = 'Kitchen';
   if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
   if (!state.nextSteps) state.nextSteps = {};
   if (!state.meta.startTime) state.meta.startTime = new Date().toISOString();
@@ -1159,8 +1179,9 @@ function portionBlockHtml(p, id) {
   const comment = (p.comment || '').trim();
   if (!item && !comment) return '';
   const hasAction = !!(step && step.action);
+  const label = (p.department ? `[${escapeHtml(p.department)}] ` : '') + (item ? escapeHtml(item) : 'Portion check');
   return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
-    <b>${item ? escapeHtml(item) : 'Portion check'}</b>${comment ? ' — ' + escapeHtml(comment) : ''}
+    <b>${label}</b>${comment ? ' — ' + escapeHtml(comment) : ''}
     ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:2px;">→ ${actionLabel(step)}</div>` : ''}
   </div>`;
 }
@@ -1183,7 +1204,7 @@ function buildItemRegistry() {
   const reg = {};
   GRIND_RESET.forEach(g => { reg[g.id] = { text: g.text, source: 'GRIND Reset' }; });
   state.customItems.forEach(c => { reg[c.id] = { text: c.text, source: 'GRIND Reset · Custom' }; });
-  state.portion.forEach((p, i) => { reg[`portion-${i}`] = { text: 'Portion check — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment || '' }; });
+  state.portion.forEach((p, i) => { reg[`portion-${i}`] = { text: 'Portion Check' + (p.department ? ' (' + p.department + ')' : '') + ' — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment || '' }; });
   ADMIN.forEach(a => { reg[a.id] = { text: a.text, source: 'Admin' }; });
   QC_TASTING_CATS.forEach(cat => {
     (state.tasting[cat]||[]).forEach(t => { reg[t.id] = { text: `${cat} — ${t.product || '(untitled product)'}`, source: 'QC Tasting' }; });
@@ -1297,7 +1318,7 @@ function exportSummary() {
   lines.push('GRIND RESET');
   GRIND_RESET.forEach(g => lines.push(fmtLine(g.id, g.text)));
   state.customItems.forEach(c => lines.push(fmtLine(c.id, c.text)));
-  state.portion.forEach((p, i) => lines.push(fmtLine(`portion-${i}`, 'Portion check — ' + (p.item || `item ${i+1}`))));
+  state.portion.forEach((p, i) => lines.push(fmtLine(`portion-${i}`, 'Portion Check' + (p.department ? ' (' + p.department + ')' : '') + ' — ' + (p.item || `item ${i+1}`))));
   lines.push('');
   lines.push('QC TASTING');
   QC_TASTING_CATS.forEach(cat => {
