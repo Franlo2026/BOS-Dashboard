@@ -102,6 +102,8 @@ async function initDB() {
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS responsible_person TEXT;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS edit_log JSONB DEFAULT '[]'::jsonb;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS resolution_comment TEXT;`);
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS is_non_conformance BOOLEAN DEFAULT FALSE;`);
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS due_date_override DATE;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS storage (
@@ -462,7 +464,8 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
         escalationLabel: r.escalation_label, escalationHours: r.escalation_hours,
         comments: r.comments, completed: r.completed, completedBy: r.completed_by,
         completedAt: r.completed_at, photoUrl: r.photo_url, photoUrls: urls, responsiblePerson: r.responsible_person,
-        editLog: r.edit_log || [], resolutionComment: r.resolution_comment,
+        editLog: r.edit_log || [], resolutionComment: r.resolution_comment, isNonConformance: r.is_non_conformance,
+        dueDateOverride: r.due_date_override ? new Date(r.due_date_override).toISOString().slice(0,10) : null,
       };
     }));
   } catch (e) {
@@ -472,7 +475,7 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
 
 app.post('/api/ops-tasks', authRequired, async (req, res) => {
   try {
-    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl, photoUrls, responsiblePerson } = req.body;
+    const { department, cafe, region, escalationLabel, escalationHours, comments, submitterName, photoUrl, photoUrls, responsiblePerson, isNonConformance } = req.body;
     if (!department || !cafe || !escalationLabel || !escalationHours) {
       return res.status(400).json({ error: 'department, cafe, escalationLabel and escalationHours are required' });
     }
@@ -494,9 +497,9 @@ app.post('/api/ops-tasks', authRequired, async (req, res) => {
     const savedUrls = incomingPhotos.map(p => (p && p.startsWith('data:')) ? saveBase64Photo(p, 'ops-tasks') : p).filter(Boolean);
     const legacyPhotoUrl = savedUrls[0] || null; // keep first photo mirrored into the old column too, for anything still reading it
     await pool.query(
-      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url, photo_urls, responsible_person)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', legacyPhotoUrl, JSON.stringify(savedUrls), responsiblePerson || null]
+      `INSERT INTO ops_tasks (id, submitter_name, department, cafe, region, escalation_label, escalation_hours, comments, photo_url, photo_urls, responsible_person, is_non_conformance)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      [id, (submitterName && submitterName.trim()) || req.user.displayName || req.user.username, department, cafe, region || '', escalationLabel, escalationHours, comments || '', legacyPhotoUrl, JSON.stringify(savedUrls), responsiblePerson || null, !!isNonConformance]
     );
     res.json({ ok: true, id });
   } catch (e) {
@@ -516,6 +519,7 @@ app.patch('/api/ops-tasks/:id', authRequired, requireEditor, async (req, res) =>
       department: 'department', cafe: 'cafe', region: 'region',
       escalationLabel: 'escalation_label', escalationHours: 'escalation_hours',
       comments: 'comments', responsiblePerson: 'responsible_person', submitterName: 'submitter_name',
+      dueDateOverride: 'due_date_override', isNonConformance: 'is_non_conformance',
     };
     const updates = {};
     Object.entries(fieldMap).forEach(([bodyKey, col]) => {
