@@ -844,6 +844,7 @@ const TABS = [
   { id:'timelines', label:'New Cafes' },
   { id:'cafe-overview', label:'Cafe Overview', href:'/cafe-overview.html' },
   { id:'scheduler', label:'Team Scheduler', href:'/scheduler.html' },
+  { id:'support-schedule', label:'Support Schedule', href:'/support-schedule.html' },
   { id:'admin', label:'Admin', adminOnly:true }
 ];
 let ACTIVE_TAB = 'home';
@@ -949,7 +950,7 @@ function ragStatusPill(r){
    VIEW: HOME (landing page — pure navigation, no dashboard content)
    ============================================================ */
 const HOME_GROUPS = [
-  { title: 'Other Tools', ids: ['cafe-overview','scheduler'] },
+  { title: 'Other Tools', ids: ['cafe-overview','scheduler','support-schedule'] },
   { title: 'Log Feedback', ids: ['logsupport','ops'] },
   { title: 'Dashboards & Reports', ids: ['dashboard','trade','standards','bbetter','ltl','weekly','print'] },
   { title: 'Manage', ids: ['actions','visitreports','timelines'] },
@@ -969,7 +970,8 @@ const HOME_META = {
   ops:           { icon:'🛠️', desc:'Add Task — report an operational issue at a café' },
   timelines:     { icon:'🏗️', desc:'New Cafes — opening timelines & CPA milestones' },
   'cafe-overview': { icon:'☕', desc:'Cafe Overview — FSM/café status, checklists, Store Health Reports' },
-  scheduler:     { icon:'🗓️', desc:'Team Scheduler — weekly routes & franchisee meetings' },
+  scheduler:     { icon:'🗓️', desc:'Team Scheduler — FSM weekly routes & franchisee meetings' },
+  'support-schedule': { icon:'🧭', desc:'Support Schedule — regional support team rosters & café coverage' },
   admin:         { icon:'🔐', desc:'Admin — manage user accounts and roles' },
 };
 
