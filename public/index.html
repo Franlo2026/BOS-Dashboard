@@ -1803,11 +1803,11 @@ function viewActions(){
     </div>
     <div class="grid-4" id="taskKpis" style="margin-bottom:16px;"></div>
     <div id="taskOverdueBanner"></div>
-    <div id="taskNcBanner"></div>
     <div class="card">
       <div class="segmented" id="taskSubTab" style="margin-bottom:14px;">
         <button class="segmented-btn active" data-sub="open">Open Tasks</button>
         <button class="segmented-btn" data-sub="completed">Completed Tasks</button>
+        <button class="segmented-btn" data-sub="nonconformance">Non-Conformances</button>
       </div>
       <div class="filter-row">
         <select id="actFsm"><option value="">All FSMs / Support Team</option>${personSelectOptions()}</select>
@@ -1825,7 +1825,6 @@ function viewActions(){
 
   let subTab = 'open';
   let overdueExpanded = false; // collapsed by default — click to expand the list
-  let ncExpanded = false; // Non-Conformances — collapsed by default too
   let OPS_AS_TASKS = [];
   // Tracks in-progress photo changes per open edit form, keyed by editId:
   //   not present       -> untouched, leave the existing photos alone on save
@@ -1888,7 +1887,7 @@ function viewActions(){
       store: t.cafe, fsm: t.submitterName, pillar: t.department,
       description: t.comments, owner: t.submitterName, responsiblePerson: t.responsiblePerson,
       dueDate: opsTaskDueDate(t), status: t.completed ? 'closed' : 'open', isNonConformance: !!t.isNonConformance,
-      createdDate: (t.createdAt||'').slice(0,10), comments: [], photoUrl: t.photoUrl, photoUrls: t.photoUrls || (t.photoUrl ? [t.photoUrl] : []),
+      createdDate: (t.createdAt||'').slice(0,10), comments: t.notes || [], photoUrl: t.photoUrl, photoUrls: t.photoUrls || (t.photoUrl ? [t.photoUrl] : []),
       editLog: t.editLog || [], resolutionComment: t.resolutionComment, department: t.department,
     };
   }
@@ -1911,7 +1910,8 @@ function viewActions(){
     const fsmF = document.getElementById('actFsm').value, pillarF = document.getElementById('actPillar').value, statusF = document.getElementById('actStatus').value;
     const searchF = document.getElementById('actSearch').value.trim().toLowerCase();
     return [...STATE.actions, ...OPS_AS_TASKS].filter(a =>
-      (subTab==='completed' ? a.status==='closed' : a.status!=='closed') &&
+      (subTab==='completed' ? a.status==='closed' : subTab==='nonconformance' ? true : a.status!=='closed') &&
+      (subTab!=='nonconformance' || a.isNonConformance) &&
       (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) && (!statusF||a.status===statusF) &&
       (!searchF || (a.store||'').toLowerCase().includes(searchF) || (a.owner||'').toLowerCase().includes(searchF))
     );
@@ -1921,11 +1921,6 @@ function viewActions(){
     const rows = filteredRows();
     const active = rows.filter(r=>r.status!=='closed');
     const overdue = active.filter(r=>r.dueDate && r.dueDate<todayISO());
-    // Deliberately NOT scoped to the current FSM/Pillar/Status/Search filters
-    // above — this is a standing coverage check, so it should always show
-    // every open non-conformance org-wide regardless of what's selected in
-    // those dropdowns.
-    const nonConformances = [...STATE.actions, ...OPS_AS_TASKS].filter(a => a.isNonConformance && a.status !== 'closed');
     const completed = rows.filter(r=>r.status==='closed');
 
     document.getElementById('taskKpis').innerHTML = `
@@ -1957,79 +1952,6 @@ function viewActions(){
     const overdueToggleHead = document.getElementById('overdueToggleHead');
     if (overdueToggleHead) overdueToggleHead.addEventListener('click', () => { overdueExpanded = !overdueExpanded; render(); });
 
-    document.getElementById('taskNcBanner').innerHTML = `
-      <div class="card" style="border-left:3px solid #c62828;background:${nonConformances.length ? 'rgba(198,40,40,0.06)' : 'var(--white)'};margin-bottom:14px;">
-        <div id="ncToggleHead" style="font-size:11px;font-weight:700;color:#c62828;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;display:flex;align-items:center;justify-content:space-between;${ncExpanded?'margin-bottom:10px;':''}">
-          <span>⚠ ${nonConformances.length} Non-Conformance${nonConformances.length===1?'':'s'}</span>
-          <span>${ncExpanded ? '▲ Hide' : '▾ Show'}</span>
-        </div>
-        ${ncExpanded ? (nonConformances.length ? nonConformances.map(a => {
-          const isOps = !!a._isOpsTask;
-          const editId = isOps ? a._opsId : a.id;
-          const completeClass = isOps ? 'ncOpsCompleteBtn' : 'ncResolveBtn';
-          const completeId = isOps ? a._opsId : a.id;
-          return `<div class="card" style="margin-bottom:8px;">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
-              <div>
-                <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span></div>
-                <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${isOps?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner}</div>
-                <div style="background:var(--white);padding:8px 10px;margin-top:8px;font-size:12px;border-left:2px solid #c62828;">${a.description||''}</div>
-              </div>
-              <div style="text-align:right;white-space:nowrap;">
-                <span style="font-size:10px;color:var(--grey-500);">Due ${a.dueDate||'—'}</span><br>
-                <div style="margin-top:8px;display:flex;gap:4px;justify-content:flex-end;">
-                  <button class="btn btn-outline btn-mini ncEditToggleBtn" data-id="${editId}">Update Due Date</button>
-                  <button class="btn btn-gold btn-mini ${completeClass}" data-id="${completeId}">Resolve</button>
-                </div>
-              </div>
-            </div>
-            <div id="ncEditForm_${editId}" style="display:none;margin-top:10px;padding:10px;background:var(--grey-100);border-radius:4px;">
-              <label style="font-size:10px;color:var(--grey-500);">New Due Date</label>
-              <div style="display:flex;gap:6px;margin-top:4px;">
-                <input type="date" id="ncDueDate_${editId}" value="${a.dueDate||''}" style="flex:1;">
-                <button class="btn btn-gold btn-mini ncSaveDueDateBtn" data-id="${editId}" data-ops="${isOps?'1':'0'}">Save</button>
-              </div>
-            </div>
-          </div>`;
-        }).join('') : '<div style="color:#999;font-size:11.5px;padding:6px 0;">No open non-conformances right now.</div>') : ''}
-      </div>`;
-    const ncToggleHead = document.getElementById('ncToggleHead');
-    if (ncToggleHead) ncToggleHead.addEventListener('click', () => { ncExpanded = !ncExpanded; render(); });
-    document.querySelectorAll('.ncEditToggleBtn').forEach(btn => btn.addEventListener('click', () => {
-      const form = document.getElementById('ncEditForm_' + btn.dataset.id);
-      if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
-    }));
-    document.querySelectorAll('.ncSaveDueDateBtn').forEach(btn => btn.addEventListener('click', async () => {
-      const newDate = document.getElementById('ncDueDate_' + btn.dataset.id).value;
-      if (!newDate) { toast('Pick a due date first'); return; }
-      btn.disabled = true;
-      try {
-        if (btn.dataset.ops === '1') {
-          await apiPatch('/api/ops-tasks/' + btn.dataset.id, { dueDateOverride: newDate });
-          await loadOpsTasksForTracker();
-        } else {
-          await apiPatch('/api/actions/' + btn.dataset.id, { dueDate: newDate, comment: 'Due date updated to ' + newDate });
-          await refreshState();
-        }
-        render();
-      } catch(e) { toast(e.message || 'Could not update due date'); btn.disabled = false; }
-    }));
-    document.querySelectorAll('.ncResolveBtn').forEach(btn => btn.addEventListener('click', async () => {
-      const comment = prompt('Add a closing comment before resolving this non-conformance:');
-      if (comment === null) return;
-      if (!comment.trim()) { toast('A comment is required to resolve a non-conformance'); return; }
-      btn.disabled = true;
-      try { await apiPatch('/api/actions/' + btn.dataset.id, { status: 'closed', comment: comment.trim() }); await refreshState(); render(); }
-      catch(e) { toast(e.message || 'Could not update — check connection and try again'); btn.disabled = false; }
-    }));
-    document.querySelectorAll('.ncOpsCompleteBtn').forEach(btn => btn.addEventListener('click', async () => {
-      const comment = prompt('Add a comment about how this was resolved (optional):');
-      if (comment === null) return;
-      btn.disabled = true;
-      try { await apiPatch('/api/ops-tasks/' + btn.dataset.id + '/complete', { comment: comment.trim() || undefined }); await loadOpsTasksForTracker(); render(); }
-      catch(e) { toast(e.message || 'Could not complete task'); btn.disabled = false; }
-    }));
-
     document.getElementById('taskListWrap').innerHTML = rows.length ? rows
       .sort((a,b)=> (a.dueDate||'').localeCompare(b.dueDate||''))
       .map(a => {
@@ -2043,7 +1965,7 @@ function viewActions(){
         return `<div class="card task-card" style="border-left:3px solid ${borderColor};margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
-              <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span> ${a.status==='closed'?'<span class="badge green">CLOSED</span>':''} ${a._isOpsTask?'<span class="badge" style="background:var(--grey-100);color:var(--grey-500);margin-left:4px;">+ Add Task</span>':''}</div>
+              <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span> ${a.status==='closed'?'<span class="badge green">CLOSED</span>':''} ${a.isNonConformance?'<span class="badge red" style="margin-left:4px;">⚠ NON-CONFORMANCE</span>':''} ${a._isOpsTask?'<span class="badge" style="background:var(--grey-100);color:var(--grey-500);margin-left:4px;">+ Add Task</span>':''}</div>
               <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${a._isOpsTask?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner} · Logged ${a.createdDate||''}${a._isOpsTask&&a.responsiblePerson ? ' · Responsible: '+a.responsiblePerson : ''}</div>
               <div id="taskDesc_${editId}" style="background:var(--grey-100);padding:8px 10px;margin-top:8px;font-size:12px;border-left:2px solid var(--grey-300);">${a.description||''}</div>
               ${(a.photoUrls && a.photoUrls.length) ? a.photoUrls.map(u => `<img src="${u}" class="actOpsPhotoThumb" data-src="${u}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;margin:8px 6px 0 0;cursor:pointer;">`).join('') : ''}
@@ -2101,17 +2023,17 @@ function viewActions(){
             <input type="date" id="extendDate_${a.id}" value="${a.dueDate||''}" style="padding:3px 6px;font-size:11px;">
             <button class="btn btn-outline btn-mini actExtendBtn" data-id="${a.id}">Update</button>
           </div>` : ''}
-          ${!a._isOpsTask ? `
           <div style="margin-top:10px;border-top:1px solid var(--grey-200);padding-top:8px;">
-            <div style="font-size:11px;color:var(--grey-500);cursor:pointer;" data-toggle-comments="${a.id}">💬 ${comments.length} update${comments.length===1?'':'s'} — click to view / add</div>
-            <div id="comments_${a.id}" style="display:none;margin-top:8px;">
+            <div style="font-size:11px;color:var(--grey-500);cursor:pointer;" data-toggle-comments="${completeId}">💬 ${comments.length} update${comments.length===1?'':'s'} — click to view / add</div>
+            <div id="comments_${completeId}" style="display:none;margin-top:8px;">
               ${comments.map(c => `<div style="font-size:12px;padding:6px 0;border-bottom:1px solid var(--grey-200);"><b>${c.author}</b> <span style="color:var(--grey-500);">· ${new Date(c.at).toLocaleString('en-ZA')}</span><br>${c.text}</div>`).join('')}
               <div style="display:flex;gap:6px;margin-top:8px;">
-                <input type="text" id="commentInput_${a.id}" placeholder="Add an update..." style="flex:1;">
-                <button class="btn btn-outline btn-mini actCommentBtn" data-id="${a.id}">Add</button>
+                <input type="text" id="commentInput_${completeId}" placeholder="Add a note, update, or question..." style="flex:1;">
+                <button class="btn btn-outline btn-mini actCommentBtn" data-id="${completeId}" data-ops="${a._isOpsTask?'1':'0'}">Add</button>
               </div>
             </div>
-          </div>` : `<div style="margin-top:8px;font-size:10px;color:var(--grey-500);">${a.resolutionComment ? 'Resolution note: "'+a.resolutionComment+'"' : 'Logged via the + Add Task form'}</div>`}
+          </div>
+          ${a._isOpsTask && a.resolutionComment ? `<div style="margin-top:8px;font-size:10px;color:var(--grey-500);">Resolution note: "${a.resolutionComment}"</div>` : ''}
           ${editLog.length ? `
           <div style="margin-top:8px;">
             <div style="font-size:10.5px;color:var(--grey-500);cursor:pointer;" data-toggle-editlog="${editId}">🕓 ${editLog.length} edit${editLog.length===1?'':'s'} — click to view history</div>
@@ -2120,7 +2042,7 @@ function viewActions(){
             </div>
           </div>` : ''}
         </div>`;
-      }).join('') : `<div class="empty-state">${subTab==='completed' ? 'No completed tasks match this filter.' : 'No open tasks match this filter.'}</div>`;
+      }).join('') : `<div class="empty-state">${subTab==='completed' ? 'No completed tasks match this filter.' : subTab==='nonconformance' ? 'No non-conformances match this filter.' : 'No open tasks match this filter.'}</div>`;
 
     document.querySelectorAll('[data-toggle-editlog]').forEach(el => el.addEventListener('click', () => {
       const box = document.getElementById('editlog_' + el.dataset.toggleEditlog);
@@ -2235,7 +2157,15 @@ function viewActions(){
       const text = input.value.trim();
       if (!text) { toast('Write an update before adding it'); return; }
       btn.disabled = true;
-      try { await apiPatch('/api/actions/' + btn.dataset.id, { comment: text }); await refreshState(); render();
+      try {
+        if (btn.dataset.ops === '1') {
+          await apiPatch('/api/ops-tasks/' + btn.dataset.id, { note: text });
+          await loadOpsTasksForTracker();
+        } else {
+          await apiPatch('/api/actions/' + btn.dataset.id, { comment: text });
+          await refreshState();
+        }
+        render();
         setTimeout(() => { const box = document.getElementById('comments_' + btn.dataset.id); if (box) box.style.display = 'block'; }, 0);
       }
       catch(e) { toast(e.message || 'Could not add update'); btn.disabled = false; }
@@ -2845,7 +2775,7 @@ function viewVisitReports(){
   function vrHeader(v) {
     return `
     <div style="background:#1a1a1a;color:#fff;padding:16px 22px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
-      <div style="font-weight:800;letter-spacing:0.2em;font-size:15px;text-transform:uppercase;">BOOTLEGGER<span style="color:#c8ae79;">.</span> <span style="font-weight:400;font-size:9px;letter-spacing:0.1em;color:#999;margin-left:6px;">COFFEE CO.</span></div>
+      <div style="font-weight:800;letter-spacing:0.2em;font-size:15px;text-transform:uppercase;">BOOTLEGGER<span style="color:#c8ae79;">.</span></div>
       <div style="font-size:10px;color:#c8ae79;text-transform:uppercase;letter-spacing:0.08em;">GRIND Café Support Summary</div>
     </div>
     <div style="border:1px solid #ebebeb;border-top:3px solid #c8ae79;padding:14px 18px;display:grid;grid-template-columns:repeat(3,1fr);gap:10px 16px;font-size:11px;">
