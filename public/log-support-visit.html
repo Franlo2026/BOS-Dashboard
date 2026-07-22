@@ -365,39 +365,6 @@ body {
       <div class="section-body" id="body-reset"></div>
     </div>
 
-    <!-- SERVICE (FOH) -->
-    <div class="section collapsed" data-stage="review" id="sec-service">
-      <div class="section-head" onclick="toggleSection('sec-service')">
-        <span class="tag">FOH</span>
-        <h2>Service (FOH)</h2>
-        <span class="count" id="count-service"></span>
-        <span class="chev">▾</span>
-      </div>
-      <div class="section-body" id="body-service"></div>
-    </div>
-
-    <!-- COFFEE (BAR) -->
-    <div class="section collapsed" data-stage="review" id="sec-coffee">
-      <div class="section-head" onclick="toggleSection('sec-coffee')">
-        <span class="tag">Bar</span>
-        <h2>Coffee (Bar)</h2>
-        <span class="count" id="count-coffee"></span>
-        <span class="chev">▾</span>
-      </div>
-      <div class="section-body" id="body-coffee"></div>
-    </div>
-
-    <!-- QUALITY (BOH) -->
-    <div class="section collapsed" data-stage="review" id="sec-quality">
-      <div class="section-head" onclick="toggleSection('sec-quality')">
-        <span class="tag">BOH</span>
-        <h2>Quality (BOH)</h2>
-        <span class="count" id="count-quality"></span>
-        <span class="chev">▾</span>
-      </div>
-      <div class="section-body" id="body-quality"></div>
-    </div>
-
     <!-- QC TASTING -->
     <div class="section collapsed" data-stage="inspect" id="sec-tasting">
       <div class="section-head" onclick="toggleSection('sec-tasting')">
@@ -480,7 +447,11 @@ async function checkBosSession() {
 }
 
 let FSM_STORES = {};
-const SUPPORT_TEAM_ONLY = ['Addright Chigama', 'Tshepo Goqo', 'Siphesihle Gwadela', 'Raabia Isaacs', 'Mini Mohale', 'Aphiwe Mqakayi', 'Johannes Moloto'];
+const SUPPORT_TEAM_ONLY = ['Tshepo Goqo', 'Siphesihle Gwadela', 'Raabia Isaacs', 'Mini Mohale', 'Aphiwe Mqakayi', 'Johannes Moloto'];
+// Franlo and Tarryn manage regions rather than having their own store
+// portfolio in fsmStores, so neither showed up in this dropdown at all —
+// added explicitly since they log support visits too.
+const LEADERSHIP_ONLY = ['Franlo Geldenhuys', 'Tarryn Palmer'];
 async function loadFsmStores() {
   try {
     const token = localStorage.getItem('bos_token');
@@ -488,9 +459,9 @@ async function loadFsmStores() {
     if (!res.ok) return;
     const data = await res.json();
     FSM_STORES = data.fsmStores || {};
-    // Combined list = every FSM plus support team members who aren't FSMs —
-    // anyone in Support can log a visit, at any store (see updateStoreOptionsForFsm).
-    const names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY])).sort();
+    // Combined list = every FSM plus support team members and leadership who
+    // aren't FSMs — anyone can log a visit, at any store (see updateStoreOptionsForFsm).
+    const names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY, ...LEADERSHIP_ONLY])).sort();
     const fsmSel = document.getElementById('f-fsm');
     fsmSel.innerHTML = '<option value="">— select —</option>' + names.map(f => `<option>${f}</option>`).join('');
     // Every support member is linked to every store — populate the full
@@ -534,26 +505,10 @@ checkBosSession().then(async me => {
 // Shared items that appear in all three of Service/Coffee/Quality, each
 // tracked independently per section (so a comment logged in Coffee doesn't
 // bleed into Service's copy of the same question).
-const SHARED_ITEMS = [
-  { key: 'checklist', text: 'Checklist (Latest, including related SOP\'s)' },
-  { key: 'hygiene', text: 'Hygiene & cleanliness' },
-];
+const PORTION_ITEMS = 2; // reduced from 3
 
-const SECTIONS = [
-  { key: 'service', label: 'Service (FOH)', extra: [
-      { key: 'stepsofservice', text: 'Steps of Service' },
-    ], portion: false },
-  { key: 'coffee', label: 'Coffee (Bar)', extra: [
-      { key: 'coffeecheck', text: 'Coffee check — shot times & extraction, ask barista to pull a shot' },
-      { key: 'ordertimes', text: 'Order times — spot check bar ticket times' },
-    ], portion: true },
-  { key: 'quality', label: 'Quality (BOH)', extra: [
-      { key: 'ordertimes', text: 'Order times — spot check kitchen ticket times' },
-    ], portion: true },
-];
-const PORTION_ITEMS = 3; // reduced from 5 per section
-
-// GRIND Reset = combined Fixed (remaining, not moved into a section above) + Variable
+// GRIND Reset — now the single checklist section (Service/Coffee/Quality
+// sections removed; their relevant checks folded in here instead).
 const GRIND_RESET = [
   { id: 'gr-vibe', text: 'Vibe & feel — flow, control, temp, music on, lighting, customer faces' },
   { id: 'gr-devices', text: 'Devices — MrD & UE tablets on/working, Flow device live to recipe, BBM screens accurate', photo: true },
@@ -563,6 +518,11 @@ const GRIND_RESET = [
   { id: 'gr-flojet', text: 'Flojet test — works, team can operate, emergency water available (pre-communicate, trade-dependent)' },
   { id: 'gr-plants', text: 'Plants & plant boxes — condition & clean (store dependent)' },
   { id: 'gr-masterfile', text: 'Google, App & Masterfile aligned & up to date — if not, log on task tracker' },
+  { id: 'gr-hygiene', text: 'Overall hygiene & cleanliness', photo: true },
+  { id: 'gr-checklists', text: 'Checklists for all sections and required recipe files/SOP\'s available' },
+  { id: 'gr-coffeecheck', text: 'Coffee check (grinder settings and shot time/volume)', photo: true },
+  { id: 'gr-ordertimes', text: 'Order times check (bar & kitchen)' },
+  { id: 'gr-teamq', text: 'Team Question — I asked a question of each department' },
 ];
 
 const QC_TASTING_CATS = ['Coffee', 'New Beverages', 'New Dishes', 'Base Sauces'];
@@ -578,11 +538,10 @@ let state = {
   meta: { store:'', date:'', manager:'', support:'', startTime:'', endTime:'' },
   comments: {},          // id -> text. Non-empty comment = flagged.
   photos: {},            // id -> [dataURL, ...] (multiple photos per item now)
-  customItems: { service: [], coffee: [], quality: [] },   // section -> [{id, text}]
-  teamQA: { service: [], coffee: [], quality: [] },        // section -> [{id, q, c}]
-  portion: { coffee: [], quality: [] },                    // section -> [{item,expected,actual,comment}]
+  customItems: [],        // [{id, text}] — flat list, GRIND Reset is the only section now
+  portion: [],            // [{item, comment}] — flat list of PORTION_ITEMS entries
   tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] }, // cat -> [{id, product, comment, photos:[]}]
-  nextSteps: {},          // id -> {action:'retrained'|'tasktracker', notes, owner, dueDate}
+  nextSteps: {},          // id -> {action:'retrained'|'tasktracker'|'nonconformance', notes, owner, dueDate}
   submitted: false,
 };
 
@@ -603,6 +562,7 @@ function actionLabel(step) {
   if (step.action === 'retrained') return 'Retrained and Rectified ✓';
   if (step.action === 'na') return 'N/A ✓';
   if (step.action === 'tasktracker') return 'Logged on Task Tracker' + (step.owner ? ' — Owner: ' + escapeHtml(step.owner) : '') + (step.dueDate ? ', Due: ' + step.dueDate : '');
+  if (step.action === 'nonconformance') return 'Logged as Non-Conformance' + (step.owner ? ' — Owner: ' + escapeHtml(step.owner) : '') + (step.dueDate ? ', Due: ' + step.dueDate : '');
   return 'Not yet assigned';
 }
 
@@ -630,8 +590,9 @@ function nextStepControl(id) {
       <option value="retrained" ${step.action==='retrained'?'selected':''}>Retrained and Rectified</option>
       <option value="na" ${step.action==='na'?'selected':''}>N/A</option>
       <option value="tasktracker" ${step.action==='tasktracker'?'selected':''}>Log on Task Tracker</option>
+      <option value="nonconformance" ${step.action==='nonconformance'?'selected':''}>Log as Non-Conformance</option>
     </select>
-    ${step.action==='tasktracker' ? `
+    ${(step.action==='tasktracker' || step.action==='nonconformance') ? `
       <input type="text" class="nextstep-notes" placeholder="Owner (who's fixing this)" value="${escapeHtml(step.owner||'')}" onchange="setNextStepField('${id}','owner',this.value)">
       <input type="date" class="nextstep-notes" value="${step.dueDate||''}" onchange="setNextStepField('${id}','dueDate',this.value)">
     ` : ''}
@@ -672,118 +633,59 @@ function renderQuestionRow(id, text, withPhoto) {
   </div>`;
 }
 
-// ---------- SERVICE / COFFEE / QUALITY SECTIONS ----------
-function sectionItemIds(sec) {
-  const ids = SHARED_ITEMS.map(s => `${s.key}-${sec.key}`);
-  sec.extra.forEach(e => ids.push(`${e.key}-${sec.key}`));
-  (state.customItems[sec.key] || []).forEach(c => ids.push(c.id));
-  return ids;
-}
-
-function renderSection(sec) {
-  const sharedRows = SHARED_ITEMS.map(s => renderQuestionRow(`${s.key}-${sec.key}`, s.text, true)).join('');
-  const extraRows = sec.extra.map(e => renderQuestionRow(`${e.key}-${sec.key}`, e.text, false)).join('');
-  const customRows = (state.customItems[sec.key] || []).map(c => `
-    <div class="row" id="row-${c.id}">
-      <div class="rowtext"><b>${escapeHtml(c.text)}</b> <span class="remove-x" onclick="removeCustomItem('${sec.key}','${c.id}')">✕</span></div>
-      <div class="row-controls"><div class="row-controls-top">${photoControl(c.id)}${commentControl(c.id)}</div>${nextStepControl(c.id)}</div>
-    </div>`).join('');
-  const portionBox = sec.portion ? renderPortionBox(sec.key) : '';
-  const addRow = `
-    <div class="add-item-row">
-      <input type="text" id="addcustom-${sec.key}" placeholder="New question / observation / action…">
-      <button type="button" class="add-btn" onclick="addCustomItem('${sec.key}')">+ Add</button>
-    </div>`;
-  const teamQaBox = renderTeamQABox(sec.key);
-  document.getElementById('body-' + sec.key).innerHTML = sharedRows + extraRows + customRows + addRow + portionBox + teamQaBox;
-}
-
-function addCustomItem(secKey) {
-  const input = document.getElementById('addcustom-' + secKey);
+// ---------- CUSTOM ITEMS (flat list — GRIND Reset is the only section now) ----------
+function addCustomItem() {
+  const input = document.getElementById('addcustom-reset');
   const text = input.value.trim();
   if (!text) return;
-  if (!state.customItems[secKey]) state.customItems[secKey] = [];
-  const id = 'custom-' + secKey + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-  state.customItems[secKey].push({ id, text });
+  const id = 'custom-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  state.customItems.push({ id, text });
   input.value = '';
   refreshCurrentSections();
   persist();
 }
-function removeCustomItem(secKey, id) {
-  state.customItems[secKey] = (state.customItems[secKey]||[]).filter(c => c.id !== id);
+function removeCustomItem(id) {
+  state.customItems = state.customItems.filter(c => c.id !== id);
   delete state.comments[id];
   delete state.photos[id];
   refreshCurrentSections();
   persist();
 }
 
-// ---------- PORTION CHECK (Coffee & Quality only, 3 rows, comment-based) ----------
-function renderPortionBox(secKey) {
-  if (!state.portion[secKey] || state.portion[secKey].length < PORTION_ITEMS) {
-    state.portion[secKey] = Array.from({length: PORTION_ITEMS}, (_, i) => (state.portion[secKey] && state.portion[secKey][i]) || {item:'', comment:''});
+// ---------- PORTION CHECK (2 items, comment-based) ----------
+function renderPortionBox() {
+  if (!state.portion || state.portion.length < PORTION_ITEMS) {
+    state.portion = Array.from({length: PORTION_ITEMS}, (_, i) => (state.portion && state.portion[i]) || {item:'', comment:''});
   }
   let rows = '';
   for (let i = 0; i < PORTION_ITEMS; i++) {
-    const p = state.portion[secKey][i];
-    const id = `portion-${secKey}-${i}`;
+    const p = state.portion[i];
+    const id = `portion-${i}`;
     rows += `
     <div class="portion-row">
-      <input type="text" placeholder="What item did you check? (e.g. Flat White 200ml)" value="${escapeHtml(p.item)}" onchange="setPortionField('${secKey}',${i},'item', this.value)">
-      <input type="text" class="comment-input" placeholder="" value="${escapeHtml(p.comment)}" onchange="setPortionField('${secKey}',${i},'comment', this.value)">
+      <input type="text" placeholder="What item did you check? (e.g. Flat White 200ml)" value="${escapeHtml(p.item)}" onchange="setPortionField(${i},'item', this.value)">
+      <input type="text" class="comment-input" placeholder="" value="${escapeHtml(p.comment)}" onchange="setPortionField(${i},'comment', this.value)">
       ${nextStepControl(id)}
     </div>`;
   }
   return `
   <div class="portion-box">
-    <div class="ptitle"><span class="badge-mini">${secKey === 'coffee' ? 'Bar' : 'BOH'}</span> Portion Check — 3 Items (weigh/measure vs. recipe spec)</div>
+    <div class="ptitle"><span class="badge-mini">Portion</span> Portion Check — 2 Items (weigh/measure vs. recipe spec)</div>
     <div class="portion-labels"><span>Item</span><span>Comment</span></div>
     ${rows}
   </div>`;
 }
-function setPortionField(secKey, i, field, val) {
-  state.portion[secKey][i][field] = val;
+function setPortionField(i, field, val) {
+  state.portion[i][field] = val;
   renderFlagged();
   persist();
 }
 
-// ---------- TEAM Q&A (folded into each section — question + comment only) ----------
-function renderTeamQABox(secKey) {
-  const rows = (state.teamQA[secKey] || []).map(entry => `
-    <div class="teamqa-row">
-      <div><span class="qlabel">Question</span><input type="text" placeholder="Question asked" value="${escapeHtml(entry.q)}" onchange="setTeamQAField('${secKey}','${entry.id}','q',this.value)"></div>
-      <div><span class="qlabel">Comment</span><input type="text" placeholder="Comment / action" value="${escapeHtml(entry.c)}" onchange="setTeamQAField('${secKey}','${entry.id}','c',this.value)"></div>
-      ${nextStepControl(entry.id)}
-      <span class="remove-x" onclick="removeTeamQA('${secKey}','${entry.id}')">✕</span>
-    </div>`).join('');
-  return `
-  <div class="teamqa-box">
-    <div class="ptitle"><span class="badge-mini">Team</span> Team Q&amp;A</div>
-    ${rows}
-    <div class="add-item-row">
-      <button type="button" class="add-btn" onclick="addTeamQA('${secKey}')">+ Add Question</button>
-    </div>
-  </div>`;
-}
-function addTeamQA(secKey) {
-  if (!state.teamQA[secKey]) state.teamQA[secKey] = [];
-  const id = 'qa-' + secKey + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
-  state.teamQA[secKey].push({ id, q: '', c: '' });
-  refreshCurrentSections();
-  persist();
-}
-function removeTeamQA(secKey, id) {
-  state.teamQA[secKey] = (state.teamQA[secKey]||[]).filter(e => e.id !== id);
-  refreshCurrentSections();
-  persist();
-}
-function setTeamQAField(secKey, id, field, val) {
-  const entry = (state.teamQA[secKey]||[]).find(e => e.id === id);
-  if (entry) entry[field] = val;
-  renderFlagged();
-  persist();
-}
-
-// ---------- QC TASTING (blank by default, +Add product, comment for feedback) ----------
+// ---------- QC TASTING ----------
+// Coffee and Base Sauces: log as many as tasted. New Beverages and New
+// Dishes: capped at one entry — there's only ever one new item to assess
+// per visit, so the +Add control hides itself once that one exists.
+const TASTING_CAPS = { 'New Beverages': 1, 'New Dishes': 1 };
 function renderTasting() {
   let html = '';
   QC_TASTING_CATS.forEach(cat => {
@@ -792,19 +694,24 @@ function renderTasting() {
         <div class="rowtext"><b>${escapeHtml(t.product || '(untitled product)')}</b> <span class="remove-x" onclick="removeTastingItem('${cat}','${t.id}')">✕</span></div>
         <div class="row-controls"><div class="row-controls-top">${photoControl(t.id)}${commentControl(t.id, '')}</div>${nextStepControl(t.id)}</div>
       </div>`).join('');
+    const cap = TASTING_CAPS[cat];
+    const atCap = cap && (state.tasting[cat]||[]).length >= cap;
     html += `
     <div class="tasting-cat">
-      <div class="tasting-cat-title">${cat}</div>
+      <div class="tasting-cat-title">${cat}${cap ? ' <span style="font-weight:400;font-size:10px;color:#999;">(pick one)</span>' : ''}</div>
       ${rows || '<div class="flag-empty" style="padding:8px 0;">Nothing logged yet for this category.</div>'}
+      ${atCap ? '' : `
       <div class="add-item-row">
         <input type="text" id="addtasting-${cat.replace(/\s+/g,'')}" placeholder="Describe product tested…">
         <button type="button" class="add-btn" onclick="addTastingItem('${cat}')">+ Add</button>
-      </div>
+      </div>`}
     </div>`;
   });
   document.getElementById('body-tasting').innerHTML = html;
 }
 function addTastingItem(cat) {
+  const cap = TASTING_CAPS[cat];
+  if (cap && (state.tasting[cat]||[]).length >= cap) return;
   const inputId = 'addtasting-' + cat.replace(/\s+/g,'');
   const input = document.getElementById(inputId);
   const product = input.value.trim();
@@ -824,9 +731,20 @@ function removeTastingItem(cat, id) {
   persist();
 }
 
-// ---------- GRIND RESET (combined Fixed + Variable) ----------
+// ---------- GRIND RESET (now the only checklist section) ----------
 function renderReset() {
-  document.getElementById('body-reset').innerHTML = GRIND_RESET.map(g => renderQuestionRow(g.id, g.text, !!g.photo)).join('');
+  const rows = GRIND_RESET.map(g => renderQuestionRow(g.id, g.text, true)).join('');
+  const customRows = state.customItems.map(c => `
+    <div class="row" id="row-${c.id}">
+      <div class="rowtext"><b>${escapeHtml(c.text)}</b> <span class="remove-x" onclick="removeCustomItem('${c.id}')">✕</span></div>
+      <div class="row-controls"><div class="row-controls-top">${photoControl(c.id)}${commentControl(c.id)}</div>${nextStepControl(c.id)}</div>
+    </div>`).join('');
+  const addRow = `
+    <div class="add-item-row">
+      <input type="text" id="addcustom-reset" placeholder="New question / observation / action…">
+      <button type="button" class="add-btn" onclick="addCustomItem()">+ Add</button>
+    </div>`;
+  document.getElementById('body-reset').innerHTML = rows + customRows + addRow + renderPortionBox();
 }
 
 // ---------- ADMIN ----------
@@ -887,19 +805,11 @@ function buildFlagList() {
     if (c && c.trim()) flags.push({ id, text, source, comment: c });
   }
 
-  SECTIONS.forEach(sec => {
-    SHARED_ITEMS.forEach(s => maybeFlag(`${s.key}-${sec.key}`, s.text, sec.label));
-    sec.extra.forEach(e => maybeFlag(`${e.key}-${sec.key}`, e.text, sec.label));
-    (state.customItems[sec.key]||[]).forEach(c => maybeFlag(c.id, c.text, sec.label + ' · Custom'));
-    (state.teamQA[sec.key]||[]).forEach(qa => { if (qa.c && qa.c.trim()) flags.push({ id: qa.id, text: qa.q ? `Team Q&A — ${qa.q}` : 'Team Q&A', source: sec.label, comment: qa.c }); });
-    if (sec.portion) {
-      (state.portion[sec.key]||[]).forEach((p, i) => {
-        if (p.comment && p.comment.trim()) flags.push({ id: `portion-${sec.key}-${i}`, text: 'Portion check — ' + (p.item || `item ${i+1}`), source: sec.label, comment: p.comment });
-      });
-    }
-  });
-
   GRIND_RESET.forEach(g => maybeFlag(g.id, g.text, 'GRIND Reset'));
+  state.customItems.forEach(c => maybeFlag(c.id, c.text, 'GRIND Reset · Custom'));
+  state.portion.forEach((p, i) => {
+    if (p.comment && p.comment.trim()) flags.push({ id: `portion-${i}`, text: 'Portion check — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment });
+  });
   ADMIN.forEach(a => maybeFlag(a.id, a.text, 'Admin'));
   QC_TASTING_CATS.forEach(cat => {
     (state.tasting[cat]||[]).forEach(t => { if (t.comment && t.comment.trim()) flags.push({ id: t.id, text: `QC Tasting — ${cat}: ${t.product}`, source: 'QC Tasting', comment: t.comment }); });
@@ -945,7 +855,6 @@ function toggleSection(id) {
 
 // ---------- RENDER ORCHESTRATION ----------
 function refreshCurrentSections() {
-  SECTIONS.forEach(renderSection);
   renderTasting();
   renderReset();
   renderAdmin();
@@ -955,12 +864,8 @@ function refreshCurrentSections() {
 function renderAll() { refreshCurrentSections(); updateTimestampLine(); }
 
 function updateSectionCounts() {
-  SECTIONS.forEach(sec => {
-    const ids = sectionItemIds(sec);
-    const flagged = ids.filter(id => state.comments[id] && state.comments[id].trim()).length;
-    document.getElementById('count-' + sec.key).textContent = flagged ? flagged + ' flagged' : '';
-  });
-  const resetFlagged = GRIND_RESET.filter(g => state.comments[g.id] && state.comments[g.id].trim()).length;
+  const resetIds = GRIND_RESET.map(g => g.id).concat(state.customItems.map(c => c.id)).concat(state.portion.map((p,i) => `portion-${i}`));
+  const resetFlagged = resetIds.filter(id => state.comments[id] && state.comments[id].trim()).length;
   document.getElementById('count-reset').textContent = resetFlagged ? resetFlagged + ' flagged' : '';
   const adminFlagged = ADMIN.filter(a => state.comments[a.id] && state.comments[a.id].trim()).length;
   document.getElementById('count-admin').textContent = adminFlagged ? adminFlagged + ' flagged' : '';
@@ -1023,9 +928,12 @@ async function loadVisitForEdit(visitId) {
     state = Object.assign({}, state, visit.fullReport);
     if (!state.comments) state.comments = {};
     if (!state.photos) state.photos = {};
-    if (!state.customItems) state.customItems = { service: [], coffee: [], quality: [] };
-    if (!state.teamQA) state.teamQA = { service: [], coffee: [], quality: [] };
-    if (!state.portion) state.portion = { coffee: [], quality: [] };
+    // Backward compatibility: older visits saved customItems/portion as
+    // per-section objects (service/coffee/quality) from before FOH/Bar/BOH
+    // were folded into GRIND Reset. Flatten those into the new flat arrays
+    // rather than losing the data or crashing on the old shape.
+    if (!Array.isArray(state.customItems)) state.customItems = state.customItems ? Object.values(state.customItems).flat() : [];
+    if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat().slice(0, PORTION_ITEMS) : [];
     if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
     if (!state.nextSteps) state.nextSteps = {};
     state.meta = Object.assign({ store: visit.store, date: visit.date, manager: '', support: visit.fsm, startTime: '', endTime: '' }, state.meta || {});
@@ -1058,9 +966,8 @@ async function loadExisting() {
   } catch (e) { /* nothing saved yet for this store/date — start fresh */ }
   if (!state.comments) state.comments = {};
   if (!state.photos) state.photos = {};
-  if (!state.customItems) state.customItems = { service: [], coffee: [], quality: [] };
-  if (!state.teamQA) state.teamQA = { service: [], coffee: [], quality: [] };
-  if (!state.portion) state.portion = { coffee: [], quality: [] };
+  if (!Array.isArray(state.customItems)) state.customItems = state.customItems ? Object.values(state.customItems).flat() : [];
+  if (!Array.isArray(state.portion)) state.portion = state.portion ? Object.values(state.portion).flat().slice(0, PORTION_ITEMS) : [];
   if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
   if (!state.nextSteps) state.nextSteps = {};
   if (!state.meta.startTime) state.meta.startTime = new Date().toISOString();
@@ -1075,8 +982,8 @@ function resetChecklist() {
   if (!confirm('Reset this checklist? All comments and photos for this visit will be cleared.')) return;
   state = {
     meta: { ...state.meta, startTime: new Date().toISOString(), endTime: '' },
-    comments: {}, photos: {}, customItems: { service: [], coffee: [], quality: [] },
-    teamQA: { service: [], coffee: [], quality: [] }, portion: { coffee: [], quality: [] },
+    comments: {}, photos: {}, customItems: [],
+    portion: [],
     tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] },
     nextSteps: {}, submitted: false,
   };
@@ -1086,11 +993,9 @@ function resetChecklist() {
 }
 
 function pillarForSource(source){
-  if (source.includes('FOH') || source.includes('Service')) return 'People';
-  if (source.includes('Bar') || source.includes('Coffee')) return 'Craft';
-  if (source.includes('BOH') || source.includes('Quality')) return 'Craft';
-  if (source === 'GRIND Reset') return 'Trade';
+  if (source.includes('GRIND Reset')) return 'Trade';
   if (source === 'Admin') return 'Partnership';
+  if (source === 'QC Tasting') return 'Craft';
   return 'Craft';
 }
 
@@ -1106,29 +1011,32 @@ async function submitToBOS(){
   }
 
   const flags = buildFlagList();
-  const taskFlags = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'tasktracker');
+  const taskFlags = flags.filter(f => state.nextSteps[f.id] && (state.nextSteps[f.id].action === 'tasktracker' || state.nextSteps[f.id].action === 'nonconformance'));
   const missingDetails = taskFlags.filter(f => !state.nextSteps[f.id].owner || !state.nextSteps[f.id].dueDate);
   if (missingDetails.length) {
-    alert(`${missingDetails.length} item(s) routed to Task Tracker are missing an Owner or Due Date — fill those in before submitting.`);
+    alert(`${missingDetails.length} item(s) routed to Task Tracker/Non-Conformance are missing an Owner or Due Date — fill those in before submitting.`);
     return;
   }
 
   const actions = taskFlags.map(f => {
     const step = state.nextSteps[f.id];
+    const isNonConformance = step.action === 'nonconformance';
     return {
       pillar: pillarForSource(f.source),
-      description: f.text + ' — "' + f.comment + '"' + (step.notes ? ' — ' + step.notes : ''),
+      description: (isNonConformance ? 'Non-Conformance: ' : '') + f.text + ' — "' + f.comment + '"' + (step.notes ? ' — ' + step.notes : ''),
       owner: step.owner,
       dueDate: step.dueDate,
       source: 'support-visit',
+      isNonConformance: isNonConformance,
     };
   });
   const retrainedCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'retrained').length;
   const satisfactoryCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'satisfactory').length;
   const naCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'na').length;
+  const nonConformanceCount = actions.filter(a => a.isNonConformance).length;
 
   const notes = `${visitType} — GRIND Café Support Summary. ` +
-    (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length} to Task Tracker, ${retrainedCount} retrained on the spot, ${satisfactoryCount} satisfactory — no action, ${naCount} N/A).` : 'No flags raised.');
+    (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length-nonConformanceCount} to Task Tracker, ${nonConformanceCount} logged as Non-Conformance, ${retrainedCount} retrained on the spot, ${satisfactoryCount} satisfactory — no action, ${naCount} N/A).` : 'No flags raised.');
 
   const btn = document.getElementById('submitBtn');
   btn.disabled = true; btn.textContent = EDIT_VISIT_ID ? 'Saving...' : 'Submitting...';
@@ -1186,8 +1094,8 @@ function resetForNextVisit() {
   const keepFsm = document.getElementById('f-fsm').value;
   state = {
     meta: { store: '', date: new Date().toISOString().split('T')[0], manager: '', support: keepFsm, startTime: new Date().toISOString(), endTime: '' },
-    comments: {}, photos: {}, customItems: { service: [], coffee: [], quality: [] },
-    teamQA: { service: [], coffee: [], quality: [] }, portion: { coffee: [], quality: [] },
+    comments: {}, photos: {}, customItems: [],
+    portion: [],
     tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] },
     nextSteps: {}, submitted: false,
   };
@@ -1227,9 +1135,10 @@ function photosBlockHtml(photos) {
     `</div>`;
 }
 function itemBlockHtml(text, id) {
+  const step = state.nextSteps[id];
+  if (step && step.action === 'na') return ''; // N/A items are excluded from the PDF entirely
   const comment = (state.comments[id] || '').trim();
   const photos = state.photos[id] || [];
-  const step = state.nextSteps[id];
   const hasAction = !!(step && step.action);
   const flagged = !!comment || hasAction;
   return `
@@ -1240,23 +1149,15 @@ function itemBlockHtml(text, id) {
     ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:4px;">→ ${actionLabel(step)}</div>` : ''}
   </div>`;
 }
-// Team Q&A entries print as plain question/answer text — no boxed
-// comment styling (that's reserved for flagged checklist items).
-function teamQaBlockHtml(entry) {
-  const label = entry.q ? escapeHtml(entry.q) : 'Team Q&A';
-  const answer = (entry.c || '').trim();
-  return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
-    <b>${label}</b>${answer ? ' — ' + escapeHtml(answer) : ''}
-  </div>`;
-}
 // Portion check entries print as plain item/comment text — no boxed
 // comment styling — but still show the next-step action if one was chosen,
 // since a portion item can be flagged just like any other checklist row.
 function portionBlockHtml(p, id) {
+  const step = state.nextSteps[id];
+  if (step && step.action === 'na') return ''; // N/A items are excluded from the PDF entirely
   const item = (p.item || '').trim();
   const comment = (p.comment || '').trim();
   if (!item && !comment) return '';
-  const step = state.nextSteps[id];
   const hasAction = !!(step && step.action);
   return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
     <b>${item ? escapeHtml(item) : 'Portion check'}</b>${comment ? ' — ' + escapeHtml(comment) : ''}
@@ -1281,15 +1182,8 @@ function sectionBlockHtml(tag, label, bodyHtml) {
 function buildItemRegistry() {
   const reg = {};
   GRIND_RESET.forEach(g => { reg[g.id] = { text: g.text, source: 'GRIND Reset' }; });
-  SECTIONS.forEach(sec => {
-    SHARED_ITEMS.forEach(s => { reg[`${s.key}-${sec.key}`] = { text: s.text, source: sec.label }; });
-    sec.extra.forEach(e => { reg[`${e.key}-${sec.key}`] = { text: e.text, source: sec.label }; });
-    (state.customItems[sec.key]||[]).forEach(c => { reg[c.id] = { text: c.text, source: sec.label + ' · Custom' }; });
-    (state.teamQA[sec.key]||[]).forEach(qa => { reg[qa.id] = { text: qa.q ? `Team Q&A — ${qa.q}` : 'Team Q&A', source: sec.label }; });
-    if (sec.portion) {
-      (state.portion[sec.key]||[]).forEach((p, i) => { reg[`portion-${sec.key}-${i}`] = { text: 'Portion check — ' + (p.item || `item ${i+1}`), source: sec.label, comment: p.comment || '' }; });
-    }
-  });
+  state.customItems.forEach(c => { reg[c.id] = { text: c.text, source: 'GRIND Reset · Custom' }; });
+  state.portion.forEach((p, i) => { reg[`portion-${i}`] = { text: 'Portion check — ' + (p.item || `item ${i+1}`), source: 'GRIND Reset', comment: p.comment || '' }; });
   ADMIN.forEach(a => { reg[a.id] = { text: a.text, source: 'Admin' }; });
   QC_TASTING_CATS.forEach(cat => {
     (state.tasting[cat]||[]).forEach(t => { reg[t.id] = { text: `${cat} — ${t.product || '(untitled product)'}`, source: 'QC Tasting' }; });
@@ -1300,23 +1194,12 @@ function buildItemRegistry() {
 function buildPrintableReport() {
   let body = '';
 
-  // GRIND Reset
-  body += sectionBlockHtml('Reset', 'GRIND Reset', GRIND_RESET.map(g => itemBlockHtml(g.text, g.id)).join(''));
-
-  // Service / Coffee / Quality
-  SECTIONS.forEach(sec => {
-    let html = SHARED_ITEMS.map(s => itemBlockHtml(s.text, `${s.key}-${sec.key}`)).join('');
-    html += sec.extra.map(e => itemBlockHtml(e.text, `${e.key}-${sec.key}`)).join('');
-    (state.customItems[sec.key]||[]).forEach(c => { html += itemBlockHtml(c.text, c.id); });
-    if (sec.portion) {
-      const rows = (state.portion[sec.key]||[]).map((p, i) => portionBlockHtml(p, `portion-${sec.key}-${i}`)).join('');
-      if (rows) html += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Portion Check</div>${rows}`;
-    }
-    const qa = (state.teamQA[sec.key]||[]).filter(e => e.q || e.c).map(e => teamQaBlockHtml(e)).join('');
-    if (qa) html += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Team Q&amp;A</div>${qa}`;
-    const tagMap = { service: 'FOH', coffee: 'Bar', quality: 'BOH' };
-    body += sectionBlockHtml(tagMap[sec.key] || sec.key, sec.label, html);
-  });
+  // GRIND Reset — now the single checklist section
+  let resetHtml = GRIND_RESET.map(g => itemBlockHtml(g.text, g.id)).join('');
+  state.customItems.forEach(c => { resetHtml += itemBlockHtml(c.text, c.id); });
+  const portionRows = state.portion.map((p, i) => portionBlockHtml(p, `portion-${i}`)).join('');
+  if (portionRows) resetHtml += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Portion Check</div>${portionRows}`;
+  body += sectionBlockHtml('Reset', 'GRIND Reset', resetHtml);
 
   // QC Tasting
   let tastingHtml = '';
@@ -1330,35 +1213,46 @@ function buildPrintableReport() {
   // Admin
   body += sectionBlockHtml('Admin', 'FSM Only — Status Check', ADMIN.map(a => itemBlockHtml(a.text, a.id)).join(''));
 
+  // Summary — ONLY items routed to Task Tracker or logged as a
+  // Non-Conformance appear here (not every commented/flagged item anymore);
+  // the task's owner/due date is shown inline via actionLabel() rather than
+  // in a separate "Tasks Created" section, and N/A items never appear here
+  // regardless of what else is set on them.
   const registry = buildItemRegistry();
-  const flagIds = new Set([
-    ...Object.keys(state.comments).filter(id => state.comments[id] && state.comments[id].trim()),
-    ...Object.keys(state.nextSteps).filter(id => state.nextSteps[id] && state.nextSteps[id].action),
-  ]);
-  SECTIONS.forEach(sec => {
-    if (!sec.portion) return;
-    (state.portion[sec.key]||[]).forEach((p, i) => {
-      if (p.comment && p.comment.trim()) flagIds.add(`portion-${sec.key}-${i}`);
-    });
-  });
+  const flagIds = new Set(
+    Object.keys(state.nextSteps).filter(id => {
+      const a = state.nextSteps[id] && state.nextSteps[id].action;
+      return a === 'tasktracker' || a === 'nonconformance';
+    })
+  );
   let flagsHtml = '';
   if (!flagIds.size) {
-    flagsHtml = `<div style="color:#666;font-size:11.5px;padding:8px 0;">No flags raised on this visit.</div>`;
+    flagsHtml = `<div style="color:#666;font-size:11.5px;padding:8px 0;">No items were routed to Task Tracker or logged as a Non-Conformance on this visit.</div>`;
   } else {
     flagIds.forEach(id => {
       const info = registry[id] || { text: id, source: '' };
       const comment = ((state.comments[id] || info.comment) || '').trim();
       const step = state.nextSteps[id] || {};
       const photos = state.photos[id] || [];
-      flagsHtml += `<div style="padding:8px 0;border-bottom:1px solid #ebebeb;">
-        <div style="font-weight:700;font-size:11.5px;">${info.source ? escapeHtml(info.source) + ': ' : ''}${escapeHtml(info.text)}</div>
+      const isNC = step.action === 'nonconformance';
+      flagsHtml += `<div style="padding:8px 0;border-bottom:1px solid #e8dcc0;">
+        <div style="font-weight:700;font-size:11.5px;">${isNC ? '<span style="color:#c62828;">⚠ NON-CONFORMANCE — </span>' : ''}${info.source ? escapeHtml(info.source) + ': ' : ''}${escapeHtml(info.text)}</div>
         ${comment ? `<div style="color:#8f733f;font-size:11px;margin-top:3px;">${escapeHtml(comment)}</div>` : ''}
         ${photosBlockHtml(photos)}
-        <div style="font-size:10px;color:#1a7a44;margin-top:4px;">→ ${actionLabel(step)}</div>
+        <div style="font-size:10px;color:#1a7a44;margin-top:4px;font-weight:700;">→ ${actionLabel(step)}</div>
       </div>`;
     });
   }
-  body += sectionBlockHtml('Summary', 'Flagged Items & Resolution', flagsHtml);
+  // Highlighted — gold background + thicker gold border, so this section
+  // stands out from the rest of the report at a glance.
+  body += `
+  <div style="margin-top:16px;border:2px solid #c8ae79;background:#fdf8ee;">
+    <div style="background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;align-items:center;gap:8px;">
+      <span style="background:#c8ae79;color:#1a1a1a;font-size:9px;font-weight:800;padding:2px 7px;text-transform:uppercase;letter-spacing:0.05em;">Summary</span>
+      <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;">Flagged Actions &amp; Resolutions — Task Tracker / Non-Conformance</span>
+    </div>
+    <div style="padding:2px 14px;">${flagsHtml}</div>
+  </div>`;
 
   return `
   <div style="font-family:-apple-system,'Segoe UI','Helvetica Neue',sans-serif;max-width:820px;margin:0 auto;color:#1a1a1a;">
@@ -1400,20 +1294,15 @@ function exportSummary() {
   lines.push('Manager on Duty: ' + (state.meta.manager || '—'));
   lines.push('Visit Started: ' + fmtTime(state.meta.startTime) + '  |  Visit Completed: ' + fmtTime(state.meta.endTime));
   lines.push('');
-  SECTIONS.forEach(sec => {
-    lines.push(sec.label.toUpperCase());
-    SHARED_ITEMS.forEach(s => lines.push(fmtLine(`${s.key}-${sec.key}`, s.text)));
-    sec.extra.forEach(e => lines.push(fmtLine(`${e.key}-${sec.key}`, e.text)));
-    (state.customItems[sec.key]||[]).forEach(c => lines.push(fmtLine(c.id, c.text)));
-    lines.push('');
-  });
+  lines.push('GRIND RESET');
+  GRIND_RESET.forEach(g => lines.push(fmtLine(g.id, g.text)));
+  state.customItems.forEach(c => lines.push(fmtLine(c.id, c.text)));
+  state.portion.forEach((p, i) => lines.push(fmtLine(`portion-${i}`, 'Portion check — ' + (p.item || `item ${i+1}`))));
+  lines.push('');
   lines.push('QC TASTING');
   QC_TASTING_CATS.forEach(cat => {
     (state.tasting[cat]||[]).forEach(t => lines.push(fmtLine(t.id, `${cat}: ${t.product}`)));
   });
-  lines.push('');
-  lines.push('GRIND RESET');
-  GRIND_RESET.forEach(g => lines.push(fmtLine(g.id, g.text)));
   lines.push('');
   lines.push('ADMIN (FSM ONLY)');
   ADMIN.forEach(a => lines.push(fmtLine(a.id, a.text)));

@@ -1803,6 +1803,7 @@ function viewActions(){
     </div>
     <div class="grid-4" id="taskKpis" style="margin-bottom:16px;"></div>
     <div id="taskOverdueBanner"></div>
+    <div id="taskNcBanner"></div>
     <div class="card">
       <div class="segmented" id="taskSubTab" style="margin-bottom:14px;">
         <button class="segmented-btn active" data-sub="open">Open Tasks</button>
@@ -1811,7 +1812,7 @@ function viewActions(){
       <div class="filter-row">
         <select id="actFsm"><option value="">All FSMs / Support Team</option>${personSelectOptions()}</select>
         <select id="actPillar"><option value="">All Pillars / Departments</option><option>Trade</option><option>Craft</option><option>People</option><option>Presence</option><option>Partnership</option>${OPS_DEPARTMENTS.map(d=>`<option>${d}</option>`).join('')}</select>
-        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="in-progress">In Progress</option></select>
+        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="closed">Closed</option></select>
         <input type="text" id="actSearch" placeholder="Search store or owner...">
         <button class="btn btn-outline" id="actClear">Clear</button>
         <button class="btn btn-outline" id="actRefresh">↻</button>
@@ -1823,6 +1824,8 @@ function viewActions(){
   `;
 
   let subTab = 'open';
+  let overdueExpanded = false; // collapsed by default — click to expand the list
+  let ncExpanded = false; // Non-Conformances — collapsed by default too
   let OPS_AS_TASKS = [];
   // Tracks in-progress photo changes per open edit form, keyed by editId:
   //   not present       -> untouched, leave the existing photos alone on save
@@ -1875,6 +1878,7 @@ function viewActions(){
   }
 
   function opsTaskDueDate(t){
+    if (t.dueDateOverride) return t.dueDateOverride;
     const due = new Date(t.createdAt).getTime() + (t.escalationHours||24) * 3600000;
     return new Date(due).toISOString().slice(0,10);
   }
@@ -1883,7 +1887,7 @@ function viewActions(){
       id: 'ops_' + t.id, _isOpsTask: true, _opsId: t.id,
       store: t.cafe, fsm: t.submitterName, pillar: t.department,
       description: t.comments, owner: t.submitterName, responsiblePerson: t.responsiblePerson,
-      dueDate: opsTaskDueDate(t), status: t.completed ? 'closed' : 'open',
+      dueDate: opsTaskDueDate(t), status: t.completed ? 'closed' : 'open', isNonConformance: !!t.isNonConformance,
       createdDate: (t.createdAt||'').slice(0,10), comments: [], photoUrl: t.photoUrl, photoUrls: t.photoUrls || (t.photoUrl ? [t.photoUrl] : []),
       editLog: t.editLog || [], resolutionComment: t.resolutionComment, department: t.department,
     };
@@ -1917,6 +1921,7 @@ function viewActions(){
     const rows = filteredRows();
     const active = rows.filter(r=>r.status!=='closed');
     const overdue = active.filter(r=>r.dueDate && r.dueDate<todayISO());
+    const nonConformances = active.filter(r=>r.isNonConformance);
     const completed = rows.filter(r=>r.status==='closed');
 
     document.getElementById('taskKpis').innerHTML = `
@@ -1928,8 +1933,11 @@ function viewActions(){
 
     document.getElementById('taskOverdueBanner').innerHTML = overdue.length ? `
       <div class="card" style="border-left:3px solid var(--red);background:var(--red-bg);margin-bottom:14px;">
-        <div style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:10px;">● Overdue — Immediate Attention Required</div>
-        ${overdue.map(a => {
+        <div id="overdueToggleHead" style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;display:flex;align-items:center;justify-content:space-between;${overdueExpanded?'margin-bottom:10px;':''}">
+          <span>● ${overdue.length} Overdue — Immediate Attention Required</span>
+          <span>${overdueExpanded ? '▲ Hide' : '▾ Show'}</span>
+        </div>
+        ${overdueExpanded ? overdue.map(a => {
           const tl = timeLeftLabel(a);
           const resolveClass = a._isOpsTask ? 'actOpsCompleteBtn' : 'actResolveBtn';
           const resolveId = a._isOpsTask ? a._opsId : a.id;
@@ -1940,8 +1948,83 @@ function viewActions(){
               <button class="btn btn-outline ${resolveClass}" data-id="${resolveId}">Resolve</button>
             </div>
           </div>`;
-        }).join('')}
+        }).join('') : ''}
       </div>` : '';
+    const overdueToggleHead = document.getElementById('overdueToggleHead');
+    if (overdueToggleHead) overdueToggleHead.addEventListener('click', () => { overdueExpanded = !overdueExpanded; render(); });
+
+    document.getElementById('taskNcBanner').innerHTML = nonConformances.length ? `
+      <div class="card" style="border-left:3px solid #c62828;background:rgba(198,40,40,0.06);margin-bottom:14px;">
+        <div id="ncToggleHead" style="font-size:11px;font-weight:700;color:#c62828;text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;display:flex;align-items:center;justify-content:space-between;${ncExpanded?'margin-bottom:10px;':''}">
+          <span>⚠ ${nonConformances.length} Non-Conformance${nonConformances.length===1?'':'s'}</span>
+          <span>${ncExpanded ? '▲ Hide' : '▾ Show'}</span>
+        </div>
+        ${ncExpanded ? nonConformances.map(a => {
+          const isOps = !!a._isOpsTask;
+          const editId = isOps ? a._opsId : a.id;
+          const completeClass = isOps ? 'ncOpsCompleteBtn' : 'ncResolveBtn';
+          const completeId = isOps ? a._opsId : a.id;
+          return `<div class="card" style="margin-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
+              <div>
+                <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span></div>
+                <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${isOps?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner}</div>
+                <div style="background:var(--white);padding:8px 10px;margin-top:8px;font-size:12px;border-left:2px solid #c62828;">${a.description||''}</div>
+              </div>
+              <div style="text-align:right;white-space:nowrap;">
+                <span style="font-size:10px;color:var(--grey-500);">Due ${a.dueDate||'—'}</span><br>
+                <div style="margin-top:8px;display:flex;gap:4px;justify-content:flex-end;">
+                  <button class="btn btn-outline btn-mini ncEditToggleBtn" data-id="${editId}">Update Due Date</button>
+                  <button class="btn btn-gold btn-mini ${completeClass}" data-id="${completeId}">Resolve</button>
+                </div>
+              </div>
+            </div>
+            <div id="ncEditForm_${editId}" style="display:none;margin-top:10px;padding:10px;background:var(--grey-100);border-radius:4px;">
+              <label style="font-size:10px;color:var(--grey-500);">New Due Date</label>
+              <div style="display:flex;gap:6px;margin-top:4px;">
+                <input type="date" id="ncDueDate_${editId}" value="${a.dueDate||''}" style="flex:1;">
+                <button class="btn btn-gold btn-mini ncSaveDueDateBtn" data-id="${editId}" data-ops="${isOps?'1':'0'}">Save</button>
+              </div>
+            </div>
+          </div>`;
+        }).join('') : ''}
+      </div>` : '';
+    const ncToggleHead = document.getElementById('ncToggleHead');
+    if (ncToggleHead) ncToggleHead.addEventListener('click', () => { ncExpanded = !ncExpanded; render(); });
+    document.querySelectorAll('.ncEditToggleBtn').forEach(btn => btn.addEventListener('click', () => {
+      const form = document.getElementById('ncEditForm_' + btn.dataset.id);
+      if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    }));
+    document.querySelectorAll('.ncSaveDueDateBtn').forEach(btn => btn.addEventListener('click', async () => {
+      const newDate = document.getElementById('ncDueDate_' + btn.dataset.id).value;
+      if (!newDate) { toast('Pick a due date first'); return; }
+      btn.disabled = true;
+      try {
+        if (btn.dataset.ops === '1') {
+          await apiPatch('/api/ops-tasks/' + btn.dataset.id, { dueDateOverride: newDate });
+          await loadOpsTasksForTracker();
+        } else {
+          await apiPatch('/api/actions/' + btn.dataset.id, { dueDate: newDate, comment: 'Due date updated to ' + newDate });
+          await refreshState();
+        }
+        render();
+      } catch(e) { toast(e.message || 'Could not update due date'); btn.disabled = false; }
+    }));
+    document.querySelectorAll('.ncResolveBtn').forEach(btn => btn.addEventListener('click', async () => {
+      const comment = prompt('Add a closing comment before resolving this non-conformance:');
+      if (comment === null) return;
+      if (!comment.trim()) { toast('A comment is required to resolve a non-conformance'); return; }
+      btn.disabled = true;
+      try { await apiPatch('/api/actions/' + btn.dataset.id, { status: 'closed', comment: comment.trim() }); await refreshState(); render(); }
+      catch(e) { toast(e.message || 'Could not update — check connection and try again'); btn.disabled = false; }
+    }));
+    document.querySelectorAll('.ncOpsCompleteBtn').forEach(btn => btn.addEventListener('click', async () => {
+      const comment = prompt('Add a comment about how this was resolved (optional):');
+      if (comment === null) return;
+      btn.disabled = true;
+      try { await apiPatch('/api/ops-tasks/' + btn.dataset.id + '/complete', { comment: comment.trim() || undefined }); await loadOpsTasksForTracker(); render(); }
+      catch(e) { toast(e.message || 'Could not complete task'); btn.disabled = false; }
+    }));
 
     document.getElementById('taskListWrap').innerHTML = rows.length ? rows
       .sort((a,b)=> (a.dueDate||'').localeCompare(b.dueDate||''))
@@ -2672,25 +2755,11 @@ function viewVisitReports(){
 
   function escapeHtmlVR(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-  // Mirrors the data model in log-support-visit.html (SHARED_ITEMS / SECTIONS /
-  // GRIND_RESET / ADMIN / QC_TASTING_CATS) so stored IDs can be turned back
-  // into readable labels for the report.
-  const VR_SHARED_ITEMS = [
-    { key: 'checklist', text: 'Checklist (Latest, including related SOP\'s)' },
-    { key: 'hygiene', text: 'Hygiene & cleanliness' },
-  ];
-  const VR_SECTIONS = [
-    { key: 'service', label: 'Service (FOH)', tag: 'FOH', extra: [
-        { key: 'stepsofservice', text: 'Steps of Service' },
-      ], portion: false },
-    { key: 'coffee', label: 'Coffee (Bar)', tag: 'Bar', extra: [
-        { key: 'coffeecheck', text: 'Coffee check — shot times & extraction, ask barista to pull a shot' },
-        { key: 'ordertimes', text: 'Order times — spot check bar ticket times' },
-      ], portion: true },
-    { key: 'quality', label: 'Quality (BOH)', tag: 'BOH', extra: [
-        { key: 'ordertimes', text: 'Order times — spot check kitchen ticket times' },
-      ], portion: true },
-  ];
+  // Mirrors the data model in log-support-visit.html (GRIND_RESET / ADMIN /
+  // QC_TASTING_CATS — Service/Coffee/Quality sections were folded into a
+  // single GRIND Reset section, and customItems/portion are now flat lists
+  // rather than per-section objects) so stored IDs can be turned back into
+  // readable labels for the report.
   const VR_GRIND_RESET = [
     { id: 'gr-vibe', text: 'Vibe & feel — flow, control, temp, music on, lighting, customer faces' },
     { id: 'gr-devices', text: 'Devices — MrD & UE tablets on/working, Flow device live to recipe, BBM screens accurate' },
@@ -2700,6 +2769,11 @@ function viewVisitReports(){
     { id: 'gr-flojet', text: 'Flojet test — works, team can operate, emergency water available (pre-communicate, trade-dependent)' },
     { id: 'gr-plants', text: 'Plants & plant boxes — condition & clean (store dependent)' },
     { id: 'gr-masterfile', text: 'Google, App & Masterfile aligned & up to date — if not, log on task tracker' },
+    { id: 'gr-hygiene', text: 'Overall hygiene & cleanliness' },
+    { id: 'gr-checklists', text: 'Checklists for all sections and required recipe files/SOP\'s available' },
+    { id: 'gr-coffeecheck', text: 'Coffee check (grinder settings and shot time/volume)' },
+    { id: 'gr-ordertimes', text: 'Order times check (bar & kitchen)' },
+    { id: 'gr-teamq', text: 'Team Question — I asked a question of each department' },
   ];
   const VR_ADMIN = [
     { id: 'a1', text: 'Café status update with franchisee/senior manager — Flow, turnover, B.Better, all KPIs' },
@@ -2714,6 +2788,7 @@ function viewVisitReports(){
     if (step.action === 'retrained') return 'Retrained and Rectified ✓';
     if (step.action === 'na') return 'N/A ✓';
     if (step.action === 'tasktracker') return 'Logged on Task Tracker' + (step.owner ? ' — Owner: ' + escapeHtmlVR(step.owner) : '') + (step.dueDate ? ', Due: ' + step.dueDate : '');
+    if (step.action === 'nonconformance') return 'Logged as Non-Conformance' + (step.owner ? ' — Owner: ' + escapeHtmlVR(step.owner) : '') + (step.dueDate ? ', Due: ' + step.dueDate : '');
     return 'Not yet assigned';
   }
   function vrPhotosBlock(photos) {
@@ -2723,9 +2798,10 @@ function viewVisitReports(){
       `</div>`;
   }
   function vrItemBlock(text, id, fr) {
+    const step = (fr.nextSteps||{})[id];
+    if (step && step.action === 'na') return ''; // N/A items are excluded from the PDF entirely
     const comment = ((fr.comments||{})[id] || '').trim();
     const photos = (fr.photos||{})[id] || [];
-    const step = (fr.nextSteps||{})[id];
     const hasAction = !!(step && step.action);
     const flagged = !!comment || hasAction;
     return `
@@ -2736,22 +2812,14 @@ function viewVisitReports(){
       ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:4px;">→ ${vrActionLabel(step)}</div>` : ''}
     </div>`;
   }
-  // Team Q&A entries print as plain question/answer text — no boxed
-  // comment styling (that's reserved for flagged checklist items).
-  function vrTeamQaBlock(entry) {
-    const label = entry.q ? escapeHtmlVR(entry.q) : 'Team Q&A';
-    const answer = (entry.c || '').trim();
-    return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
-      <b>${label}</b>${answer ? ' — ' + escapeHtmlVR(answer) : ''}
-    </div>`;
-  }
   // Portion check entries print as plain item/comment text — no boxed
   // comment styling — but still show the next-step action if one was chosen.
   function vrPortionBlock(p, id, fr) {
+    const step = (fr.nextSteps || {})[id];
+    if (step && step.action === 'na') return ''; // N/A items are excluded from the PDF entirely
     const item = (p.item || '').trim();
     const comment = (p.comment || '').trim();
     if (!item && !comment) return '';
-    const step = (fr.nextSteps || {})[id];
     const hasAction = !!(step && step.action);
     return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
       <b>${item ? escapeHtmlVR(item) : 'Portion check'}</b>${comment ? ' — ' + escapeHtmlVR(comment) : ''}
@@ -2787,9 +2855,9 @@ function viewVisitReports(){
 
   function buildVisitReportHtml(v) {
     const fr = v.fullReport;
-    const linkedActions = STATE.actions.filter(a => a.visitId === v.id);
 
     if (!fr) {
+      const linkedActions = STATE.actions.filter(a => a.visitId === v.id);
       let html = `<div style="font-family:-apple-system,'Segoe UI','Helvetica Neue',sans-serif;max-width:820px;margin:0 auto;color:#1a1a1a;">${vrHeader(v)}`;
       html += `<div style="padding:14px 4px;color:#666;font-size:11.5px;">This visit was logged before the detailed report format was introduced. Here's everything that's actually still recoverable for it:</div>
         <div style="margin:0 4px 10px;padding:10px;background:#f7f7f7;font-size:11.5px;">${escapeHtmlVR(v.notes)}</div>`;
@@ -2813,20 +2881,12 @@ function viewVisitReports(){
     }
 
     let body = '';
-    body += vrSectionBlock('Reset', 'GRIND Reset', VR_GRIND_RESET.map(g => vrItemBlock(g.text, g.id, fr)).join(''));
-
-    VR_SECTIONS.forEach(sec => {
-      let html = VR_SHARED_ITEMS.map(s => vrItemBlock(s.text, `${s.key}-${sec.key}`, fr)).join('');
-      html += sec.extra.map(e => vrItemBlock(e.text, `${e.key}-${sec.key}`, fr)).join('');
-      ((fr.customItems||{})[sec.key]||[]).forEach(c => { html += vrItemBlock(c.text, c.id, fr); });
-      if (sec.portion) {
-        const rows = ((fr.portion||{})[sec.key]||[]).map((p, i) => vrPortionBlock(p, `portion-${sec.key}-${i}`, fr)).join('');
-        if (rows) html += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Portion Check</div>${rows}`;
-      }
-      const qa = ((fr.teamQA||{})[sec.key]||[]).filter(e => e.q || e.c).map(e => vrTeamQaBlock(e)).join('');
-      if (qa) html += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Team Q&amp;A</div>${qa}`;
-      body += vrSectionBlock(sec.tag, sec.label, html);
-    });
+    let resetHtml = VR_GRIND_RESET.map(g => vrItemBlock(g.text, g.id, fr)).join('');
+    (Array.isArray(fr.customItems) ? fr.customItems : Object.values(fr.customItems||{}).flat()).forEach(c => { resetHtml += vrItemBlock(c.text, c.id, fr); });
+    const portionList = Array.isArray(fr.portion) ? fr.portion : Object.values(fr.portion||{}).flat();
+    const portionRows = portionList.map((p, i) => vrPortionBlock(p, `portion-${i}`, fr)).join('');
+    if (portionRows) resetHtml += `<div style="margin-top:6px;font-size:9px;font-weight:800;text-transform:uppercase;color:#999;letter-spacing:0.05em;">Portion Check</div>${portionRows}`;
+    body += vrSectionBlock('Reset', 'GRIND Reset', resetHtml);
 
     let tastingHtml = '';
     VR_QC_TASTING_CATS.forEach(cat => {
@@ -2843,55 +2903,51 @@ function viewVisitReports(){
     const vrTextMap = {};
     const vrCommentMap = {}; // portion comments live in fr.portion, not fr.comments
     VR_GRIND_RESET.forEach(g => { vrTextMap[g.id] = g.text; });
-    VR_SECTIONS.forEach(sec => {
-      VR_SHARED_ITEMS.forEach(s => { vrTextMap[`${s.key}-${sec.key}`] = s.text; });
-      sec.extra.forEach(e => { vrTextMap[`${e.key}-${sec.key}`] = e.text; });
-      ((fr.customItems||{})[sec.key]||[]).forEach(c => { vrTextMap[c.id] = c.text; });
-      ((fr.teamQA||{})[sec.key]||[]).forEach(e => { vrTextMap[e.id] = e.q ? `Team Q&A — ${e.q}` : 'Team Q&A'; });
-      if (sec.portion) {
-        ((fr.portion||{})[sec.key]||[]).forEach((p, i) => {
-          vrTextMap[`portion-${sec.key}-${i}`] = 'Portion check — ' + (p.item || `item ${i+1}`);
-          vrCommentMap[`portion-${sec.key}-${i}`] = p.comment || '';
-        });
-      }
+    (Array.isArray(fr.customItems) ? fr.customItems : Object.values(fr.customItems||{}).flat()).forEach(c => { vrTextMap[c.id] = c.text; });
+    portionList.forEach((p, i) => {
+      vrTextMap[`portion-${i}`] = 'Portion check — ' + (p.item || `item ${i+1}`);
+      vrCommentMap[`portion-${i}`] = p.comment || '';
     });
     VR_ADMIN.forEach(a => { vrTextMap[a.id] = a.text; });
     VR_QC_TASTING_CATS.forEach(cat => {
       ((fr.tasting||{})[cat]||[]).forEach(t => { vrTextMap[t.id] = `${cat} — ${t.product || '(untitled product)'}`; });
     });
 
-    // Anything with a comment OR a next-step action chosen counts as
-    // "flagged" for this summary — a dropdown selection on its own (no
-    // comment typed) still needs to show up here.
-    const flagIds = new Set([
-      ...Object.entries(fr.comments||{}).filter(([,c]) => c && c.trim()).map(([id]) => id),
-      ...Object.entries(fr.nextSteps||{}).filter(([,s]) => s && s.action).map(([id]) => id),
-      ...Object.entries(vrCommentMap).filter(([,c]) => c && c.trim()).map(([id]) => id),
-    ]);
+    // Summary — ONLY items routed to Task Tracker or logged as a
+    // Non-Conformance appear here now (not every commented item); the
+    // task's owner/due date shows inline via vrActionLabel() rather than a
+    // separate "Tasks Created" section, and N/A items never appear here.
+    const flagIds = new Set(
+      Object.entries(fr.nextSteps||{}).filter(([,s]) => s && (s.action === 'tasktracker' || s.action === 'nonconformance')).map(([id]) => id)
+    );
     let flagsHtml = '';
     if (!flagIds.size) {
-      flagsHtml = `<div style="color:#666;font-size:11.5px;padding:8px 0;">No flags raised on this visit.</div>`;
+      flagsHtml = `<div style="color:#666;font-size:11.5px;padding:8px 0;">No items were routed to Task Tracker or logged as a Non-Conformance on this visit.</div>`;
     } else {
       flagIds.forEach(id => {
         const c = (fr.comments||{})[id] || vrCommentMap[id] || '';
         const step = (fr.nextSteps || {})[id] || {};
         const photos = (fr.photos||{})[id] || [];
         const label = vrTextMap[id] || id;
-        flagsHtml += `<div style="padding:8px 0;border-bottom:1px solid #ebebeb;">
-          <div style="font-weight:700;font-size:11.5px;">${escapeHtmlVR(label)}</div>
+        const isNC = step.action === 'nonconformance';
+        flagsHtml += `<div style="padding:8px 0;border-bottom:1px solid #e8dcc0;">
+          <div style="font-weight:700;font-size:11.5px;">${isNC ? '<span style="color:#c62828;">⚠ NON-CONFORMANCE — </span>' : ''}${escapeHtmlVR(label)}</div>
           ${c ? `<div style="color:#8f733f;font-size:11px;margin-top:3px;">${escapeHtmlVR(c)}</div>` : ''}
           ${vrPhotosBlock(photos)}
-          <div style="font-size:10px;color:#1a7a44;margin-top:4px;">→ ${vrActionLabel(step)}</div>
+          <div style="font-size:10px;color:#1a7a44;margin-top:4px;font-weight:700;">→ ${vrActionLabel(step)}</div>
         </div>`;
       });
     }
-    body += vrSectionBlock('Summary', 'Flagged Items & Resolution', flagsHtml);
-
-    if (linkedActions.length) {
-      body += vrSectionBlock('Tasks', 'Tasks Created From This Visit', linkedActions.map(a =>
-        `<div style="padding:6px 0;border-bottom:1px solid #eee;font-size:11.5px;"><b>${escapeHtmlVR(a.pillar)}: ${escapeHtmlVR(a.description)}</b><br><span style="color:#666;">Owner: ${escapeHtmlVR(a.owner)} · Due: ${escapeHtmlVR(a.dueDate)} · Status: ${escapeHtmlVR(a.status)}</span></div>`
-      ).join(''));
-    }
+    // Highlighted — gold background + thicker gold border, and this is the
+    // only place task info shows now (no separate "Tasks Created" section).
+    body += `
+    <div style="margin-top:16px;border:2px solid #c8ae79;background:#fdf8ee;">
+      <div style="background:#1a1a1a;color:#fff;padding:8px 14px;display:flex;align-items:center;gap:8px;">
+        <span style="background:#c8ae79;color:#1a1a1a;font-size:9px;font-weight:800;padding:2px 7px;text-transform:uppercase;letter-spacing:0.05em;">Summary</span>
+        <span style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;">Flagged Actions &amp; Resolutions — Task Tracker / Non-Conformance</span>
+      </div>
+      <div style="padding:2px 14px;">${flagsHtml}</div>
+    </div>`;
 
     return `<div style="font-family:-apple-system,'Segoe UI','Helvetica Neue',sans-serif;max-width:820px;margin:0 auto;color:#1a1a1a;">${vrHeader(v)}${body}</div>`;
   }
@@ -2946,6 +3002,10 @@ function viewOpsTasks(){
         <input type="datetime-local" id="otCustomDue" style="display:none;margin-top:6px;">
         <label class="field-label">Comments</label>
         <textarea id="otComments" placeholder="Describe the issue..."></textarea>
+        <label style="display:flex;align-items:center;gap:6px;margin-top:10px;font-size:12px;color:var(--grey-700);cursor:pointer;">
+          <input type="checkbox" id="otNonConformance" style="width:auto;margin:0;">
+          Mark as Non-Conformance
+        </label>
         <label class="field-label">Photos (optional — take a picture or choose from your device, up to 6)</label>
         <input type="file" id="otPhoto" accept="image/*" multiple>
         <div id="otPhotoPreviewWrap" style="display:none;margin-top:8px;">
@@ -3161,6 +3221,7 @@ Department escalation timeframe : 24hrs / 48hrs / 72hrs / 7 days / 10 days (Mark
       const tf = document.getElementById('otTimeframe');
       const customDue = document.getElementById('otCustomDue');
       const comments = document.getElementById('otComments');
+      const nonConformance = document.getElementById('otNonConformance');
       const photo = document.getElementById('otPhoto');
       const photoWrap = document.getElementById('otPhotoPreviewWrap');
       const photoGrid = document.getElementById('otPhotoPreviewGrid');
@@ -3174,6 +3235,7 @@ Department escalation timeframe : 24hrs / 48hrs / 72hrs / 7 days / 10 days (Mark
       if (tf) tf.value = tf.options[0] ? tf.options[0].value : '';
       if (customDue) { customDue.value = ''; customDue.style.display = 'none'; }
       if (comments) comments.value = '';
+      if (nonConformance) nonConformance.checked = false;
       otPhotoDataUrls = [];
       if (photo) photo.value = '';
       if (photoWrap) photoWrap.style.display = 'none';
@@ -3213,6 +3275,7 @@ Department escalation timeframe : 24hrs / 48hrs / 72hrs / 7 days / 10 days (Mark
       submitterName,
       responsiblePerson: responsiblePerson || null,
       photoUrls: otPhotoDataUrls,
+      isNonConformance: document.getElementById('otNonConformance').checked,
     };
     const submitBtn = document.getElementById('otSubmit');
     submitBtn.disabled = true;
