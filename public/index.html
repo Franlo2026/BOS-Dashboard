@@ -2017,11 +2017,11 @@ function viewActions(){
             `}
           </div>
 
-          ${(!a._isOpsTask && a.status!=='closed') ? `
+          ${a.status!=='closed' ? `
           <div style="margin-top:10px;display:flex;gap:6px;align-items:center;">
-            <span style="font-size:11px;color:var(--grey-500);">Extend due date:</span>
-            <input type="date" id="extendDate_${a.id}" value="${a.dueDate||''}" style="padding:3px 6px;font-size:11px;">
-            <button class="btn btn-outline btn-mini actExtendBtn" data-id="${a.id}">Update</button>
+            <span style="font-size:11px;color:var(--grey-500);">Update due date:</span>
+            <input type="date" id="extendDate_${completeId}" value="${a.dueDate||''}" style="padding:3px 6px;font-size:11px;">
+            <button class="btn btn-outline btn-mini actExtendBtn" data-id="${completeId}" data-ops="${a._isOpsTask?'1':'0'}">Update</button>
           </div>` : ''}
           <div style="margin-top:10px;border-top:1px solid var(--grey-200);padding-top:8px;">
             <div style="font-size:11px;color:var(--grey-500);cursor:pointer;" data-toggle-comments="${completeId}">💬 ${comments.length} update${comments.length===1?'':'s'} — click to view / add</div>
@@ -2149,7 +2149,16 @@ function viewActions(){
       const newDate = document.getElementById('extendDate_' + btn.dataset.id).value;
       if (!newDate) { toast('Pick a new due date first'); return; }
       btn.disabled = true;
-      try { await apiPatch('/api/actions/' + btn.dataset.id, { dueDate: newDate, comment: 'Due date updated to ' + newDate }); await refreshState(); render(); }
+      try {
+        if (btn.dataset.ops === '1') {
+          await apiPatch('/api/ops-tasks/' + btn.dataset.id, { dueDateOverride: newDate, note: 'Due date updated to ' + newDate });
+          await loadOpsTasksForTracker();
+        } else {
+          await apiPatch('/api/actions/' + btn.dataset.id, { dueDate: newDate, comment: 'Due date updated to ' + newDate });
+          await refreshState();
+        }
+        render();
+      }
       catch(e) { toast(e.message || 'Could not update due date'); btn.disabled = false; }
     }));
     document.querySelectorAll('.actCommentBtn').forEach(btn => btn.addEventListener('click', async () => {

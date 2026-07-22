@@ -681,20 +681,26 @@ function renderPortionBox() {
   state.portion.forEach((p, i) => {
     const id = `portion-${i}`;
     const isFixed = i < 2; // Bar / Kitchen — locked; anything added beyond that gets a free-text area label
+    const hasData = !!(p.item && p.item.trim()) || !!(p.comment && p.comment.trim()) || !!(state.nextSteps[id] && state.nextSteps[id].action);
+    const isOpen = hasData || !!expandedQuestions[id];
     rows += `
-    <div class="portion-row">
-      <div style="grid-column:1/-1;font-size:9.5px;font-weight:800;color:#8f733f;text-transform:uppercase;letter-spacing:0.03em;">
-        ${isFixed ? escapeHtml(p.department) : `<input type="text" placeholder="Area (e.g. Retail)" value="${escapeHtml(p.department||'')}" onchange="setPortionField(${i},'department', this.value)" style="font-size:9.5px;padding:2px 5px;text-transform:none;font-weight:400;width:auto;">`}
+    <div class="portion-row-wrap" style="margin-bottom:6px;">
+      <div onclick="toggleQuestionSelect('${id}')" style="cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <div style="font-size:9.5px;font-weight:800;color:#8f733f;text-transform:uppercase;letter-spacing:0.03em;">${isFixed ? escapeHtml(p.department) : escapeHtml(p.department || 'Additional Check')}</div>
+        <span style="font-size:10px;color:${isOpen?'#8f733f':'#999'};font-weight:700;white-space:nowrap;">${isOpen ? '▲ Hide' : '▾ Select'}</span>
       </div>
-      <input type="text" placeholder="What item did you check? (e.g. Flat White 200ml)" value="${escapeHtml(p.item)}" onchange="setPortionField(${i},'item', this.value)">
-      <input type="text" class="comment-input" placeholder="" value="${escapeHtml(p.comment)}" onchange="setPortionField(${i},'comment', this.value)">
-      ${nextStepControl(id)}
+      ${isOpen ? `
+      <div class="portion-row" style="margin-top:4px;">
+        ${!isFixed ? `<div style="grid-column:1/-1;"><input type="text" placeholder="Area (e.g. Retail)" value="${escapeHtml(p.department||'')}" onchange="setPortionField(${i},'department', this.value)" style="font-size:9.5px;padding:2px 5px;width:auto;"></div>` : ''}
+        <input type="text" placeholder="What item did you check? (e.g. Flat White 200ml)" value="${escapeHtml(p.item)}" onchange="setPortionField(${i},'item', this.value)">
+        <input type="text" class="comment-input" placeholder="" value="${escapeHtml(p.comment)}" onchange="setPortionField(${i},'comment', this.value)">
+        ${nextStepControl(id)}
+      </div>` : ''}
     </div>`;
   });
   return `
   <div class="portion-box">
     <div class="ptitle"><span class="badge-mini">Portion</span> Portion Check — Bar &amp; Kitchen (weigh/measure vs. recipe spec)</div>
-    <div class="portion-labels"><span>Item</span><span>Comment</span></div>
     ${rows}
     <div class="add-item-row">
       <button type="button" class="add-btn" onclick="addPortionCheck()">+ Add Portion Check</button>
