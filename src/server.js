@@ -104,6 +104,7 @@ async function initDB() {
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS resolution_comment TEXT;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS is_non_conformance BOOLEAN DEFAULT FALSE;`);
   await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS due_date_override DATE;`);
+  await pool.query(`ALTER TABLE ops_tasks ADD COLUMN IF NOT EXISTS follow_up_notes JSONB DEFAULT '[]'::jsonb;`);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS storage (
@@ -465,6 +466,7 @@ app.get('/api/ops-tasks', authRequired, async (req, res) => {
         comments: r.comments, completed: r.completed, completedBy: r.completed_by,
         completedAt: r.completed_at, photoUrl: r.photo_url, photoUrls: urls, responsiblePerson: r.responsible_person,
         editLog: r.edit_log || [], resolutionComment: r.resolution_comment, isNonConformance: r.is_non_conformance,
+        notes: r.follow_up_notes || [],
         dueDateOverride: r.due_date_override ? new Date(r.due_date_override).toISOString().slice(0,10) : null,
       };
     }));
@@ -579,6 +581,15 @@ app.patch('/api/ops-tasks/:id', authRequired, requireEditor, async (req, res) =>
         updates.photo_urls = JSON.stringify(newUrls);
         updates.photo_url = newUrls[0] || null; // keep the legacy single-photo column mirrored to the first photo
       }
+    }
+
+    // A follow-up note/question — distinct from Edit, which replaces
+    // fields outright. This appends to a running log instead, same as the
+    // "update" thread on visit-created actions.
+    if (req.body.note && req.body.note.trim()) {
+      const currentNotes = Array.isArray(current.follow_up_notes) ? current.follow_up_notes : [];
+      const newNotes = [...currentNotes, { text: req.body.note.trim(), author: editor, at: new Date().toISOString() }];
+      updates.follow_up_notes = JSON.stringify(newNotes);
     }
 
     if (Object.keys(updates).length === 0) {
