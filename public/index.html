@@ -365,25 +365,21 @@ const OPS_DEPT_COLORS = {"Conformance":"#7C3AED","R&M":"#DC2626","Marketing":"#D
 const SUPPORT_TEAM = ["Tshepo Goqo","Siphesihle Gwadela","Raabia Isaacs","Mini Mohale","Aphiwe Mqakayi","Johannes Moloto"];
 
 /* ---------- Opening Timelines data (folded in from the standalone dashboard) ---------- */
-// CPA Timeline rules (confirmed 22 Jul 2026):
-//   Franchisee check-in            — every 2 weeks from the café's creation date, through to opening
-//   Account application info due   — 2 weeks after the café is created
-//   Staff recruitment completed    — 10 weeks prior to opening
-//   Training commences             — 5 weeks prior to opening
-//   All accounts open              — 5 weeks prior to opening
-//   Opening orders placed          — 4 weeks prior to handover
-//   Handover date                  — 1 week prior to opening
-//   Opening date                   — as captured on the café's own record
-// Every date above can be manually overridden per café via store.cpaOverrides
-// (set through the CPA Timeline UI) — legacy per-store handoverDate /
-// trainingStartDate fields (from the original hardcoded-store migration)
-// are honoured as a baseline override where cpaOverrides doesn't specify one.
+// CPA Timeline — full milestone set per CPA_timeline.xlsx (uploaded 23 Jul
+// 2026, column D). Three anchor dates:
+//   created  — the café's own creation date (store.createdDate)
+//   handover — Opening Date − 7 days (1 week prior to opening)
+//   open     — the café's Opening Date, as submitted/uploaded
+// Every milestone below can be manually overridden per café via
+// store.cpaOverrides (set through the CPA Timeline UI); the milestone list
+// is always re-sorted chronologically by its (possibly overridden) date —
+// not the order below, which just mirrors the source spreadsheet's layout.
 function calcCPA(store){
   if (!store || !store.openDate) return null;
   const open = new Date(store.openDate + 'T00:00:00');
   if (isNaN(open)) return null;
-  const sub = (d, days) => { const r = new Date(d); r.setDate(r.getDate() - days); return r; };
   const add = (d, days) => { const r = new Date(d); r.setDate(r.getDate() + days); return r; };
+  const sub = (d, days) => add(d, -days);
   const fmt = (d) => d.toISOString().slice(0, 10);
   const overrides = Object.assign({ handoverDate: store.handoverDate, trainingStart: store.trainingStartDate }, store.cpaOverrides || {});
   const ov = (key) => {
@@ -392,45 +388,77 @@ function calcCPA(store){
     const d = new Date(v + 'T00:00:00');
     return isNaN(d) ? null : d;
   };
-  // Café creation date drives the check-in cadence and account application
-  // deadline. Falls back to today for older cafés recorded before this
-  // field existed (their numeric `id` — a Date.now() timestamp — is used
-  // where available, since that's effectively when the record was created).
+  // Café creation date drives the franchisee meeting cadence and several
+  // early admin milestones. Falls back to today for older cafés recorded
+  // before this field existed (their numeric `id` — a Date.now() timestamp
+  // — is used where available, since that's effectively when the record
+  // was created).
   const createdRaw = store.createdDate || (typeof store.id === 'number' ? new Date(store.id).toISOString().slice(0, 10) : null);
   const created = createdRaw ? new Date(createdRaw + 'T00:00:00') : new Date();
 
-  const handoverDate = ov('handoverDate') || sub(open, 7);
-  const trainingStart = ov('trainingStart') || sub(open, 35);
-  const staffRecruitmentDeadline = ov('staffRecruitmentDeadline') || sub(open, 70);
-  const accountApplicationDue = ov('accountApplicationDue') || add(created, 14);
-  const accountOpeningComplete = ov('accountOpeningComplete') || sub(open, 35);
-  const openingOrderDate = ov('openingOrderDate') || sub(handoverDate, 28);
+  const handover = ov('handoverDate') || sub(open, 7);
+  const franchiseeMeeting1 = ov('franchiseeMeeting1') || add(created, 14);
 
-  // Biweekly franchisee check-ins running from café creation through to opening.
-  const checkins = [];
-  let cursor = created;
-  let n = 1;
+  const base = [
+    { key: 'welcomeMail', label: 'Welcome Mail Sent, Amsterfile Created/Updated', date: add(created, 2) },
+    { key: 'franchiseeMeeting1', label: 'Franchisee Meeting 1', date: franchiseeMeeting1 },
+    { key: 'cafeInfoCaptured', label: 'Café Info Captured & Communicated (Contact Numbers, Trading Hours, Google/App/Marketing) — Masterfile Updated', date: add(created, 21) },
+    { key: 'cafeEmailsCreated', label: 'Café E-mails Created & Orderflow Profiles Live', date: add(created, 14) },
+    { key: 'acctAppDocsReceived', label: 'Account Application Documents Received', date: add(created, 14) },
+    { key: 'acctAppCompletion', label: 'Account Application Completion', date: sub(handover, 35) },
+    { key: 'appEncryptionSetup', label: 'App Applications Completed & Encryption Key Shared/Set Up', date: sub(handover, 42) },
+    { key: 'handoverDate', label: 'Handover Date', date: handover },
+    { key: 'openingOrdersPlaced', label: 'Opening Orders Placed & Delivery Dates Confirmed', date: sub(handover, 28) },
+    { key: 'openingOrdersReceived', label: 'Opening Orders Received', date: add(handover, 2) },
+    { key: 'topUpOrders', label: 'Top Up Orders Completed', date: add(handover, 4) },
+    { key: 'recruitmentArtwork', label: 'Recruitment Artwork Ready, Shared & Posted (incl. Brand Socials)', date: add(created, 21) },
+    { key: 'interviewsScheduled', label: 'Interviews Scheduled', date: add(created, 35) },
+    { key: 'staffSecuredMgmt', label: 'Staff Positions Secured — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 56) },
+    { key: 'staffSecuredSupport', label: 'Staff Positions Secured — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 42) },
+    { key: 'trainingScheduleCommunicated', label: 'Training Schedule Communicated & Training Café Allocated', date: sub(handover, 56) },
+    { key: 'trainingCommencesMgmt', label: 'Training Commences — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 28) },
+    { key: 'trainingCommencesSupport', label: 'Training Commences — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 14) },
+    { key: 'bbetterCompletion', label: 'Online B.Better Training Completion — 100% All Sections', date: sub(handover, 7) },
+    { key: 'trainingEndAdjustments', label: 'Training End & Additional Training Period Adjustments (Delays)', date: sub(handover, 1) },
+    { key: 'inStoreTraining1', label: 'In-Store Training Day 1 — Clean & Set-Up', date: sub(handover, 7) },
+    { key: 'inStoreTraining2', label: 'In-Store Training Day 2 — Prep & Roleplay', date: sub(handover, 6) },
+    { key: 'inStoreTraining3', label: 'In-Store Training Day 3 — Prep & Roleplay', date: sub(handover, 5) },
+    { key: 'inStoreTraining4', label: 'In-Store Training Day 4 — All Dishes Prepped & Discussed', date: sub(handover, 4) },
+    { key: 'inStoreTraining5', label: 'In-Store Training Day 5 — All Dishes Prepped & Discussed (Problem Items)', date: sub(handover, 3) },
+    { key: 'inStoreTraining6', label: 'In-Store Training Day 6 — Full Mock Service 1 (Friends, Family, Tenants, LL)', date: sub(handover, 2) },
+    { key: 'inStoreTraining7', label: 'In-Store Training Day 7 — Full Mock Service 2 (Public)', date: sub(handover, 1) },
+    { key: 'staffRecruitmentCommences', label: 'Staff Recruitment Commences', date: add(created, 21) },
+    { key: 'baristaSignOff', label: 'Barista Sign Off', date: sub(open, 2) },
+    { key: 'openingReadinessChecklist', label: 'Opening Readiness Checklist Complete', date: sub(open, 1) },
+    { key: 'openDate', label: 'Opening Date', date: open },
+    { key: 'completeBusinessEssentials', label: 'Complete Business Essentials', date: add(open, 7) },
+    { key: 'fullPostOpeningReport', label: 'Full Post-Opening Summary/Report', date: add(open, 28) },
+    { key: 'postSupportWk1', label: 'Post-Support Week 1', date: open },
+    { key: 'postSupportWk2', label: 'Post-Support Week 2', date: add(open, 14) },
+    { key: 'postSupportWk3', label: 'Post-Support Week 3', date: add(open, 21) },
+    { key: 'postSupportWk4', label: 'Post-Support Week 4', date: add(open, 28) },
+  ];
+  const milestones = base.map(m => ({ key: m.key, label: m.label, date: fmt(ov(m.key) || m.date) }));
+
+  // Franchisee Meetings 2, 3, 4... recur every 2 weeks after Meeting 1,
+  // through to opening.
+  let cursor = add(franchiseeMeeting1, 14);
+  let n = 2;
   while (cursor < open) {
-    checkins.push({ key: `checkin${n}`, label: `Franchisee Check-in ${n}`, date: fmt(cursor) });
+    const key = `franchiseeMeeting${n}`;
+    milestones.push({ key, label: `Franchisee Meeting ${n}`, date: fmt(ov(key) || cursor) });
     cursor = add(cursor, 14);
     n++;
   }
-  const postSupportWeeks = [1,2,3,4].map(n => ({
-    label: `W${n} Week ${n}`,
-    start: fmt(add(open, (n-1)*7)),
-    end: fmt(add(open, n*7)),
-  }));
-  const archiveDate = fmt(add(open, 28));
+
+  milestones.sort((a, b) => a.date.localeCompare(b.date));
+
   return {
     createdDate: fmt(created),
-    accountApplicationDue: fmt(accountApplicationDue),
-    staffRecruitmentDeadline: fmt(staffRecruitmentDeadline),
-    trainingStart: fmt(trainingStart),
-    accountOpeningComplete: fmt(accountOpeningComplete),
-    openingOrderDate: fmt(openingOrderDate),
-    handoverDate: fmt(handoverDate),
     openDate: fmt(open),
-    postSupportWeeks, archiveDate, checkins,
+    handoverDate: fmt(handover),
+    archiveDate: fmt(add(open, 28)),
+    milestones,
   };
 }
 function otExcelSerial(serial){
@@ -3346,6 +3374,7 @@ function viewOpeningTimelines(){
   // the Home tab's pipeline KPIs, not redeclared here.
   let expanded = null;
   let expandedMilestones = new Set(); // "storeName::milestoneKey" — which CPA milestone rows are expanded
+  let detailSubTab = {}; // { storeName: 'cpa'|'training'|'bbetter'|'details' } — which sub-dash tab is showing for an expanded café
   let subTab = 'active';
   let cpaConfirmations = {};
   let cafeSubmissions = []; // pending New Café requests awaiting Tarryn/Franlo approval
@@ -4583,21 +4612,21 @@ function viewOpeningTimelines(){
 
     const upcoming90 = stores.filter(s => s.openDate && (new Date(s.openDate)-new Date(today))/86400000 <= 90 && (new Date(s.openDate)-new Date(today))/86400000 >= 0).length;
     const thisMonth = stores.filter(s => s.openDate && s.openDate.slice(0,7) === today.slice(0,7)).length;
-    const overallAvg = stores.length ? stores.reduce((a,s)=>a+(s.training.overall||0),0)/stores.length : 0;
+    const overallAvgVals = stores.map(s => s.training && s.training.overallPct).filter(v => v !== null && v !== undefined);
+    const overallAvg = overallAvgVals.length ? overallAvgVals.reduce((a,b)=>a+b,0)/overallAvgVals.length : 0;
     const cpaAlerts = [];
     stores.forEach(s => {
       if (!s.cpa) return;
-      [["Account Application Info Due",s.cpa.accountApplicationDue],["Staff Recruitment Completed",s.cpa.staffRecruitmentDeadline],["Training Commences",s.cpa.trainingStart],["All Accounts Open",s.cpa.accountOpeningComplete],["Opening Orders Placed",s.cpa.openingOrderDate],["Handover Date",s.cpa.handoverDate],["Opening Date",s.cpa.openDate]]
-        .forEach(([label,date]) => {
-          const diff = Math.ceil((new Date(date)-new Date(today))/86400000);
-          if (diff >= 0 && diff <= 30) cpaAlerts.push({label, date, store:s.name, daysLeft:diff});
-        });
+      s.cpa.milestones.forEach(({label, date}) => {
+        const diff = Math.ceil((new Date(date)-new Date(today))/86400000);
+        if (diff >= 0 && diff <= 30) cpaAlerts.push({label, date, store:s.name, daysLeft:diff});
+      });
     });
     cpaAlerts.sort((a,b)=>a.daysLeft-b.daysLeft);
 
     document.getElementById('otlKpis').innerHTML = [
       ['Total Stores', stores.length], ['Opening ≤90 Days', upcoming90],
-      ['CPA Alerts (30d)', cpaAlerts.length], ['Avg Training %', Math.round(overallAvg*100)+'%'], ['This Month', thisMonth]
+      ['CPA Alerts (30d)', cpaAlerts.length], ['Avg Training %', Math.round(overallAvg)+'%'], ['This Month', thisMonth]
     ].map(([l,v]) => `<div><div class="card-label">${l}</div><div class="card-value">${v}</div></div>`).join('');
 
     document.getElementById('otlUpcoming').innerHTML = stores
@@ -4647,16 +4676,13 @@ function viewOpeningTimelines(){
       const status = days===null?'TBD':days<0?'Opened':days===0?'Today!':days+'d';
       let detail = '';
       if (isExp) {
-        const milestoneList = s.cpa ? [
-          { key: 'accountApplicationDue', label: 'Account Application Info Due', date: s.cpa.accountApplicationDue, overridable: true },
-          { key: 'staffRecruitmentDeadline', label: 'Staff Recruitment Completed', date: s.cpa.staffRecruitmentDeadline, overridable: true },
-          { key: 'trainingStart', label: 'Training Commences', date: s.cpa.trainingStart, overridable: true },
-          { key: 'accountOpeningComplete', label: 'All Accounts Open', date: s.cpa.accountOpeningComplete, overridable: true },
-          { key: 'openingOrderDate', label: 'Opening Orders Placed', date: s.cpa.openingOrderDate, overridable: true },
-          { key: 'handoverDate', label: 'Handover Date', date: s.cpa.handoverDate, overridable: true },
-          { key: 'openDate', label: 'Opening Date', date: s.cpa.openDate, overridable: false },
-          ...(s.cpa.checkins || []).map(c => ({ key: c.key, label: '🤝 ' + c.label, date: c.date, isCheckin: true, overridable: false })),
-        ].sort((a,b) => (a.date||'').localeCompare(b.date||'')) : [];
+        const milestoneList = s.cpa ? s.cpa.milestones.map(m => ({
+          key: m.key,
+          label: m.label,
+          date: m.date,
+          isCheckin: /^franchiseeMeeting\d+$/.test(m.key),
+          overridable: m.key !== 'openDate', // Opening Date is edited via the Store Opening Date field itself, not overridden separately here
+        })) : [];
         const cpaRows = milestoneList.length ? milestoneList.map(({key, label, date, isCheckin, overridable}) => {
           const meta = getMilestoneMeta(s.name, key);
           const mkey = s.name + '::' + key;
@@ -4689,17 +4715,9 @@ function viewOpeningTimelines(){
             </div>
             ${expandedPanel}
           </div>`;
-        }).join('') + '<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>'
+        }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>`
           : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
-        const postSupportRows = s.cpa && s.cpa.postSupportWeeks ? s.cpa.postSupportWeeks.map(w =>
-          `<div style="display:flex;justify-content:space-between;font-size:12px;padding:5px 0;border-bottom:1px solid var(--grey-200);"><b>${w.label}</b><span>${fmtShortDate(w.start)} – ${fmtShortDate(w.end)}</span></div>`
-        ).join('') : '';
-        const postSupport = s.cpa && s.cpa.postSupportWeeks ? `
-          <div style="margin-top:16px;">
-            <div class="section-title" style="color:var(--gold);">🍯 Post-Support Schedule</div>
-            ${postSupportRows}
-            <div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:6px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>
-          </div>` : '';
+        const postSupport = s.cpa ? `<div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:10px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>` : '';
         const t = s.training;
         const bar = (pct, color) => `<div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.max(0,Math.min(100,pct||0))}%;background:${color};height:100%;border-radius:4px;"></div></div>`;
         const progressMeter = `
@@ -4729,61 +4747,71 @@ function viewOpeningTimelines(){
               <div style="font-size:10px;color:var(--grey-500);">Source: Beeline Groups Report${ncBB.uploadedAt?' · '+fmtShortDate(ncBB.uploadedAt):''}</div>
             </div>` : ''}`
           : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data loaded for this store.<br>Upload a network report in the B.Better tab, or a Groups Report above, to populate this section.</div>`;
-        detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;">
-          <div><div class="section-title">📅 CPA Timeline</div><div style="max-height:420px;overflow-y:auto;padding-right:4px;">${cpaRows}</div>${postSupport}</div>
-          <div><div class="section-title">📊 Training Progress</div>${progressMeter}
+        const activeSub = detailSubTab[s.name] || 'cpa';
+        const subTabBtn = (key, label) => `<button type="button" class="detailSubTabBtn" data-store="${escTC(s.name)}" data-sub="${key}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${activeSub===key?'var(--gold)':'transparent'};background:none;color:${activeSub===key?'#000':'var(--grey-500)'};">${label}</button>`;
+        const subDashNav = `<div style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:16px;overflow-x:auto;">
+          ${subTabBtn('cpa','📅 CPA Timeline')}
+          ${subTabBtn('training','🎓 Training &amp; Recruitment')}
+          ${subTabBtn('bbetter','🏅 B.Better Academy')}
+          ${subTabBtn('details','🏢 Franchisee &amp; Store Details')}
+        </div>`;
+        const cpaSectionHtml = `<div>
+          ${cpaRows}
+          ${postSupport}
+        </div>`;
+        const trainingSectionHtml = `<div>
+          <div class="section-title">📊 Training Progress</div>
+          ${progressMeter}
+          <div style="margin-top:20px;">
+            <div class="section-title">🤝 Support Team Allocation</div>
+            <div>${OT_PEOPLE_LIST.map(member => {
+              const assigned = (supportAllocations[s.name] || []).includes(member);
+              return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
+            }).join('')}</div>
+            <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>
           </div>
-          <div><div class="section-title">🎓 B.Better Academy</div>${bbetterSection}</div>
-        </div>
-        <div style="border-top:1px solid var(--grey-200);padding:16px;">
-          <div class="section-title">🤝 Support Team Allocation</div>
-          <div>${OT_PEOPLE_LIST.map(member => {
-            const assigned = (supportAllocations[s.name] || []).includes(member);
-            return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
-          }).join('')}</div>
-          <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>
-        </div>
-        <div style="border-top:1px solid var(--grey-200);padding:16px;">
-          <div class="section-title">🎓 Training Calendar</div>
-          <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
-          ${(() => {
-            const cal = getTrainingCalendar(s.name);
-            const colCount = 4 + cal.weekLabels.length + 1;
-            const rows = cal.staff.map((p, pi) => {
-              const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
-              const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
-              return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
-              <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
-              <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
-              <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
-              <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
-              ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
-              <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
-            </tr>`;
-            }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
-            return `
-            <div style="overflow-x:auto;">
-              <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
-                <thead><tr>
-                  <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
-                  <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
-                  <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
-                  <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
-                  ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
-                  <th style="border-bottom:1px solid var(--grey-200);"></th>
-                </tr></thead>
-                <tbody>${rows}</tbody>
-              </table>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
-              <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
-              <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
-              <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4. Start Date defaults to this café's Training Start Date (Opening Date − 5 weeks) for everyone — edit an individual row's Start Date to override it.</span>
-            </div>`;
-          })()}
-        </div>
-        <div style="border-top:1px solid var(--grey-200);padding:16px;">
-          <div class="section-title">🏢 Franchisee &amp; Store Details</div>
+          <div style="margin-top:20px;">
+            <div class="section-title">🎓 Training Calendar</div>
+            <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
+            ${(() => {
+              const cal = getTrainingCalendar(s.name);
+              const colCount = 4 + cal.weekLabels.length + 1;
+              const rows = cal.staff.map((p, pi) => {
+                const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
+                const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
+                return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+                ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
+              </tr>`;
+              }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
+              return `
+              <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
+                  <thead><tr>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
+                    ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
+                    <th style="border-bottom:1px solid var(--grey-200);"></th>
+                  </tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
+                <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
+                <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4. Start Date defaults to this café's Training Start Date (Opening Date − 5 weeks) for everyone — edit an individual row's Start Date to override it.</span>
+              </div>`;
+            })()}
+          </div>
+        </div>`;
+        const bbetterSectionHtml = `<div><div class="section-title">🏅 B.Better Academy</div>${bbetterSection}</div>`;
+        const detailsSectionHtml = `<div><div class="section-title">🏢 Franchisee &amp; Store Details</div>
           ${(() => {
             const det = storeDetails[s.name] || {};
             const field = (key, label, type) => `<div>
@@ -4808,7 +4836,7 @@ function viewOpeningTimelines(){
             const isEditableStore = s.id !== undefined; // extraStores (added manually or via approval) carry an id; the original hardcoded pipeline stores don't
             const openDateField = `<div>
               <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Store Opening Date</label>
-              <input type="date" ${isEditableStore ? `class="odField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.openDate||'')}" title="${isEditableStore ? 'Drives the CPA Timeline dates below and the Post-Support Schedule' : 'This café is part of the original pipeline data — its date lives in the app source, not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
+              <input type="date" ${isEditableStore ? `class="odField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.openDate||'')}" title="${isEditableStore ? 'Drives the CPA Timeline dates and the Post-Support Schedule' : 'This café is part of the original pipeline data — its date lives in the app source, not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
             </div>`;
             const createdDateField = `<div>
               <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Café Created Date</label>
@@ -4832,6 +4860,11 @@ function viewOpeningTimelines(){
             </div>`;
           })()}
         </div>`;
+        const sectionByTab = { cpa: cpaSectionHtml, training: trainingSectionHtml, bbetter: bbetterSectionHtml, details: detailsSectionHtml };
+        detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;">
+          ${subDashNav}
+          ${sectionByTab[activeSub] || cpaSectionHtml}
+        </div>`;
       }
       const assignedSupport = supportAllocations[s.name] || [];
       return `<div class="card" style="margin-bottom:8px;padding:0;">
@@ -4846,6 +4879,11 @@ function viewOpeningTimelines(){
 
     document.querySelectorAll('[data-toggle]').forEach(el => el.addEventListener('click', () => {
       expanded = expanded === el.dataset.toggle ? null : el.dataset.toggle;
+      renderStoreList();
+    }));
+    document.querySelectorAll('.detailSubTabBtn').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      detailSubTab[el.dataset.store] = el.dataset.sub;
       renderStoreList();
     }));
     document.querySelectorAll('.cpaConfirmCheck').forEach(el => {
