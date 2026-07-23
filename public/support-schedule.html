@@ -69,6 +69,8 @@ table.data-table { width:100%; border-collapse:collapse; font-size:12px; }
 .week-grid-head .date-sub { display:block; font-weight:400; color:var(--grey-500); font-size:9px; margin-top:2px; text-transform:none; letter-spacing:0; }
 .fsm-row-name { padding:12px 10px; border-top:1px solid var(--grey-200); font-weight:700; font-size:12px; background:var(--grey-100); }
 .fsm-row-name .sub { font-weight:400; color:var(--grey-500); font-size:10px; margin-top:2px; }
+.fsm-name-edit { cursor:pointer; border-bottom:1px dashed var(--grey-300); }
+.fsm-name-edit:hover { color:#8a7238; border-bottom-color:var(--gold); }
 .day-cell { border-top:1px solid var(--grey-200); border-left:1px solid var(--grey-200); padding:6px; min-height:64px; vertical-align:top; }
 .cafe-chip { background:var(--white); border:1px solid var(--grey-300); border-radius:3px; padding:6px 8px; margin-bottom:5px; font-size:11px; cursor:pointer; position:relative; }
 .cafe-chip:hover { border-color:var(--gold); }
@@ -299,7 +301,7 @@ function franchiseeVisitPlan(managerKey, horizonDays) {
       if (nextDue % 5 !== 0) {
         const siteId = f.sites.find(id => groupSiteIds.has(id));
         const site = SITES.find(s => s.id === siteId);
-        plan[nextDue].push({ franchisee: f.name, cafe: site ? site.name : '?' });
+        plan[nextDue].push('🤝 ' + f.name + ' (at ' + (site ? site.name : '?') + ')');
       }
       nextDue += FRANCHISEE_PERIOD;
     }
@@ -346,12 +348,15 @@ function fmtDayDate(d) { return d.toLocaleDateString('en-ZA', { weekday: 'short'
    ============================================================ */
 let OVERRIDES = {};   // cellKey -> [{id, text, status}]   status: '' | 'confirmed' | 'rescheduled'
 let CONFIRM_LOG = {}; // visitKey -> { confirmedAt, confirmedBy }
+let NAME_OVERRIDES = {}; // "managerKey|FSM label" -> assigned person's name
 async function loadState() {
   try { const r = await window.storage.get('support-schedule-overrides-v1'); OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { OVERRIDES = {}; }
   try { const r = await window.storage.get('support-schedule-confirmations-v1'); CONFIRM_LOG = JSON.parse((r && r.value) || '{}'); } catch (e) { CONFIRM_LOG = {}; }
+  try { const r = await window.storage.get('support-schedule-names-v1'); NAME_OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { NAME_OVERRIDES = {}; }
 }
 async function saveOverrides() { try { await window.storage.set('support-schedule-overrides-v1', JSON.stringify(OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
 async function saveConfirmations() { try { await window.storage.set('support-schedule-confirmations-v1', JSON.stringify(CONFIRM_LOG)); } catch (e) { toast('Could not save — check connection'); } }
+async function saveNameOverrides() { try { await window.storage.set('support-schedule-names-v1', JSON.stringify(NAME_OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
 
 function cellKey(managerKey, personLabel, slot) { return managerKey + '|' + personLabel + '|' + slot; }
 function visitKey(managerKey, personLabel, slot, cafeName) { return managerKey + '|' + personLabel + '|' + slot + '|' + cafeName; }
@@ -437,6 +442,7 @@ let ACTIVE_MANAGER = 'Franlo';
 let VIEW_WEEK = currentWeekNum();
 let OPEN_CHIP = null; // cellKey+index of the chip whose actions are expanded
 let DIR_FILTER_MANAGER = '';
+let DIR_FILTER_FSM = '';
 let DIR_SEARCH = '';
 let DIR_EXPANDED = null;
 
@@ -520,6 +526,13 @@ function renderWeeklyTab() {
   renderWeekGrid(days, roster, franchisePlan, groupSites);
 }
 
+const MANAGER_LABEL = '__MANAGER__';
+function displayLabel(managerKey, personLabel) {
+  if (personLabel === MANAGER_LABEL) return managerKey;
+  const name = NAME_OVERRIDES[managerKey + '|' + personLabel];
+  return name ? personLabel + ' — ' + name : personLabel;
+}
+
 function renderWeekGrid(days, roster, franchisePlan, groupSites) {
   const grid = document.getElementById('weekGrid');
   let html = `<div class="week-grid-head"><div>Support Member</div>`;
@@ -528,52 +541,63 @@ function renderWeekGrid(days, roster, franchisePlan, groupSites) {
   });
   html += `</div>`;
 
-  // Manager's own row — quarterly franchisee visit only
-  html += `<div class="fsm-row-name">${ACTIVE_MANAGER}<div class="sub">Regional Manager</div></div>`;
-  for (let i = 0; i < 7; i++) {
-    if (i === 0) { html += `<div class="day-cell"><div class="admin-day-label">Admin Day</div></div>`; continue; }
-    if (i >= 5) { html += `<div class="day-cell"><div class="support-day-label">—</div></div>`; continue; }
-    const absDay = absoluteWeekdayIndex(VIEW_WEEK, i);
-    const fEntries = franchisePlan[absDay] || [];
-    html += `<div class="day-cell">${fEntries.map(f => `<div class="cafe-chip franchisee">🤝 ${f.franchisee}<div style="font-weight:400;font-size:9.5px;margin-top:2px;">at ${f.cafe}</div></div>`).join('') || ''}</div>`;
-  }
+  const franchiseeOptions = FRANCHISEES
+    .filter(f => f.sites.some(id => SITES.find(s => s.id === id && REGION_GROUPS[ACTIVE_MANAGER].regions.includes(s.region))))
+    .map(f => {
+      const siteId = f.sites.find(id => SITES.find(s => s.id === id));
+      const site = SITES.find(s => s.id === siteId);
+      return '🤝 ' + f.name + ' (at ' + (site ? site.name : '?') + ')';
+    });
 
-  // Support member rows
+  html += renderPersonRow(ACTIVE_MANAGER, MANAGER_LABEL, 'Regional Manager', franchisePlan, franchiseeOptions);
   roster.forEach(person => {
-    html += `<div class="fsm-row-name">${person.label}<div class="sub">${person.sites.length} cafés assigned</div></div>`;
-    for (let i = 0; i < 7; i++) {
-      if (i === 0) { html += `<div class="day-cell"><div class="admin-day-label">Admin Day</div></div>`; continue; }
-      const entries = getCellEntries(ACTIVE_MANAGER, person.label, i, VIEW_WEEK, person.plan);
-      const slot = slotKeyFor(VIEW_WEEK, i);
-      const ck = cellKey(ACTIVE_MANAGER, person.label, slot);
-      let cellHtml = '';
-      if (entries.length === 0 && i >= 5) {
-        cellHtml = `<div class="support-day-label">Support Day</div>`;
-      }
-      entries.forEach((e, idx) => {
-        const chipId = ck + '::' + idx;
-        const isOpen = OPEN_CHIP === chipId;
-        cellHtml += `<div class="cafe-chip ${e.status||''}" data-chip="${chipId}" data-mgr="${ACTIVE_MANAGER}" data-person="${person.label}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">
-          ${e.text}
-          ${e.status==='confirmed' ? '<span class="badge green" style="margin-left:4px;">✓</span>' : ''}
-          ${e.status==='rescheduled' ? '<span class="badge amber" style="margin-left:4px;">↻</span>' : ''}
-          ${isOpen ? `<div class="chip-actions">
-            <button class="confirmBtn" data-act="confirm" data-mgr="${ACTIVE_MANAGER}" data-person="${person.label}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Confirm</button>
-            <button class="rescheduleBtn" data-act="reschedule" data-mgr="${ACTIVE_MANAGER}" data-person="${person.label}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Reschedule</button>
-            <button class="removeBtn" data-act="remove" data-mgr="${ACTIVE_MANAGER}" data-person="${person.label}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Remove</button>
-          </div>` : ''}
-        </div>`;
-      });
-      cellHtml += `<button class="add-cafe-btn" data-mgr="${ACTIVE_MANAGER}" data-person="${person.label}" data-week="${VIEW_WEEK}" data-dayidx="${i}">+ Add Café</button>`;
-      html += `<div class="day-cell">${cellHtml}</div>`;
-    }
+    html += renderPersonRow(ACTIVE_MANAGER, person.label, person.sites.length + ' cafés assigned', person.plan, person.sites.map(s => s.name));
   });
 
   grid.innerHTML = html;
-  wireWeekGridEvents(roster, groupSites);
+  wireWeekGridEvents(roster, groupSites, franchisePlan);
+  wireFsmNameEditing();
 }
 
-function wireWeekGridEvents(roster, groupSites) {
+function renderPersonRow(managerKey, personLabel, subtitle, planArr, addOptions) {
+  const isManager = personLabel === MANAGER_LABEL;
+  let html = `<div class="fsm-row-name">
+      <span class="${isManager ? '' : 'fsm-name-edit'}" ${isManager ? '' : `data-editname="${managerKey}|${personLabel}"`}>${displayLabel(managerKey, personLabel)}</span>
+      <div class="sub">${subtitle}</div>
+    </div>`;
+  for (let i = 0; i < 7; i++) {
+    const entries = getCellEntries(managerKey, personLabel, i, VIEW_WEEK, planArr);
+    const slot = slotKeyFor(VIEW_WEEK, i);
+    const ck = cellKey(managerKey, personLabel, slot);
+    let cellHtml = '';
+    if (entries.length === 0 && i === 0) cellHtml = `<div class="admin-day-label">Admin Day</div>`;
+    if (entries.length === 0 && i >= 5) cellHtml = `<div class="support-day-label">Support Day</div>`;
+    entries.forEach((e, idx) => {
+      const chipId = ck + '::' + idx;
+      const isOpen = OPEN_CHIP === chipId;
+      const chipClass = isManager ? 'cafe-chip franchisee' : ('cafe-chip ' + (e.status || ''));
+      cellHtml += `<div class="${chipClass}" data-chip="${chipId}" data-mgr="${managerKey}" data-person="${personLabel}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">
+        ${e.text}
+        ${e.status==='confirmed' ? '<span class="badge green" style="margin-left:4px;">✓</span>' : ''}
+        ${e.status==='rescheduled' ? '<span class="badge amber" style="margin-left:4px;">↻</span>' : ''}
+        ${isOpen ? `<div class="chip-actions">
+          <button class="confirmBtn" data-act="confirm" data-mgr="${managerKey}" data-person="${personLabel}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Confirm</button>
+          <button class="rescheduleBtn" data-act="reschedule" data-mgr="${managerKey}" data-person="${personLabel}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Reschedule</button>
+          <button class="removeBtn" data-act="remove" data-mgr="${managerKey}" data-person="${personLabel}" data-week="${VIEW_WEEK}" data-dayidx="${i}" data-idx="${idx}">Remove</button>
+        </div>` : ''}
+      </div>`;
+    });
+    const addLabel = isManager ? '+ Add Franchisee Visit' : '+ Add Café';
+    cellHtml += `<button class="add-cafe-btn" data-mgr="${managerKey}" data-person="${personLabel}" data-week="${VIEW_WEEK}" data-dayidx="${i}">${addLabel}</button>`;
+    html += `<div class="day-cell">${cellHtml}</div>`;
+  }
+  return html;
+}
+
+function wireWeekGridEvents(roster, groupSites, franchisePlan) {
+  function planFor(personLabel) {
+    return personLabel === MANAGER_LABEL ? franchisePlan : (roster.find(p => p.label === personLabel) || {}).plan;
+  }
   document.querySelectorAll('.cafe-chip[data-chip]').forEach(chip => {
     chip.addEventListener('click', (e) => {
       if (e.target.closest('.chip-actions')) return;
@@ -587,8 +611,8 @@ function wireWeekGridEvents(roster, groupSites) {
       const mgrKey = btn.dataset.mgr, personLabel = btn.dataset.person;
       const weekNum = parseInt(btn.dataset.week, 10), dayIdx = parseInt(btn.dataset.dayidx, 10);
       const idx = parseInt(btn.dataset.idx, 10), act = btn.dataset.act;
-      const person = roster.find(p => p.label === personLabel);
-      let entries = getCellEntries(mgrKey, personLabel, dayIdx, weekNum, person.plan).slice();
+      const plan = planFor(personLabel);
+      let entries = getCellEntries(mgrKey, personLabel, dayIdx, weekNum, plan).slice();
       const absDay = absoluteWeekdayIndex(weekNum, dayIdx);
 
       if (act === 'confirm') {
@@ -602,20 +626,21 @@ function wireWeekGridEvents(roster, groupSites) {
         // Actually move it: pull it out of today's slot and drop it into the
         // next open day in this person's own cycle (first weekday, skipping
         // Mondays, where they have fewer than 2 cafés already) — rather than
-        // just slapping a "rescheduled" label on the same day.
+        // just slapping a "rescheduled" label on the same day. Works the
+        // same way for a franchisee visit on the manager's own row.
         const moved = entries[idx];
         entries.splice(idx, 1);
         setCellEntries(mgrKey, personLabel, dayIdx, weekNum, entries);
-        const targetAbsDay = findNextOpenSlot(mgrKey, personLabel, person.plan, absDay);
+        const targetAbsDay = findNextOpenSlot(mgrKey, personLabel, plan, absDay);
         if (targetAbsDay === null) {
-          toast('No open slot found in the next 18 weeks — try again later');
+          toast('No open slot found in the next few weeks — try again later');
         } else {
-          const targetEntries = getCellEntriesByAbsDay(mgrKey, personLabel, targetAbsDay, person.plan).slice();
+          const targetEntries = getCellEntriesByAbsDay(mgrKey, personLabel, targetAbsDay, plan).slice();
           targetEntries.push({ id: 'resched' + Date.now(), text: moved.text, status: 'rescheduled' });
           setCellEntriesByAbsDay(mgrKey, personLabel, targetAbsDay, targetEntries);
           const targetWeek = Math.floor(targetAbsDay / 5) + 1;
           const targetDate = absDayToDate(targetAbsDay);
-          toast(moved.text + ' rescheduled to ' + fmtDayDate(targetDate) + (targetWeek !== weekNum ? ' (week ' + targetWeek + ')' : ''));
+          toast('Rescheduled to ' + fmtDayDate(targetDate) + (targetWeek !== weekNum ? ' (week ' + targetWeek + ')' : ''));
         }
       } else if (act === 'remove') {
         entries.splice(idx, 1);
@@ -630,31 +655,58 @@ function wireWeekGridEvents(roster, groupSites) {
     btn.addEventListener('click', (e) => {
       const mgrKey = btn.dataset.mgr, personLabel = btn.dataset.person;
       const weekNum = parseInt(btn.dataset.week, 10), dayIdx = parseInt(btn.dataset.dayidx, 10);
+      const isManager = personLabel === MANAGER_LABEL;
       const existing = btn.parentElement.querySelector('.cafe-search-box');
       if (existing) { existing.remove(); return; }
       const box = document.createElement('div');
       box.className = 'cafe-search-box';
-      box.innerHTML = `<input type="text" placeholder="Search café..." style="width:100%;font-size:11px;padding:6px;border:1px solid var(--grey-300);"><div class="cafe-search-results" style="display:none;"></div>`;
+      box.innerHTML = `<input type="text" placeholder="${isManager ? 'Search franchisee...' : 'Search café...'}" style="width:100%;font-size:11px;padding:6px;border:1px solid var(--grey-300);"><div class="cafe-search-results" style="display:none;"></div>`;
       btn.parentElement.insertBefore(box, btn);
       const input = box.querySelector('input');
       const results = box.querySelector('.cafe-search-results');
+      const searchPool = isManager
+        ? FRANCHISEES.filter(f => f.sites.some(id => SITES.find(s => s.id === id && REGION_GROUPS[mgrKey].regions.includes(s.region))))
+            .map(f => { const site = SITES.find(s => s.id === f.sites[0]); return '🤝 ' + f.name + ' (at ' + (site ? site.name : '?') + ')'; })
+        : groupSites.map(s => s.name);
       input.addEventListener('input', () => {
         const q = input.value.trim().toLowerCase();
         if (!q) { results.style.display = 'none'; return; }
-        const matches = groupSites.filter(s => s.name.toLowerCase().includes(q)).slice(0, 15);
-        results.innerHTML = matches.map(s => `<div data-name="${s.name.replace(/"/g,'&quot;')}">${s.name}</div>`).join('');
+        const matches = searchPool.filter(name => name.toLowerCase().includes(q)).slice(0, 15);
+        results.innerHTML = matches.map(name => `<div data-name="${name.replace(/"/g,'&quot;')}">${name}</div>`).join('');
         results.style.display = matches.length ? 'block' : 'none';
         results.querySelectorAll('div').forEach(opt => opt.addEventListener('mousedown', (ev) => {
           ev.preventDefault();
-          const person = roster.find(p => p.label === personLabel);
-          const entries = getCellEntries(mgrKey, personLabel, dayIdx, weekNum, person.plan).slice();
+          const plan = planFor(personLabel);
+          const entries = getCellEntries(mgrKey, personLabel, dayIdx, weekNum, plan).slice();
           entries.push({ id: 'manual' + Date.now(), text: opt.dataset.name, status: '' });
           setCellEntries(mgrKey, personLabel, dayIdx, weekNum, entries);
-          toast('Café added');
+          toast(isManager ? 'Franchisee visit added' : 'Café added');
           renderWeeklyTab();
         }));
       });
       input.focus();
+    });
+  });
+}
+
+function wireFsmNameEditing() {
+  document.querySelectorAll('.fsm-name-edit').forEach(el => {
+    el.addEventListener('click', () => {
+      const [mgrKey, personLabel] = el.dataset.editname.split('|');
+      const current = NAME_OVERRIDES[mgrKey + '|' + personLabel] || '';
+      const wrap = el.parentElement;
+      wrap.innerHTML = `<input type="text" class="fsm-name-input" value="${current.replace(/"/g,'&quot;')}" placeholder="Assign a name..." style="font-size:12px;font-weight:700;width:100%;padding:3px 4px;border:1px solid var(--gold);">`;
+      const input = wrap.querySelector('input');
+      input.focus(); input.select();
+      const commit = () => {
+        const val = input.value.trim();
+        if (val) NAME_OVERRIDES[mgrKey + '|' + personLabel] = val;
+        else delete NAME_OVERRIDES[mgrKey + '|' + personLabel];
+        saveNameOverrides();
+        renderWeeklyTab();
+      };
+      input.addEventListener('blur', commit);
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') input.blur(); });
     });
   });
 }
@@ -701,28 +753,68 @@ function confirmedVisitsForSite(site, managerKey, personLabel) {
     .filter(([k]) => k.startsWith(prefix) && k.endsWith('|' + site.name))
     .map(([k, v]) => v);
 }
+function currentMonthEnd() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+}
+function isThisMonth(date) {
+  const now = new Date();
+  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+}
+// "At risk of not being visited in cycle" — the next scheduled visit is
+// further away than this café's own cadence allows (outlying ≈ 6 weeks,
+// everything else ≈ monthly), or there's no upcoming visit at all. This
+// only happens if a manual remove/reschedule has left a genuine gap, since
+// the rotation engine itself never lets a café go this long unvisited.
+function isAtRisk(site, upcomingDays, nowAbsDay) {
+  const cadence = site.outlying ? CADENCE.outlying : CADENCE.local;
+  if (!upcomingDays.length) return true;
+  return (upcomingDays[0] - nowAbsDay) > cadence;
+}
+
+function fsmOptionsFor(managerFilter) {
+  const keys = managerFilter ? [managerFilter] : Object.keys(REGION_GROUPS);
+  const opts = [];
+  keys.forEach(mk => ROSTER[mk].forEach(p => opts.push({ value: mk + '|' + p.label, label: mk + ' · ' + displayLabel(mk, p.label) })));
+  return opts;
+}
 
 function renderDirectoryTab() {
   const body = document.getElementById('tabBody');
+  const allSiteNames = SITES.slice().sort((a, b) => a.name.localeCompare(b.name));
   body.innerHTML = `
+    <div id="dirKpiStrip" class="kpi-strip"></div>
     <div class="filter-row">
       <select id="dirMgrFilter">
         <option value="">All Regions</option>
         <option value="Franlo" ${DIR_FILTER_MANAGER==='Franlo'?'selected':''}>Franlo's Team (WC/EC/Namibia)</option>
         <option value="Tarryn" ${DIR_FILTER_MANAGER==='Tarryn'?'selected':''}>Tarryn's Team (GP/LP/MP/FS/KZN/NC/NW)</option>
       </select>
+      <select id="dirFsmFilter"><option value="">All Support Members</option></select>
       <input type="text" id="dirSearch" placeholder="Search café..." value="${DIR_SEARCH.replace(/"/g,'&quot;')}">
+      <select id="dirCafeSelect" style="min-width:220px;">
+        <option value="">— Jump to a café —</option>
+        ${allSiteNames.map(s => `<option value="${s.id}" ${DIR_EXPANDED===s.id?'selected':''}>${s.name}</option>`).join('')}
+      </select>
     </div>
+    <div id="dirExpandedPanel"></div>
     <div class="card" style="padding:0;">
       <table class="data-table">
-        <thead><tr><th>Café</th><th>Region</th><th>Support Member</th><th>Scheduled (next 60 wks)</th><th>Confirmed / Actual</th><th>Next Visit</th></tr></thead>
+        <thead><tr><th>Café</th><th>Region</th><th>Support Member</th><th>Scheduled (this month)</th><th>Confirmed / Actual</th><th>Next Visit</th><th>Status</th></tr></thead>
         <tbody id="dirTableBody"></tbody>
       </table>
     </div>
-    <div id="dirExpandedPanel"></div>
   `;
-  document.getElementById('dirMgrFilter').addEventListener('change', (e) => { DIR_FILTER_MANAGER = e.target.value; renderDirTable(); });
+  function refreshFsmOptions() {
+    const sel = document.getElementById('dirFsmFilter');
+    const opts = fsmOptionsFor(DIR_FILTER_MANAGER);
+    sel.innerHTML = `<option value="">All Support Members</option>` + opts.map(o => `<option value="${o.value}" ${DIR_FILTER_FSM===o.value?'selected':''}>${o.label}</option>`).join('');
+  }
+  refreshFsmOptions();
+  document.getElementById('dirMgrFilter').addEventListener('change', (e) => { DIR_FILTER_MANAGER = e.target.value; DIR_FILTER_FSM = ''; refreshFsmOptions(); renderDirTable(); });
+  document.getElementById('dirFsmFilter').addEventListener('change', (e) => { DIR_FILTER_FSM = e.target.value; renderDirTable(); });
   document.getElementById('dirSearch').addEventListener('input', (e) => { DIR_SEARCH = e.target.value; renderDirTable(); });
+  document.getElementById('dirCafeSelect').addEventListener('change', (e) => { DIR_EXPANDED = e.target.value || null; renderDirExpanded(); });
   renderDirTable();
 }
 
@@ -731,29 +823,61 @@ function renderDirTable() {
   const q = DIR_SEARCH.trim().toLowerCase();
   let sites = SITES.slice();
   if (DIR_FILTER_MANAGER) sites = sites.filter(s => s.manager === DIR_FILTER_MANAGER);
+  if (DIR_FILTER_FSM) {
+    const [fmgr, flabel] = DIR_FILTER_FSM.split('|');
+    sites = sites.filter(s => {
+      const stats = cafeVisitStats(s);
+      return stats.managerKey === fmgr && stats.personLabel === flabel;
+    });
+  }
   if (q) sites = sites.filter(s => s.name.toLowerCase().includes(q));
   sites.sort((a, b) => a.name.localeCompare(b.name));
 
   const nowAbsDay = nowAbsDayIndex();
+  const monthEnd = currentMonthEnd();
 
-  tbody.innerHTML = sites.map(site => {
+  let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
+  const rows = sites.map(site => {
     const stats = cafeVisitStats(site);
     const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay);
+    const scheduledThisMonth = upcoming.filter(d => absDayToDate(d) <= monthEnd);
     const confirmed = confirmedVisitsForSite(site, stats.managerKey, stats.personLabel);
+    const confirmedThisMonth = confirmed.filter(c => isThisMonth(new Date(c.confirmedAt)));
+    const rescheduledThisMonth = scheduledThisMonth.filter(d => {
+      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      return entries.some(e => e.text === site.name && e.status === 'rescheduled');
+    });
+    const atRisk = isAtRisk(site, upcoming, nowAbsDay);
+    kpiScheduled += scheduledThisMonth.length;
+    kpiConfirmed += confirmedThisMonth.length;
+    kpiRescheduled += rescheduledThisMonth.length;
+    if (atRisk) kpiAtRisk++;
     const nextDay = upcoming.length ? upcoming[0] : null;
-    return `<tr data-site="${site.id}">
+    return { site, stats, scheduledThisMonth, confirmed, nextDay, atRisk };
+  });
+
+  document.getElementById('dirKpiStrip').innerHTML = `
+    <div><div class="card-label">Scheduled (This Month)</div><div class="card-value">${kpiScheduled}</div></div>
+    <div><div class="card-label">Confirmed (This Month)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
+    <div><div class="card-label">Rescheduled (This Month)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
+    <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
+  `;
+
+  tbody.innerHTML = rows.map(({ site, stats, scheduledThisMonth, confirmed, nextDay, atRisk }) => `<tr data-site="${site.id}" style="${atRisk ? 'background:var(--red-bg);' : ''}">
       <td><b>${site.name}</b></td>
       <td>${site.region}${site.outlying ? ' <span class="badge amber" style="margin-left:4px;">outlying</span>' : ''}</td>
-      <td>${stats.personLabel ? (stats.managerKey + ' · ' + stats.personLabel) : '—'}</td>
-      <td>${upcoming.length}</td>
+      <td>${stats.personLabel ? (stats.managerKey + ' · ' + displayLabel(stats.managerKey, stats.personLabel)) : '—'}</td>
+      <td>${scheduledThisMonth.length}</td>
       <td>${confirmed.length ? `<span class="badge green">${confirmed.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
       <td>${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
-    </tr>`;
-  }).join('') || '<tr><td colspan="6" class="empty-state">No cafés match this filter.</td></tr>';
+      <td>${atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
+    </tr>`).join('') || '<tr><td colspan="7" class="empty-state">No cafés match this filter.</td></tr>';
 
   document.querySelectorAll('#dirTableBody tr[data-site]').forEach(row => {
     row.addEventListener('click', () => {
       DIR_EXPANDED = DIR_EXPANDED === row.dataset.site ? null : row.dataset.site;
+      const sel = document.getElementById('dirCafeSelect');
+      if (sel) sel.value = DIR_EXPANDED || '';
       renderDirExpanded();
     });
   });
@@ -784,7 +908,7 @@ function renderDirExpanded() {
           ${upcoming.length ? upcoming.map(d => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--grey-200);">${fmtDayDate(absDayToDate(d))}</div>`).join('') : '<div class="empty-state">Nothing scheduled — check the café is still assigned to a support member.</div>'}
         </div>
       </div>
-      <div style="margin-top:10px;font-size:10px;color:var(--grey-500);">Assigned to: ${stats.managerKey || '—'} team · ${stats.personLabel || '—'} · Zone: ${site.zone} · Franchisee: ${site.franchisee || '—'}</div>
+      <div style="margin-top:10px;font-size:10px;color:var(--grey-500);">Assigned to: ${stats.managerKey || '—'} team · ${stats.personLabel ? displayLabel(stats.managerKey, stats.personLabel) : '—'} · Zone: ${site.zone} · Franchisee: ${site.franchisee || '—'}</div>
     </div>
   `;
 }
