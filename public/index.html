@@ -295,6 +295,7 @@ footer.app-footer { border-top:1px solid var(--grey-200); padding:16px 36px; dis
   .view { display:block !important; }
 }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -597,6 +598,55 @@ async function correctOpeningDates20260714IfNeeded(){
   } catch(e) { /* safe to retry next load */ }
 }
 
+
+// One-time seed: the B.Better Groups Report uploaded 22 Jul 2026, reconciled
+// against known café names (many rows in that export use a different name
+// than our own store list — e.g. "TEMSA Cashan" for "Cashan", "Petroport
+// Alzu Pod" for "Alzu Petroport N4" — see the reconciliation done when this
+// was added). Rows that are actually B.Better rollup/role groups rather
+// than individual cafés ("All Locations", "Western Cape", "Manager",
+// "Barista", etc.) are intentionally excluded — they don't map to a single
+// store. The network-wide average comes straight from that report's own
+// "All Locations" row (78.13%) rather than being recomputed here, since
+// averaging only the matched store rows would double-count against the
+// rollups the report itself already averages.
+const BBETTER_SEED_20260722 = {"Cashan": 56.05, "Sandown Retail Crossing": 100, "Alzu Petroport N4": 74.92, "Woodmead": 100, "Steiltes": 96.49, "Riverlands": 87.57, "Cavendish Mall": 70.38, "Delta Central": 71.38, "Simmonds": 89.28, "N12 East": 93.4, "Paarl Mall TEMSA": 31.24, "Rosmead Avenue": 88.67, "Sea Point": 91.9, "Bakoven": 88.66, "Green Point": 86.49, "Muizenberg": 87.9, "Tokai": 80.58, "Canal Walk": 100, "N1 City Kiosk": 91.3, "Hartenbos": 92.25, "Eikestad": 95.19, "Sandkraal": 77.53, "Clara Anna": 99.76, "Three Rivers": 98.28, "Point Mall": 88.85, "Ferndale": 95.37, "Chartwell": 85.73, "Ridgeview": 78.07, "Olivedale": 75.86, "Hoedspruit": 97.64, "Bedford Square": 78.04, "Design Quarter": 94.08, "Cresta": 88.58, "Sunninghill": 80.85, "The Zone Rosebank": 83.21, "Preller Walk": 54.44, "Middleburg": 77.88, "Woodland Hills": 85.81, "Gateway": 100, "The Grove": 95.71, "FNB": 99.83, "Stellenbosch": 87.58, "Hermanus Kiosk": 90.94, "Thabazimbi": 94.2, "Bram Fischer": 93.35, "Karaglen": 96.9, "Campbells": 99.47, "Sizan": 94.4, "Plattekloof Village": 98.1, "Clearwater": 89.09, "Winchester Hill": 97.1, "The Pearls": 90.86, "Milkwood Square Centre": 93.84, "Mushroom Farm Park": 88.55, "Bridgewater": 97.78, "Cape Quarter": 99.33, "Gordon's Bay": 97.28, "Franschhoek": 95.08, "Frater Square": 96.22, "Grandwest": 96.39, "Aquarium": 87.61, "Hout Bay": 98.1, "Three Anchor Bay": 98.6, "Norwood": 87.85, "Grayston": 87.11, "Bedford Centre": 77.07, "Thatchfield": 90.95, "Irene Link": 99.05, "Mooirivier Mall": 92.43, "Ndabeni": 86.38, "Harrington Street": 85.95, "Lennox Kimberly": 78.41, "Cape Gate": 88.6, "Durbanville": 95.8, "Musgrave Centre": 92.89, "112 Kloof Street": 98.39, "Blouberg": 100, "Vredehoek": 92.32, "Gardens Centre": 100, "Bree Street": 100, "Drakenstein Sentrum": 96.55, "PineworX": 77.91, "Woodstock Quarter": 94.85, "Dean Street": 98.29, "Brooklyn Junction": 69.7, "Strand Beach Road": 95.22, "Somerset West": 96.37, "Kalk Bay": 96.42, "Hyde Park": 98.65, "Alzu Rayton": 95.76, "Claremont": 95.58, "Kenilworth": 93.83, "Blueberry Square": 89.3, "Vincent Park": 94, "Somerset Mall": 90.82, "Boardwalk": 96.48, "Durbanville TEMSA": 75.98, "Table Bay Mall": 99.25, "Century City": 98.16, "Meadowridge": 91.68, "Paardevlei": 94.89, "Salt River": 57.37, "Westlake": 91.93, "Mall of Africa": 90.78, "Yellowoods Centre": 99.32, "Welgelee Plein": 93.29, "Douglasdale": 90.47, "Parkhurst": 4.29, "York Street": 92.72, "Brackenfell Corner": 91.68, "Foreshore": 88.35, "St Cyprians": 88.09, "Laguna Mall": 2.32, "Paarden Eiland": 96.07, "Sandton Gate": 90.59};
+const BBETTER_NETWORK_AVG_SEED_20260722 = 78.13;
+async function migrateBBetterReport20260722IfNeeded(){
+  try {
+    const flag = await apiGet('/api/storage/bbetter-report-20260722-migrated-v1');
+    if (flag && flag.value === 'true') return;
+  } catch(e) { /* flag not set yet — proceed */ }
+  try {
+    const existing = await apiGet('/api/storage/bbetter-overrides').catch(() => null);
+    const merged = existing ? JSON.parse(existing.value || '{}') : {};
+    Object.entries(BBETTER_SEED_20260722).forEach(([store, score]) => {
+      merged[store] = score;
+      const fsm = fsmOfStore(store);
+      if (fsm) { if (!BEELINE_FLAT[fsm]) BEELINE_FLAT[fsm] = {}; BEELINE_FLAT[fsm][resolveAlias(store)] = score; }
+    });
+    await fetch('/api/storage/bbetter-overrides', {
+      method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+      body: JSON.stringify({ value: JSON.stringify(merged) })
+    });
+    await fetch('/api/storage/bbetter-last-upload-v1', {
+      method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+      body: JSON.stringify({ value: JSON.stringify({
+        uploadedAt: '2026-07-22T00:00:00.000Z',
+        filename: 'B_Better_groups_report_2026-07-22.xlsx',
+        networkAverage: BBETTER_NETWORK_AVG_SEED_20260722,
+        rowCount: Object.keys(BBETTER_SEED_20260722).length,
+      }) })
+    });
+  } catch(e) { /* safe to retry next load */ }
+  try {
+    await fetch('/api/storage/bbetter-report-20260722-migrated-v1', {
+      method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+      body: JSON.stringify({ value: 'true' })
+    });
+  } catch(e) { /* safe to retry next load */ }
+}
+
 /* ---------- auth state ---------- */
 let TOKEN = localStorage.getItem('bos_token') || null;
 let ROLE = localStorage.getItem('bos_role') || null;
@@ -758,6 +808,96 @@ function wireUploadButton(inputId, btnId, statusId, storageKey, applyFn, onDone)
       } catch(err) { if (status) status.textContent = 'Upload failed — check connection.'; }
     };
     reader.readAsText(file);
+  });
+}
+
+// Parses either the real B.Better "Groups Report" export (.xlsx, columns
+// Name / Average Completion (%) / Onboarded Members / Onboarded (%)) or the
+// legacy 2-column CSV (store,score). Many rows in a real export are B.Better
+// rollup/role groups rather than individual cafés (regions, "Manager",
+// "Barista", "All Locations", etc.) — those simply won't match a known café
+// name later on and are harmlessly skipped, same as any other unrecognized
+// store name. If an "All Locations" row is present, its own value is used
+// as the network average (it's already B.Better's own overall figure);
+// otherwise the average is computed across whatever rows were in the file.
+function parseBBetterFile(file){
+  return new Promise((resolve, reject) => {
+    const isXlsx = /\.xlsx?$/i.test(file.name);
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Could not read that file'));
+    if (isXlsx) {
+      reader.onload = () => {
+        try {
+          const wb = XLSX.read(reader.result, { type: 'array' });
+          const ws = wb.Sheets[wb.SheetNames[0]];
+          const json = XLSX.utils.sheet_to_json(ws, { header: 1 });
+          const header = (json[0] || []).map(h => String(h||'').trim().toLowerCase());
+          const nameIdx = header.findIndex(h => h === 'name');
+          const compIdx = header.findIndex(h => h.startsWith('average completion'));
+          if (nameIdx === -1 || compIdx === -1) { reject(new Error('Expected columns "Name" and "Average Completion (%)" — found: ' + (json[0]||[]).join(', '))); return; }
+          const rows = json.slice(1)
+            .filter(r => r[nameIdx])
+            .map(r => ({ store: String(r[nameIdx]).trim(), score: Number(r[compIdx]) }))
+            .filter(r => r.store && !isNaN(r.score));
+          resolve(finishBBetterParse(rows));
+        } catch(e) { reject(e); }
+      };
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.onload = () => {
+        try { resolve(finishBBetterParse(parseTwoColCsv(reader.result))); }
+        catch(e) { reject(e); }
+      };
+      reader.readAsText(file);
+    }
+  });
+}
+function finishBBetterParse(rows){
+  const allLocations = rows.find(r => r.store.toLowerCase() === 'all locations');
+  const networkAverage = allLocations ? allLocations.score
+    : (rows.length ? rows.reduce((a,r)=>a+r.score,0)/rows.length : null);
+  return { rows, networkAverage, sourceRowCount: rows.length };
+}
+async function saveBBetterLastUpload(meta){
+  try {
+    await fetch('/api/storage/bbetter-last-upload-v1', {
+      method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+      body: JSON.stringify({ value: JSON.stringify(meta) })
+    });
+  } catch(e) { /* non-fatal — the store data itself already saved */ }
+}
+function wireBBetterUpload(inputId, btnId, statusId, onDone){
+  const btn = document.getElementById(btnId);
+  const input = document.getElementById(inputId);
+  if (!btn || !input) return;
+  btn.addEventListener('click', () => input.click());
+  input.addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const status = document.getElementById(statusId);
+    if (status) status.textContent = 'Uploading...';
+    try {
+      const { rows, networkAverage, sourceRowCount } = await parseBBetterFile(file);
+      if (!rows.length) { if (status) status.textContent = 'No valid rows found.'; return; }
+      const matchedRows = [];
+      const applyFn = (store, score) => {
+        const fsm = fsmOfStore(store);
+        if (fsm) { if (!BEELINE_FLAT[fsm]) BEELINE_FLAT[fsm]={}; BEELINE_FLAT[fsm][resolveAlias(store)] = score; matchedRows.push(store); }
+      };
+      await uploadDataOverride('bbetter-overrides', rows, applyFn);
+      await saveBBetterLastUpload({
+        uploadedAt: new Date().toISOString(),
+        filename: file.name,
+        networkAverage,
+        rowCount: sourceRowCount,
+        matchedCount: matchedRows.length,
+      });
+      if (status) status.textContent = `Updated ${matchedRows.length} of ${sourceRowCount} row(s) — ${sourceRowCount - matchedRows.length} didn't match a known café name (regions/role groups are expected to be skipped).`;
+      toast(`Uploaded ${matchedRows.length} café(s)`);
+      onDone();
+    } catch(err) {
+      if (status) status.textContent = err.message || 'Upload failed — check the file format.';
+    }
   });
 }
 
@@ -1470,13 +1610,14 @@ function viewStandards(){
 function viewBBetter(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <div><div class="page-title">B-Better View</div><div class="page-subtitle">Learning Completion % per Store · Source: Beeline · June 2026</div></div>
+      <div><div class="page-title">B-Better View</div><div class="page-subtitle">Learning Completion % per Store · Source: Beeline</div></div>
       <div class="period-badge">TARGET ≥80%</div>
     </div>
+    <div id="bbLastUploadStrip" class="grid-3" style="margin-bottom:16px;"></div>
     <div class="card">
       <div class="section-title">Upload Data</div>
-      <div class="wrap-copy" style="margin-bottom:8px;">CSV with two columns: store, score (0–100). Header row required. FSM is looked up automatically from the store.</div>
-      <input type="file" id="bbUploadInput" accept=".csv" style="display:none;">
+      <div class="wrap-copy" style="margin-bottom:8px;">Upload the real B.Better "Groups Report" export (.xlsx — columns Name, Average Completion (%), Onboarded Members, Onboarded (%)), or a legacy 2-column CSV (store,score). FSM is looked up automatically from the store name; rows that are actually B.Better rollup/role groups (regions, "Manager", "Barista", "All Locations", etc.) rather than individual cafés are automatically skipped.</div>
+      <input type="file" id="bbUploadInput" accept=".xlsx,.xls,.csv" style="display:none;">
       <button class="btn btn-outline" id="bbUploadBtn">Upload B-Better Data</button>
       <span id="bbUploadStatus" style="font-size:11px;color:var(--grey-500);margin-left:10px;"></span>
     </div>
@@ -1496,10 +1637,20 @@ function viewBBetter(){
       </div>
     </div>
   `;
-  wireUploadButton('bbUploadInput','bbUploadBtn','bbUploadStatus','bbetter-overrides',
-    (store,score) => { const fsm = fsmOfStore(store); if (fsm) { if (!BEELINE_FLAT[fsm]) BEELINE_FLAT[fsm]={}; BEELINE_FLAT[fsm][resolveAlias(store)] = score; } },
-    () => viewBBetter()
-  );
+  wireBBetterUpload('bbUploadInput','bbUploadBtn','bbUploadStatus', () => viewBBetter());
+  apiGet('/api/storage/bbetter-last-upload-v1').then(r => {
+    const meta = JSON.parse((r && r.value) || 'null');
+    const strip = document.getElementById('bbLastUploadStrip');
+    if (!meta) { strip.innerHTML = `<div class="card"><div class="card-label">Last B.Better Upload</div><div class="card-value" style="font-size:14px;">No upload yet</div></div>`; return; }
+    const uploadedDate = new Date(meta.uploadedAt);
+    strip.innerHTML = `
+      <div class="card"><div class="card-label">Last B.Better Upload</div><div class="card-value" style="font-size:16px;">${uploadedDate.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'numeric'})}</div><div class="card-sub">${meta.filename || ''}</div></div>
+      <div class="card"><div class="card-label">Network Average Completion</div><div class="card-value">${meta.networkAverage!=null?meta.networkAverage.toFixed(1)+'%':'—'}</div><div class="card-sub">From column B of the upload</div></div>
+      <div class="card"><div class="card-label">Cafés Matched</div><div class="card-value">${meta.matchedCount!=null?meta.matchedCount:(meta.rowCount||'—')}</div><div class="card-sub">of ${meta.rowCount||'—'} rows in the file</div></div>
+    `;
+  }).catch(() => {
+    document.getElementById('bbLastUploadStrip').innerHTML = `<div class="card"><div class="card-label">Last B.Better Upload</div><div class="card-value" style="font-size:14px;">No upload yet</div></div>`;
+  });
   const ranked = FSM_LIST.map(f => ({ f, s: bbetterScore(f, fsmStoresList(f)) })).sort((a,b)=>(b.s.pct||0)-(a.s.pct||0));
   const maxPct = Math.max(...ranked.map(r=>r.s.pct||0), 1);
   document.getElementById('bbRanked').innerHTML = ranked.map((r,i) => `
@@ -5048,6 +5199,7 @@ async function startApp(){
     await loadExtraStores();
     await migrateHardcodedStoresIfNeeded();
     await correctOpeningDates20260714IfNeeded();
+    await migrateBBetterReport20260722IfNeeded();
   } catch(e) {
     if (e.message === 'unauthorized') return;
     document.getElementById('app').innerHTML = '<div class="empty-state" style="padding:80px 0;color:var(--red);">Could not connect to the server. Refresh to try again.</div>';
