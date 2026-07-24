@@ -2724,19 +2724,110 @@ function viewVisitReports(){
     <div class="page-header">
       <div><div class="page-title">Visit Reports</div><div class="page-subtitle">Every submitted GRIND café support summary, with linked tasks and PDF download</div></div>
     </div>
+    <div class="filter-row no-print" style="margin-bottom:8px;">
+      <button class="btn btn-outline vrTabBtn" data-tab="open" style="font-weight:600;">Open Jobs</button>
+      <button class="btn btn-outline vrTabBtn" data-tab="archived">Archived</button>
+    </div>
     <div class="filter-row no-print">
       <input type="text" id="vrSearch" placeholder="Search store or FSM...">
       <select id="vrTypeFilter"><option value="">All Types</option><option value="Support Visit">Support Visit</option><option value="Trainer Visit">Trainer Visit</option></select>
     </div>
+    <div id="vrDupWrap"></div>
     <div id="vrTableWrap"></div>
     <div id="vrPrintArea" style="display:none;"></div>
   `;
 
+  // Reports auto-archive after this many days so the Open Jobs view stays
+  // focused on current work — this is silent/automatic, no action needed.
+  // A manual override (archive early, or pull an old one back) is layered
+  // on top via the generic KV storage endpoint, keyed by visit id, so this
+  // doesn't need any backend schema change.
+  const AUTO_ARCHIVE_DAYS = 30;
+  let VR_TAB = 'open';
+  let ARCHIVE_OVERRIDES = {};
+  let overridesLoaded = false;
+
+  async function loadOverrides(){
+    try {
+      const r = await apiGet('/api/storage/visit-archive-overrides');
+      ARCHIVE_OVERRIDES = JSON.parse(r.value || '{}');
+    } catch (e) { ARCHIVE_OVERRIDES = {}; }
+    overridesLoaded = true;
+  }
+  async function saveOverrides(){
+    await fetch('/api/storage/visit-archive-overrides', {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()),
+      body: JSON.stringify({ value: JSON.stringify(ARCHIVE_OVERRIDES) }),
+    });
+  }
+  function daysSince(dateStr){
+    const d = new Date(dateStr + 'T00:00:00');
+    if (isNaN(d)) return 0;
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+  function isArchived(v){
+    if (Object.prototype.hasOwnProperty.call(ARCHIVE_OVERRIDES, v.id)) return !!ARCHIVE_OVERRIDES[v.id];
+    return daysSince(v.date) >= AUTO_ARCHIVE_DAYS;
+  }
+  async function toggleArchive(v){
+    ARCHIVE_OVERRIDES[v.id] = !isArchived(v);
+    await saveOverrides();
+    toast(ARCHIVE_OVERRIDES[v.id] ? 'Report archived' : 'Report restored to Open Jobs');
+    render();
+  }
+
+  // ---------- Duplicate finder (admin only) ----------
+  // Same store + date + FSM + type showing up more than once almost always
+  // means a double-confirm/double-submit, not two genuinely separate visits
+  // on the same day — group them and offer to clean up in one click,
+  // keeping whichever entry was created last.
+  function findDuplicateGroups(){
+    const groups = {};
+    STATE.visits.forEach(v => {
+      const k = [v.store, v.date, v.fsm, v.type].join('||');
+      (groups[k] = groups[k] || []).push(v);
+    });
+    return Object.values(groups).filter(g => g.length > 1);
+  }
+  function renderDuplicateFinder(){
+    if (!isAdmin()) { document.getElementById('vrDupWrap').innerHTML = ''; return; }
+    const dupGroups = findDuplicateGroups();
+    if (!dupGroups.length) { document.getElementById('vrDupWrap').innerHTML = ''; return; }
+    document.getElementById('vrDupWrap').innerHTML = `
+      <div class="card no-print" style="margin-bottom:16px;border-left:3px solid var(--amber);">
+        <div class="section-title">⚠ ${dupGroups.length} possible duplicate group(s) found</div>
+        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Same store, date, FSM and visit type appearing more than once — usually a double-confirm. Keeps the most recently created entry, deletes the rest.</div>
+        ${dupGroups.map((g, gi) => `
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--grey-200);">
+            <div style="flex:1;font-size:13px;">${g[0].store} — ${g[0].fsm} — ${g[0].date} — ${g[0].type} <span class="badge amber">${g.length}x</span></div>
+            <button class="btn btn-outline vrDupCleanBtn" data-gi="${gi}" style="color:var(--red);border-color:var(--red);">Keep newest, delete rest</button>
+          </div>`).join('')}
+      </div>`;
+    document.querySelectorAll('.vrDupCleanBtn').forEach(btn => btn.addEventListener('click', async () => {
+      const g = dupGroups[parseInt(btn.dataset.gi, 10)];
+      const sorted = [...g].sort((a,b) => (b.id||'').localeCompare(a.id||'')); // newest id last-created, assuming uid() is time-ordered
+      const toDelete = sorted.slice(1);
+      if (!confirm(`Delete ${toDelete.length} duplicate report(s) for ${g[0].store} on ${g[0].date}, keeping the newest one?`)) return;
+      try {
+        for (const v of toDelete) { await apiDelete('/api/visits/' + v.id); STATE.visits = STATE.visits.filter(r => r.id !== v.id); }
+        toast(`Deleted ${toDelete.length} duplicate report(s)`);
+        renderDuplicateFinder();
+        render();
+      } catch (e) { toast(e.message || 'Could not delete duplicates'); }
+    }));
+  }
+
   function render(){
+    document.querySelectorAll('.vrTabBtn').forEach(b => {
+      b.style.fontWeight = b.dataset.tab === VR_TAB ? '600' : '400';
+      b.style.background = b.dataset.tab === VR_TAB ? 'var(--grey-100)' : '';
+    });
     const search = document.getElementById('vrSearch').value.toLowerCase();
     const typeFilter = document.getElementById('vrTypeFilter').value;
     const rows = [...STATE.visits]
       .filter(v => (!typeFilter || v.type === typeFilter) && (!search || v.store.toLowerCase().includes(search) || v.fsm.toLowerCase().includes(search)))
+      .filter(v => VR_TAB === 'archived' ? isArchived(v) : !isArchived(v))
       .sort((a,b) => b.date.localeCompare(a.date));
 
     document.getElementById('vrTableWrap').innerHTML = rows.length ? `
@@ -2754,18 +2845,27 @@ function viewVisitReports(){
             <td style="white-space:nowrap;">
               <button class="btn btn-outline vrViewBtn" data-id="${v.id}">View / PDF</button>
               ${isEditor() && fr ? `<button class="btn btn-outline vrEditBtn" data-id="${v.id}" style="margin-left:4px;">Edit</button>` : ''}
+              ${isEditor() ? `<button class="btn btn-outline vrArchiveBtn" data-id="${v.id}" style="margin-left:4px;">${VR_TAB==='archived' ? 'Restore' : 'Archive'}</button>` : ''}
               ${isAdmin() ? `<button class="btn btn-outline vrDeleteBtn" data-id="${v.id}" style="color:var(--red);border-color:var(--red);margin-left:4px;">Delete</button>` : ''}
             </td>
           </tr>`;
         }).join('')}</tbody>
-      </table>` : '<div class="empty-state">No visit reports match this filter.</div>';
+      </table>` : `<div class="empty-state">No ${VR_TAB==='archived'?'archived':'open'} visit reports match this filter.</div>`;
 
     document.querySelectorAll('.vrViewBtn').forEach(btn => btn.addEventListener('click', () => openVisitReport(btn.dataset.id, rows)));
     document.querySelectorAll('.vrEditBtn').forEach(btn => btn.addEventListener('click', () => {
       window.location.href = '/log-support-visit.html?editVisitId=' + encodeURIComponent(btn.dataset.id);
     }));
+    document.querySelectorAll('.vrArchiveBtn').forEach(btn => btn.addEventListener('click', () => {
+      const v = STATE.visits.find(r => r.id === btn.dataset.id);
+      if (v) toggleArchive(v);
+    }));
     document.querySelectorAll('.vrDeleteBtn').forEach(btn => btn.addEventListener('click', () => deleteVisitReport(btn.dataset.id)));
   }
+
+  document.querySelectorAll('.vrTabBtn').forEach(btn => btn.addEventListener('click', () => { VR_TAB = btn.dataset.tab; render(); }));
+
+  loadOverrides().then(() => { renderDuplicateFinder(); render(); });
 
   async function deleteVisitReport(id){
     const v = STATE.visits.find(r => r.id === id);
@@ -2994,7 +3094,6 @@ function viewVisitReports(){
 
   document.getElementById('vrSearch').addEventListener('input', render);
   document.getElementById('vrTypeFilter').addEventListener('change', render);
-  render();
 }
 
 function viewOpsTasks(){

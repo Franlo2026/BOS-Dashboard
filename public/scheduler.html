@@ -706,6 +706,12 @@ function wireWeekGridEvents(roster, groupSites, franchisePlan) {
       const absDay = absoluteWeekdayIndex(weekNum, dayIdx);
 
       if (act === 'confirm') {
+        // Guard against duplicate confirmations: a double-tap, or a tap that
+        // "didn't seem to register" right when someone switches apps and
+        // taps again, was silently posting a second /api/visits entry every
+        // time — the entry's own status is the source of truth here, so if
+        // it's already confirmed, this is a no-op rather than a re-submit.
+        if (entries[idx].status === 'confirmed') { toast('Already confirmed'); return; }
         entries[idx] = Object.assign({}, entries[idx], { status: 'confirmed' });
         const vk = visitKey(mgrKey, personLabel, slotKeyFor(weekNum, dayIdx), entries[idx].text);
         CONFIRM_LOG[vk] = { confirmedAt: new Date().toISOString(), confirmedBy: window.__ME.displayName || window.__ME.username };
