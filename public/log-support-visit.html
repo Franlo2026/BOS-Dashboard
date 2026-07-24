@@ -498,6 +498,8 @@ checkBosSession().then(async me => {
   document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase();
   await loadFsmStores();
   document.getElementById('f-fsm').addEventListener('change', persist);
+  document.getElementById('f-store').addEventListener('change', handleKeyFieldChange);
+  document.getElementById('f-date').addEventListener('change', handleKeyFieldChange);
   if (EDIT_VISIT_ID) await loadVisitForEdit(EDIT_VISIT_ID);
 });
 
@@ -546,10 +548,42 @@ let state = {
 };
 
 const STORAGE_KEY_PREFIX = 'grind-visit:';
+let lastKnownKey = null;
 function keyForToday() {
   const d = state.meta.date || new Date().toISOString().split('T')[0];
   const store = state.meta.store || 'unsaved';
   return STORAGE_KEY_PREFIX + d + ':' + store;
+}
+// Store/Date determine the autosave key. If either changes mid-session —
+// e.g. the FSM picked the wrong café first and corrects it, or comes back
+// to finish a report later and re-picks the date — the key changes too.
+// Without this check, whatever was already typed keeps autosaving fine
+// (nothing is lost), but a DIFFERENT draft that already exists under the
+// new key would go unnoticed and get silently overwritten on next save.
+async function handleKeyFieldChange() {
+  if (EDIT_VISIT_ID) { persist(); return; }
+  const newKey = keyForToday();
+  if (lastKnownKey !== null && newKey !== lastKnownKey) {
+    const hasProgress = Object.keys(state.comments).length || Object.keys(state.photos).length ||
+      state.customItems.length || state.portion.length || Object.keys(state.nextSteps).length;
+    if (hasProgress) {
+      try {
+        const existing = await window.storage.get(newKey);
+        if (existing && existing.value) {
+          const loadIt = confirm('A saved draft already exists for this store/date. Load it?\n\nOK = load that draft (your current unsaved entries for the previous selection stay saved under it).\nCancel = keep what you\'ve entered here; it will save under this new store/date.');
+          if (loadIt) {
+            const loaded = JSON.parse(existing.value);
+            state = Object.assign({}, state, loaded);
+            document.getElementById('f-fsm').value = state.meta.support || '';
+            document.getElementById('f-manager').value = state.meta.manager || '';
+            renderAll();
+          }
+        }
+      } catch (e) { /* no draft yet under the new key — nothing to reconcile */ }
+    }
+  }
+  lastKnownKey = newKey;
+  persist();
 }
 function escapeHtml(s) { return (s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
@@ -1014,6 +1048,7 @@ async function loadExisting() {
   if (!state.meta.startTime) state.meta.startTime = new Date().toISOString();
   document.getElementById('f-fsm').value = state.meta.support || '';
   document.getElementById('f-manager').value = state.meta.manager || '';
+  lastKnownKey = keyForToday();
   renderAll();
   persist();
 }
