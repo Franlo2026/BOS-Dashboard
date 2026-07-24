@@ -942,13 +942,74 @@ function getCSPIData(storeName) { return CSPI_DATA[storeName] || null; }
 // Goals: Full Store R620k/month, XS R320k/month, Kiosk/Petrol R180k/month
 const GOALS = {'Full Store': 620000, 'XS': 320000, 'Kiosk': 180000, 'C Store Inline': 180000};
 
+// Same store-name variants as index.html's DATA.aliases — this file keeps its
+// own copy since it has no shared alias map with index.html, but a store name
+// here that doesn't exactly match a TURNOVER_DATA key should still resolve
+// instead of silently showing "No turnover data available".
+const CS_TURNOVER_ALIASES = {
+  'Kimberly Lennox': 'Lennox Kimberly', 'Musgrave': 'Musgrave Centre', '112 Kloof': '112 Kloof Street',
+  'Bedford XS': 'Bedford Sqaure Planet Fitness xs', 'Bootlegger Sandkraal XS': 'Sandkraal XS',
+  'Brackenfell': 'Brackenfell Corner (XS)', 'Brooklyn XS': 'Brooklyn Junction (XS)', 'Cavendish Kiosk': 'Cavendish Mall',
+  'Cavendish': 'Cavendish Mall', 'Clara Anna Fontein': 'Clara Anna', 'Cresta': 'Cresta Shopping Centre, Cresta',
+  'Ferndale': 'Ferndale on Republic', 'Hyde Park Corner': 'Hyde Park', 'Lennox': 'Lennox Kimberly',
+  'Meadowridge': 'Meadowridge Park n Shop', 'Milkwood': 'Milkwood Square Centre',
+  'Mooiriver Mall': 'Mooirivier Mall, Potchefstroom', 'N1 City XS': 'N1 Value Centre (XS)',
+  'Rosebank': 'The Zone, Rosebank', 'Rosmead': 'Rosmead Avenue', 'Sandown': 'Sandown Retail Crossing',
+  'Thatchfield': 'Thatchfield Retail Centre', 'The Grove Namibia': 'The Grove', 'Total Cashan': 'Cashan',
+  'Total N12 XS': 'N12 East', 'Total Paarl Mall XS': 'Paarl Mall TEMSA', 'Paarl Mall': 'Paarl Mall TEMSA',
+  'Total Simmonds Street': 'Simmonds', 'Total Sizan XS': 'Sizan', 'Total Steiltes XS': 'Steiltes',
+  'Stelties': 'Steiltes', 'Total Winchester': 'Winchester Hill XS', 'Windhoek CBD XS': 'FNB Windhoek',
+  'FNB': 'FNB Windhoek', 'Windoek CBD': 'FNB Windhoek', 'Yellow Woods': 'Yellowoods Centre',
+  'Blueberry': 'Blueberry Square', 'Boardwalk Mall': 'Boardwalk', 'Braam Fischer XS': 'Bram Fischer XS',
+  'Bree St': 'Bree Street', 'Chartwell': 'Chartwell Corner', 'Design Quarter': 'Design Quarter, Fourways',
+  'Drakenstein': 'Drakenstein Sentrum', 'Harrington': 'Harrington Street', 'Hermanus XS': 'Hermanus Kiosk',
+  'Hermanus': 'Hermanus Kiosk', 'Irene Link': 'Irene Link, Irene', 'Karaglen Mall': 'Karaglen',
+  'Muizenberg': 'Muizenberg (XS)', 'Olivedale': 'Olivedale Corner', 'Riverlands XS': 'Riverlands',
+  'Salt River': 'Salt River (XS)', 'Sea Point': 'Sea Point (XS)', "St Cyprian's XS": "St Cyprian's",
+  'Strand Beach': 'Strand Beach Road', 'Sunninghill XS': 'Sunninghill Village XS', 'Table Bay': 'Table Bay Mall',
+  'Thabazimbi XS': 'Thabazimbi', 'Total Campbells': 'Campbells', 'V&A Waterfront': 'V&A Waterfront (XS)',
+  'Total Durbanville XS': 'Durbanville TEMSA', 'Durbanville TEMSA': 'Durbanville TEMSA',
+  'Pearls Shore': 'The Pearls', 'N1 City Mall': 'N1 City Kiosk',
+  'Grayston': 'Grayston Shopping Centre',
+  'Bram Fischer': 'Bram Fischer XS',
+  'Winchester Hill': 'Winchester Hill XS',
+  'Brooklyn Junction': 'Brooklyn Junction (XS)',
+  'Grandwest': 'Grandwest XS',
+  'Laguna Mall': 'Laguna Mall XS',
+  'Aquarium Kiosk': 'Aquarium (XS)',
+  'Eikestad': 'Eikestad (XS)',
+  'Welgelee Plein': 'Welgelee Plein XS',
+  'Sandkraal': 'Sandkraal XS',
+  'Foreshore': 'Foreshore XS',
+  'St Cyprians': "St Cyprian's",
+  'Paardevlei': 'Paardevlei XS',
+  'PineworX': 'PineworX (XS)',
+  'Westlake': 'Westlake XS',
+  'Cape Gate': 'Cape Gate XS',
+  'Brackenfell Corner': 'Brackenfell Corner (XS)',
+  'Bedford Square': 'Bedford Sqaure Planet Fitness xs',
+  'Gateway': 'Gateway XS',
+  'Mooirivier Mall': 'Mooirivier Mall, Potchefstroom',
+  'The Zone Rosebank': 'The Zone, Rosebank',
+  'Mushroom Farm Park': 'Mushroom Farm',
+  'Sunninghill': 'Sunninghill Village XS',
+  'Clearwater': 'Clearwater Mall XS',
+  'Delta Central': 'Delta Central XS',
+  'Mall of Africa': 'Mall of Africa XS',
+  'Woodmead': 'Woodmead XS',
+  'Middleburg': 'Middleburg XS',
+  'Hoedspruit': 'Hoedspruit XS',
+};
 function getTurnover(storeName) {
-  return TURNOVER_DATA[storeName] || null;
+  if (TURNOVER_DATA[storeName]) return TURNOVER_DATA[storeName];
+  const alias = CS_TURNOVER_ALIASES[storeName];
+  return alias ? (TURNOVER_DATA[alias] || null) : null;
 }
 
 function getBrandAvg(storeType) {
   if (storeType === 'Full Store') return BRAND_AVGS['Full Store'];
   if (storeType === 'XS') return BRAND_AVGS['XS'];
+  if (storeType === 'C Store Inline') return BRAND_AVGS['C Store Inline'];
   return BRAND_AVGS['Kiosk'];
 }
 
@@ -1995,16 +2056,19 @@ function csFmtPctSigned(v,dp){ if (v===null||v===undefined||isNaN(v)) return '�
 
 const YTD_MONTHS_ELAPSED = 4; // Mar, Apr, May, Jun 2026 — divide FYTD totals down to a true monthly average
 function csMetricBreakdown(t, prefix, formatAvgObj){
-  const cur = t[prefix+'_may26'], prev = t[prefix+'_prev'], py = t[prefix+'_py'];
+  // prefix is 'sales' | 'inv' | 'spi'. Same explicit field names as index.html's
+  // metricBreakdown() — no more reused "_may26"-style names now the month has rolled on.
+  const cur = t[prefix+'_mtd'];
+  const prev = t[prefix+'_lastmonth'];
+  const py = t[prefix+'_mtd_py'];
   const ytdTotal = t[prefix+'_fytd'], ytdG = t[prefix+'_fytd_growth'];
-  // SPI is already a rate (spend per invoice) — never divide it. Sales/Invoices are cumulative totals — divide by months elapsed.
-  const ytdAvg = (ytdTotal!=null) ? (prefix==='spi' ? ytdTotal : ytdTotal / YTD_MONTHS_ELAPSED) : null;
+  const ytdAvg = (ytdTotal==null) ? null : (prefix==='spi' ? ytdTotal : ytdTotal / YTD_MONTHS_ELAPSED);
   const mom = (cur!=null && prev) ? { pct:(cur-prev)/prev, val:cur-prev } : null;
-  const yoy = (cur!=null && py) ? { pct:(cur-py)/py, val:cur-py } : (cur!=null && t[prefix+'_may_growth']!=null ? { pct:t[prefix+'_may_growth'], val:cur-cur/(1+t[prefix+'_may_growth']) } : null);
+  const yoy = (cur!=null && t[prefix+'_mtd_growth']!=null) ? { pct:t[prefix+'_mtd_growth'], val:(py? cur-py : null) } : null;
   const ytdCompare = (ytdAvg!=null && ytdG!=null) ? { pct:ytdG, val:ytdAvg-ytdAvg/(1+ytdG) } : null;
-  const formatAvg = formatAvgObj ? formatAvgObj[prefix+'_may26'] : null;
+  const formatAvg = formatAvgObj ? formatAvgObj[prefix+'_mtd'] : null;
   const vsFormat = (cur!=null && formatAvg) ? { pct:(cur-formatAvg)/formatAvg, val:cur-formatAvg } : null;
-  return { cur, prev, py, ytdAvg, formatAvg, mom, yoy, ytd:ytdCompare, vsFormat };
+  return { cur, prev, py, ytdAvg, formatAvg, mom, yoy, ytd:ytdCompare, vsFormat, isNew: !!t.is_new_store };
 }
 
 function renderTurnoverSection(store) {
@@ -2016,7 +2080,8 @@ function renderTurnoverSection(store) {
   }
 
   const metricSection = (title, m, isMoney, fmtCur) => {
-    const cell = x => x ? `<span style="color:${x.pct>=0?'var(--yes)':'var(--red)'};font-weight:600;">${csFmtPctSigned(x.pct)}</span><br><span style="color:var(--text-muted);font-size:10px;">${isMoney?csFmtRandSigned(x.val):csFmtNumSigned(x.val)}</span>` : '<span style="color:var(--text-muted);">—</span>';
+    const cell = x => x ? `<span style="color:${x.pct>=0?'var(--yes)':'var(--red)'};font-weight:600;">${csFmtPctSigned(x.pct)}</span><br><span style="color:var(--text-muted);font-size:10px;">${x.val!=null ? (isMoney?csFmtRandSigned(x.val):csFmtNumSigned(x.val)) : 'n/a'}</span>` : '<span style="color:var(--text-muted);">—</span>';
+    const yoyCell = m.isNew ? '<span style="color:var(--pending);font-weight:600;">NEW STORE</span><br><span style="color:var(--text-muted);font-size:9px;">no 2025 data yet</span>' : cell(m.yoy);
     const val = x => (x===null||x===undefined) ? '—' : fmtCur(x);
     return `
       <div style="margin-bottom:16px;">
@@ -2039,7 +2104,7 @@ function renderTurnoverSection(store) {
               <td style="padding:4px 2px;">${val(m.formatAvg)}</td>
             </tr>
             <tr>
-              <td style="padding:6px 2px;">${cell(m.yoy)}<div style="font-size:8px;color:var(--text-muted);">vs Jul 2025</div></td>
+              <td style="padding:6px 2px;">${yoyCell}${!m.isNew?'<div style="font-size:8px;color:var(--text-muted);">vs Jul 2025</div>':''}</td>
               <td style="padding:6px 2px;">${cell(m.mom)}</td>
               <td style="padding:6px 2px;">${cell(m.ytd)}</td>
               <td style="padding:6px 2px;">${cell(m.vsFormat)}</td>
