@@ -802,6 +802,95 @@ app.post('/api/admin/cleanup-photos', authRequired, requireAdmin, async (req, re
   }
 });
 
+// ---------- Non-Conformance Notice: AI auto-populate proxy ----------
+// Client sends the raw field notes plus the clause library (kept in the
+// front-end HTML so it stays a single source of truth); this endpoint just
+// adds the system prompt and forwards to Anthropic with the server-side key,
+// since a public page can't safely hold an API key itself.
+app.post('/api/notices/auto-populate', authRequired, async (req, res) => {
+  try {
+    const { rawNotes, clauseLibrary, today } = req.body;
+    if (!rawNotes || !String(rawNotes).trim()) {
+      return res.status(400).json({ error: 'rawNotes is required' });
+    }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      return res.status(500).json({ error: 'ANTHROPIC_API_KEY is not configured on this server. Add it in Railway → Variables.' });
+    }
+    const clauseListText = (Array.isArray(clauseLibrary) ? clauseLibrary : [])
+      .map(c => `${c.id}: Clause ${c.id.replace(/^c/, '')} — ${c.title} — ${c.text}`)
+      .join('\n');
+
+    const systemPrompt = `You convert raw, messy field notes about a Bootlegger franchisee non-conformance into structured JSON for a breach/non-conformance notice generator. Respond with ONLY a single valid JSON object — no markdown fences, no preamble, no commentary.
+
+Available Franchise Agreement clauses (use the "id" field verbatim when you reference one, pick only clauses genuinely supported by the notes, do not invent clauses):
+${clauseListText}
+
+Output JSON schema (all fields optional/omit if not inferable, use empty string/array/false as appropriate):
+{
+  "toEntity": string,
+  "storeName": string,
+  "attention": [string],
+  "greeting": string,
+  "basisType": "operational_visit" | "email_correspondence" | "operational_review" | "custom",
+  "basisDate": "YYYY-MM-DD" or "",
+  "basisCustom": string,
+  "clausesBreached": [{"clauseId": string, "clause": string, "description": string}],
+  "breachItems": [string],
+  "immediateEnabled": boolean,
+  "immediateTimeframe": string,
+  "immediateItems": [string],
+  "remedyTimeframe": string,
+  "remedyItems": [string],
+  "requireEvidence": boolean,
+  "followUpInspection": boolean,
+  "urgencyLine": string,
+  "supportLine": string
+}
+
+Guidance: choose remedyTimeframe based on severity and the matched clauses (e.g. health/safety → "3 (three) days"; equipment → "24 (twenty four) hours"; premises/maintenance → "48 (forty eight) hours"; general → "7 (seven) days"). Write breachItems as short factual bullet points in professional letter language, not verbatim notes. Only set immediateEnabled true if the notes describe something needing to stop immediately. Today's date is ${today || new Date().toISOString().slice(0,10)}.
+
+If the notes come from a GRIND Café Support / Store Visit Report, they follow a repeated pattern: a bold section heading (e.g. "Staffing — adequately staffed; mgmt/supervisor on shift & uniformed"), a highlighted finding/observation line describing what was seen, and a green action line starting with "→" that records what happened as a result. Use the action line — not the finding alone — to decide whether a section belongs in this notice:
+- If the action line says "Logged as Non-Conformance" (with an Owner and/or Due date), INCLUDE it: use the finding text as the breachItem wording, and use any "Due: YYYY-MM-DD" date to help set remedyTimeframe/remedyItems (e.g. "by 31 July 2026"). The "Owner" name is who is responsible for fixing it — use it for responsiblePerson-type context only if no better attention name is given elsewhere in the notes.
+- If the action line says "Retrained and Rectified" or "Satisfactory Outcome — No Action" (or similar language showing it was resolved on the spot during the visit), EXCLUDE that section entirely — it is not a breach requiring formal notice action, even though the finding text may look negative on its own.
+- Only sections explicitly logged as non-conformances should end up in breachItems, clausesBreached, or remedyItems.`;
+
+    const anthropicRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-5',
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: String(rawNotes) }],
+      }),
+    });
+
+    if (!anthropicRes.ok) {
+      const errText = await anthropicRes.text().catch(() => '');
+      return res.status(502).json({ error: `Anthropic API error: ${anthropicRes.status} ${errText}`.slice(0, 500) });
+    }
+
+    const data = await anthropicRes.json();
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if (!textBlock) return res.status(502).json({ error: 'No text in Anthropic response' });
+
+    const clean = textBlock.text.replace(/```json|```/g, '').trim();
+    let parsed;
+    try {
+      parsed = JSON.parse(clean);
+    } catch (parseErr) {
+      return res.status(502).json({ error: 'Could not parse AI response as JSON' });
+    }
+    res.json(parsed);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
 
 app.use('/uploads', express.static(UPLOAD_DIR));
