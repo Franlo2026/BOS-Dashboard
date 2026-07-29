@@ -941,7 +941,6 @@ const TABS = [
   { id:'cafeoverview2', label:'Cafe Overview' },
   { id:'cafestatus2', label:'Cafe Status' },
   { id:'scheduler', label:'Team Scheduler', href:'/scheduler.html' },
-  { id:'ncnotice', label:'Non-Conformance Notice', href:'/non-conformance-notice.html' },
   { id:'admin', label:'Admin', adminOnly:true }
 ];
 let ACTIVE_TAB = 'home';
@@ -1047,7 +1046,7 @@ function ragStatusPill(r){
    VIEW: HOME (landing page — pure navigation, no dashboard content)
    ============================================================ */
 const HOME_GROUPS = [
-  { title: 'Quick Access', ids: ['dashboard','scheduler','logsupport','ops','actions','visitreports','timelines','cafeoverview2','cafestatus2','regionalreport','ncnotice'] },
+  { title: 'Quick Access', ids: ['dashboard','scheduler','logsupport','ops','actions','visitreports','timelines','cafeoverview2','cafestatus2','regionalreport'] },
   { title: 'More Tools', ids: ['trade','standards','bbetter','ltl','weekly','print'] },
   { title: 'Admin', ids: ['admin'] },
 ];
@@ -1068,7 +1067,6 @@ const HOME_META = {
   cafestatus2:   { icon:'📇', desc:'Cafe Status — turnover, COS, Google, CSPI, Flow & training per store' },
   regionalreport:{ icon:'🗺️', desc:'Regional Report — turnover, visits, tasks, B-Better & new cafés by team' },
   scheduler:     { icon:'🗓️', desc:'Team Scheduler — weekly routes & franchisee meetings' },
-  ncnotice:      { icon:'⚠️', desc:'Non-Conformance Notice — generate and log breach/non-conformance letters' },
   admin:         { icon:'🔐', desc:'Admin — manage user accounts and roles' },
 };
 
@@ -2645,6 +2643,337 @@ function viewPrint(){
 /* ============================================================
    VIEW: ADMIN (user management — admin role only)
    ============================================================ */
+/* ============================================================
+   ADMIN DATA UPLOADS
+   Lets an admin refresh Trade/Turnover, LTL, B-Better, Flow &
+   Social/Google data from a file, without a code deploy. Data lives
+   in /api/storage (same generic KV store used elsewhere in BOS);
+   on load, any uploaded override replaces the data baked into this
+   page at build time. Until something's been uploaded for a given
+   type, BOS just keeps using the embedded data as before.
+   ============================================================ */
+const UPLOAD_TYPES = [
+  { key:'turnover', label:'Trade / Turnover (Silo)', accept:'.csv,.xlsx,.xls', ready:true,
+    desc:'One row per store. Columns: store_name, store_type, fsm, is_new_store, sales_mtd, inv_mtd, sales_mtd_py, inv_mtd_py, sales_lastmonth, inv_lastmonth, sales_lastmonth_py, inv_lastmonth_py, sales_fytd, inv_fytd, sales_fytd_py, inv_fytd_py.',
+    note:'No live Silo connection yet — Railway needs its own Google Cloud credentials for that, which is a separate setup step. In the meantime, ask Claude: "Pull today\'s Silo trade data in BOS upload format" — it can query Silo directly and hand you a CSV in this exact shape, ready to drop in here.' },
+  { key:'ltl', label:'LTL Audits', accept:'.xlsx,.xls', ready:true,
+    desc:'The ECAS compliance export, as-is (Customer, Site Type, Site, Audit Type, Audited By, Audit Date, Score %, Risk %, ...).',
+    note:'Each row becomes a real audit entry via the same endpoint the LTL tab\'s own upload uses — repeat audits for the same café keep only the most recent one.' },
+  { key:'bbetter', label:'B.Better Training', accept:'.xlsx,.xls', ready:true,
+    desc:'The Beeline "Groups" export, as-is (Group, Classification, Location kind, Completion %, Members, Avg progress %, FSM, Region, Store Type, ...).',
+    note:'Only rows where Classification="Location" and Location kind="SITE" are used — everything else in that export (roles, the network-wide container row) is skipped automatically.' },
+  { key:'flow', label:'Flow (Recipe & Cleaning)', accept:'.csv,.xlsx,.xls', ready:false,
+    desc:'Format not yet configured for this one.',
+    note:'Share a sample KeyTech export and this card gets wired up next.' },
+  { key:'social', label:'Social / Google Places', accept:'.xlsx,.xls', ready:true,
+    desc:'The "#1 [Brand]" sheet from the Google ratings export, as-is (Store, Live Page Score, Brand Review Avg.).',
+    note:'This export doesn\'t include a review count, only the live star rating and the network brand average — a review-count tracker would need a different source.' },
+];
+const UPLOAD_META = {}; // key -> { uploadedAt, uploadedBy, rows }
+
+function mutateReplace(target, source){
+  Object.keys(target).forEach(k => delete target[k]);
+  Object.assign(target, source);
+}
+
+async function loadDataUploadOverrides(){
+  for (const t of UPLOAD_TYPES) {
+    try {
+      const meta = await apiGet('/api/storage/bos-upload-meta-' + t.key);
+      UPLOAD_META[t.key] = JSON.parse(meta.value || 'null');
+    } catch (e) { UPLOAD_META[t.key] = null; }
+  }
+  try {
+    if (UPLOAD_META.turnover) {
+      const r = await apiGet('/api/storage/bos-upload-data-turnover');
+      const parsed = JSON.parse(r.value);
+      mutateReplace(TURNOVER_DATA, parsed.TURNOVER_DATA);
+      mutateReplace(BRAND_AVGS, parsed.BRAND_AVGS);
+    }
+  } catch (e) { /* keep embedded data if this fails */ }
+  try {
+    if (UPLOAD_META.bbetter) {
+      const r = await apiGet('/api/storage/bos-upload-data-bbetter');
+      mutateReplace(BB_DATA, JSON.parse(r.value));
+    }
+  } catch (e) { /* keep embedded data if this fails */ }
+  try {
+    if (UPLOAD_META.social) {
+      const r = await apiGet('/api/storage/bos-upload-data-social');
+      mutateReplace(GOOGLE_DATA, JSON.parse(r.value));
+    }
+  } catch (e) { /* keep embedded data if this fails */ }
+}
+
+function uploadSpi(sales, inv){ return inv ? Math.round((sales/inv)*100)/100 : null; }
+function uploadGrowth(cur, py){ return (cur==null || py==null || py===0) ? null : Math.round(((cur-py)/py)*10000)/10000; }
+
+function parseTurnoverUploadRows(rows){
+  const TURNOVER_DATA_NEW = {};
+  const typeGroups = {};
+  rows.forEach(r => {
+    const name = String(r.store_name || r.Store || '').trim();
+    if (!name) return;
+    const num = (v) => (v===''||v==null) ? 0 : Number(v);
+    const isNew = String(r.is_new_store||'').toLowerCase() === 'true' || String(r.is_new_store) === '1';
+    const d = {
+      store_type: String(r.store_type||'Full Store').trim(),
+      fsm: String(r.fsm||'').trim(),
+      is_new_store: isNew,
+      sales_mtd: num(r.sales_mtd), inv_mtd: num(r.inv_mtd),
+      sales_mtd_py: num(r.sales_mtd_py), inv_mtd_py: num(r.inv_mtd_py),
+      sales_lastmonth: num(r.sales_lastmonth), inv_lastmonth: num(r.inv_lastmonth),
+      sales_lastmonth_py: num(r.sales_lastmonth_py), inv_lastmonth_py: num(r.inv_lastmonth_py),
+      sales_fytd: num(r.sales_fytd), inv_fytd: num(r.inv_fytd),
+      sales_fytd_py: num(r.sales_fytd_py), inv_fytd_py: num(r.inv_fytd_py),
+    };
+    d.sales_mtd_growth = uploadGrowth(d.sales_mtd, d.sales_mtd_py);
+    d.inv_mtd_growth = uploadGrowth(d.inv_mtd, d.inv_mtd_py);
+    d.sales_lastmonth_growth = uploadGrowth(d.sales_lastmonth, d.sales_lastmonth_py);
+    d.inv_lastmonth_growth = uploadGrowth(d.inv_lastmonth, d.inv_lastmonth_py);
+    d.sales_fytd_growth = uploadGrowth(d.sales_fytd, d.sales_fytd_py);
+    d.inv_fytd_growth = uploadGrowth(d.inv_fytd, d.inv_fytd_py);
+    d.sales_fytd_avg_monthly = Math.round((d.sales_fytd/4)*100)/100;
+    d.inv_fytd_avg_monthly = Math.round((d.inv_fytd/4)*10)/10;
+    d.spi_mtd = uploadSpi(d.sales_mtd, d.inv_mtd);
+    d.spi_mtd_py = uploadSpi(d.sales_mtd_py, d.inv_mtd_py);
+    d.spi_mtd_growth = uploadGrowth(d.spi_mtd, d.spi_mtd_py);
+    d.spi_lastmonth = uploadSpi(d.sales_lastmonth, d.inv_lastmonth);
+    d.spi_lastmonth_py = uploadSpi(d.sales_lastmonth_py, d.inv_lastmonth_py);
+    d.spi_lastmonth_growth = uploadGrowth(d.spi_lastmonth, d.spi_lastmonth_py);
+    d.spi_fytd = uploadSpi(d.sales_fytd, d.inv_fytd);
+    d.spi_fytd_py = uploadSpi(d.sales_fytd_py, d.inv_fytd_py);
+    d.spi_fytd_growth = uploadGrowth(d.spi_fytd, d.spi_fytd_py);
+    TURNOVER_DATA_NEW[name] = d;
+    const g = typeGroups[d.store_type] || (typeGroups[d.store_type] = { sales_mtd:0, inv_mtd:0, sales_lastmonth:0, inv_lastmonth:0, sales_fytd:0, inv_fytd:0, n:0 });
+    g.sales_mtd += d.sales_mtd; g.inv_mtd += d.inv_mtd;
+    g.sales_lastmonth += d.sales_lastmonth; g.inv_lastmonth += d.inv_lastmonth;
+    g.sales_fytd += d.sales_fytd; g.inv_fytd += d.inv_fytd; g.n++;
+  });
+  const BRAND_AVGS_NEW = {};
+  Object.entries(typeGroups).forEach(([st, g]) => {
+    if (!g.n) return;
+    BRAND_AVGS_NEW[st] = {
+      n_stores: g.n,
+      sales_mtd: Math.round((g.sales_mtd/g.n)*100)/100, inv_mtd: Math.round((g.inv_mtd/g.n)*10)/10, spi_mtd: uploadSpi(g.sales_mtd, g.inv_mtd),
+      sales_lastmonth: Math.round((g.sales_lastmonth/g.n)*100)/100, inv_lastmonth: Math.round((g.inv_lastmonth/g.n)*10)/10, spi_lastmonth: uploadSpi(g.sales_lastmonth, g.inv_lastmonth),
+      sales_fytd: Math.round(((g.sales_fytd/g.n)/4)*100)/100, inv_fytd: Math.round(((g.inv_fytd/g.n)/4)*10)/10, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
+    };
+  });
+  return { TURNOVER_DATA: TURNOVER_DATA_NEW, BRAND_AVGS: BRAND_AVGS_NEW };
+}
+
+// The real Beeline export is a "Groups" report — most rows are NOT cafés
+// (container rows like "All Locations", role-based groups like "All-Rounder").
+// A real per-café row has Classification=='Location' and Location kind=='SITE'.
+function parseBBetterUploadRows(rows){
+  const BB_DATA_NEW = {};
+  rows.forEach(r => {
+    if (String(r['Classification']||'').trim() !== 'Location') return;
+    if (String(r['Location kind']||'').trim() !== 'SITE') return;
+    const name = String(r['Group']||'').trim();
+    if (!name) return;
+    BB_DATA_NEW[name] = {
+      completion: Number(r['Completion %']) || 0,
+      members: Number(r['Members']) || 0,
+      avgProgress: Number(r['Avg progress %']) || 0,
+      fsm: String(r['FSM']||'').trim(),
+      region: String(r['Region']||'').trim(),
+      storeType: String(r['Store Type']||'').trim(),
+    };
+  });
+  return BB_DATA_NEW;
+}
+
+// Some real-world exports (this Google one, and the LTL one) have a blank or
+// title row above the actual header row. Scan the first few rows for one
+// that contains all of the expected column names, and build objects from
+// there instead of assuming row 0 is the header.
+function findHeaderRowIndex(aoa, requiredCols){
+  for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+    const row = (aoa[i]||[]).map(c => String(c==null?'':c).trim());
+    if (requiredCols.every(rc => row.includes(rc))) return i;
+  }
+  return -1;
+}
+function rowsFromAOA(aoa, requiredCols){
+  const headerIdx = findHeaderRowIndex(aoa, requiredCols);
+  if (headerIdx === -1) return null;
+  const headers = aoa[headerIdx].map(c => String(c==null?'':c).trim());
+  return aoa.slice(headerIdx+1)
+    .map(row => { const obj = {}; headers.forEach((h,i) => { if (h) obj[h] = row[i]; }); return obj; })
+    .filter(o => Object.values(o).some(v => v!=='' && v!=null));
+}
+
+// Google/"Social Places" export: Store, Live Page Score, Brand Review Avg. —
+// on a sheet named like "#1 <Brand>", with a blank row above the header and
+// a network-wide "Bootlegger" summary row to skip. Store names are prefixed
+// "Bootlegger " — strip that to match BOS's own store names.
+function parseGoogleUploadRows(aoa){
+  const rows = rowsFromAOA(aoa, ['Store', 'Live Page Score', 'Brand Review Avg.']);
+  if (!rows) return null;
+  const GOOGLE_DATA_NEW = {};
+  rows.forEach(r => {
+    let name = String(r['Store']||'').trim();
+    if (!name || name === 'Bootlegger') return; // blank / network-wide row
+    name = name.replace(/^Bootlegger\s+/i, '').trim();
+    GOOGLE_DATA_NEW[name] = {
+      live_score: r['Live Page Score']===''? null : Number(r['Live Page Score']),
+      brand_avg: r['Brand Review Avg.']===''? null : Number(r['Brand Review Avg.']),
+    };
+  });
+  return GOOGLE_DATA_NEW;
+}
+
+// LTL/ECAS export: Customer, Site Type, Site, Request No., Audit Type,
+// Audited By, Step, Audit Date, Score %, Risk %, Process Status, Action —
+// again with a title row above the real header. Site names are prefixed
+// "Bootlegger " same as above. A store can appear more than once across the
+// date range (repeat audits) — keep only the most recent one per store.
+// Unlike Trade/B-Better this doesn't replace a static blob; each row becomes
+// a real audit record via the same /api/ltl endpoint the manual LTL upload
+// already uses, so it shows up in the LTL Audit Dashboard like any other entry.
+function parseLTLUploadRows(aoa){
+  const rows = rowsFromAOA(aoa, ['Site', 'Score %', 'Audit Date']);
+  if (!rows) return null;
+  const byStore = {};
+  rows.forEach(r => {
+    let site = String(r['Site']||'').trim();
+    if (!site) return;
+    site = site.replace(/^Bootlegger\s+/i, '').trim();
+    const dv = r['Audit Date'];
+    let dateStr = '';
+    if (dv instanceof Date) dateStr = dv.toISOString().slice(0,10);
+    else dateStr = String(dv||'').slice(0,10);
+    const scoreRaw = Number(r['Score %']) || 0;
+    const score = scoreRaw <= 1 ? scoreRaw*100 : scoreRaw;
+    const riskRaw = Number(r['Risk %']) || 0;
+    const risk = riskRaw <= 1 ? riskRaw*100 : riskRaw;
+    const existing = byStore[site];
+    if (!existing || dateStr > existing.date) {
+      byStore[site] = {
+        store: site, date: dateStr,
+        score: Math.round(score*10)/10, risk: Math.round(risk*10)/10,
+        auditor: String(r['Audited By']||''),
+      };
+    }
+  });
+  return Object.values(byStore);
+}
+
+function readWorkbookRows(file, opts){
+  opts = opts || {};
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        if (!window.XLSX) { reject(new Error('Excel reader failed to load — refresh the page and try again')); return; }
+        const wb = XLSX.read(new Uint8Array(reader.result), { type:'array', cellDates:true });
+        let sheetName = wb.SheetNames[0];
+        if (opts.sheetMatch) {
+          const found = wb.SheetNames.find(n => n.toLowerCase().includes(opts.sheetMatch.toLowerCase()));
+          if (found) sheetName = found;
+        }
+        const sheet = wb.Sheets[sheetName];
+        if (opts.asArray) {
+          resolve(XLSX.utils.sheet_to_json(sheet, { header:1, defval:'' }));
+        } else {
+          resolve(XLSX.utils.sheet_to_json(sheet, { defval:'' }));
+        }
+      } catch (e) { reject(e); }
+    };
+    reader.onerror = () => reject(new Error('Could not read that file'));
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+async function handleDataUpload(key, file){
+  const meta = { uploadedAt: new Date().toISOString(), uploadedBy: window.__ME ? window.__ME.displayName : ROLE };
+  try {
+    if (key === 'turnover') {
+      const rows = await readWorkbookRows(file);
+      if (!rows.length) { toast('No rows found in that file'); return; }
+      const parsed = parseTurnoverUploadRows(rows);
+      mutateReplace(TURNOVER_DATA, parsed.TURNOVER_DATA);
+      mutateReplace(BRAND_AVGS, parsed.BRAND_AVGS);
+      await fetch('/api/storage/bos-upload-data-turnover', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
+      meta.rows = Object.keys(parsed.TURNOVER_DATA).length;
+
+    } else if (key === 'bbetter') {
+      const rows = await readWorkbookRows(file, { sheetMatch: 'group' });
+      if (!rows.length) { toast('No rows found in that file'); return; }
+      const parsed = parseBBetterUploadRows(rows);
+      if (!Object.keys(parsed).length) { toast('No café-level rows found — expected Classification="Location" and Location kind="SITE" columns from the Beeline Groups report'); return; }
+      mutateReplace(BB_DATA, parsed);
+      await fetch('/api/storage/bos-upload-data-bbetter', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
+      meta.rows = Object.keys(parsed).length;
+
+    } else if (key === 'social') {
+      const aoa = await readWorkbookRows(file, { asArray: true, sheetMatch: '#1' });
+      const parsed = parseGoogleUploadRows(aoa);
+      if (!parsed) { toast('Could not find the "Store / Live Page Score / Brand Review Avg." header row — is this the "#1 <Brand>" sheet?'); return; }
+      mutateReplace(GOOGLE_DATA, parsed);
+      await fetch('/api/storage/bos-upload-data-social', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
+      meta.rows = Object.keys(parsed).length;
+
+    } else if (key === 'ltl') {
+      const aoa = await readWorkbookRows(file, { asArray: true });
+      const parsedRows = parseLTLUploadRows(aoa);
+      if (!parsedRows) { toast('Could not find the Site / Score % / Audit Date header row in this file'); return; }
+      if (!parsedRows.length) { toast('No audit rows found in that file'); return; }
+      let ok = 0, failed = 0;
+      for (const r of parsedRows) {
+        const fsm = (ALL_STORES.find(s => s.store === r.store) || {}).fsm || '';
+        try {
+          await apiPost('/api/ltl', { fsm, store: r.store, date: r.date, score: r.score, cspi: 0, ncRaised: 0, ncClosed: 0, notes: r.auditor ? ('Audited by ' + r.auditor) : '' });
+          ok++;
+        } catch (e) { failed++; }
+      }
+      await refreshState();
+      meta.rows = ok;
+      if (failed) meta.notes = failed + ' row(s) failed to save';
+
+    } else {
+      toast('This upload type isn\'t wired up yet — share a sample file and it can be added.');
+      return;
+    }
+
+    UPLOAD_META[key] = meta;
+    await fetch('/api/storage/bos-upload-meta-' + key, { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(meta) }) });
+    toast(`Uploaded — ${meta.rows} row(s) applied${meta.notes?' ('+meta.notes+')':''}`);
+    renderUploadCards();
+  } catch (e) {
+    toast('Could not process that file: ' + e.message);
+  }
+}
+
+function fmtUploadDate(iso){
+  if (!iso) return 'Never';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}) + ' at ' + d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
+}
+
+function renderUploadCards(){
+  const wrap = document.getElementById('uploadCardsWrap');
+  if (!wrap) return;
+  wrap.innerHTML = UPLOAD_TYPES.map(t => {
+    const meta = UPLOAD_META[t.key];
+    return `<div class="card">
+      <div class="section-title">${t.label}</div>
+      <div style="font-size:11px;color:var(--grey-500);margin-bottom:8px;">${t.desc}</div>
+      ${t.note ? `<div style="font-size:10px;color:var(--grey-500);background:var(--grey-100);padding:6px 8px;border-radius:4px;margin-bottom:10px;">${t.note}</div>` : ''}
+      <div style="font-size:11px;margin-bottom:10px;"><b>Last updated:</b> ${meta ? fmtUploadDate(meta.uploadedAt) + ' by ' + (meta.uploadedBy||'—') + (meta.rows?` (${meta.rows} rows)`:'') : '<span style="color:var(--grey-500);">Never — using data built into this page</span>'}</div>
+      <input type="file" class="uploadFileInput" data-key="${t.key}" accept="${t.accept}" ${t.ready?'':'disabled'} style="font-size:11px;">
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.uploadFileInput').forEach(inp => {
+    inp.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) handleDataUpload(inp.dataset.key, file);
+    });
+  });
+}
+
 function viewAdmin(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
@@ -2678,7 +3007,12 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       <div class="section-title">Existing Users</div>
       <div id="admUserTable"></div>
     </div>
+    <div class="section-divider"></div>
+    <div class="page-title" style="font-size:16px;">Data Uploads</div>
+    <div class="page-subtitle" style="margin-bottom:14px;">Refresh Trade/Turnover, LTL, B-Better, Flow &amp; Social/Google data straight from a file — no code deploy needed.</div>
+    <div class="grid-3" id="uploadCardsWrap"></div>
   `;
+  renderUploadCards();
   async function loadUsers(){
     try {
       const users = await apiGet('/api/admin/users');
@@ -5391,11 +5725,12 @@ function viewCafeStatus2(){
     }
 
     if (g) {
+      const brandAvg = g.brand_avg!=null ? g.brand_avg : (g.brand_avg_may || BRAND_GOOGLE.brand_avg_may);
       html += `<div class="section-title">Google Ratings</div>
         <table class="data-table" style="margin-bottom:12px;"><tbody>
           <tr><td style="color:var(--grey-500);width:140px;">Live Score</td><td>${g.live_score!=null?g.live_score.toFixed(2)+' ★':'—'}</td></tr>
-          <tr><td style="color:var(--grey-500);">FYTD Avg</td><td>${g.fytd_avg!=null?g.fytd_avg.toFixed(2)+' ★':'—'} <span style="color:var(--grey-500);font-size:10px;">(${g.fytd_reviews||0} reviews)</span></td></tr>
-          <tr><td style="color:var(--grey-500);">Brand Avg</td><td>${(g.brand_avg_may||BRAND_GOOGLE.brand_avg_may).toFixed(2)} ★ <span style="color:var(--grey-500);font-size:10px;">· goal 4.5★+</span></td></tr>
+          ${g.fytd_avg!=null ? `<tr><td style="color:var(--grey-500);">FYTD Avg</td><td>${g.fytd_avg.toFixed(2)+' ★'} <span style="color:var(--grey-500);font-size:10px;">(${g.fytd_reviews||0} reviews)</span></td></tr>` : ''}
+          <tr><td style="color:var(--grey-500);">Brand Avg</td><td>${brandAvg!=null?brandAvg.toFixed(2)+' ★':'—'} <span style="color:var(--grey-500);font-size:10px;">· goal 4.5★+</span></td></tr>
         </tbody></table>`;
     }
 
@@ -5418,9 +5753,10 @@ function viewCafeStatus2(){
     }
 
     if (bb) {
+      const memberCount = bb.members!=null ? bb.members : bb.onboarded;
       html += `<div class="section-title">Training — B.Better</div>
         <table class="data-table" style="margin-bottom:12px;"><tbody>
-          <tr><td style="color:var(--grey-500);width:140px;">Completion</td><td>${bb.completion!=null?bb.completion.toFixed(1)+'%':'—'}</td><td style="color:var(--grey-500);">Onboarded</td><td>${bb.onboarded!=null?bb.onboarded:'—'}</td></tr>
+          <tr><td style="color:var(--grey-500);width:140px;">Completion</td><td>${bb.completion!=null?bb.completion.toFixed(1)+'%':'—'}</td><td style="color:var(--grey-500);">Team Members</td><td>${memberCount!=null?memberCount:'—'}</td></tr>
           <tr><td style="color:var(--grey-500);">Brand Avg</td><td colspan="3">${BB_BRAND_AVG}% across ${BB_BRAND_MEMBERS} members</td></tr>
         </tbody></table>`;
     }
@@ -5655,6 +5991,7 @@ async function startApp(){
     await loadExtraStores();
     await migrateHardcodedStoresIfNeeded();
     await correctOpeningDates20260714IfNeeded();
+    await loadDataUploadOverrides();
   } catch(e) {
     if (e.message === 'unauthorized') return;
     document.getElementById('app').innerHTML = '<div class="empty-state" style="padding:80px 0;color:var(--red);">Could not connect to the server. Refresh to try again.</div>';
