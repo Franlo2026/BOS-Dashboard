@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Bootlegger Non-Conformance Notification Generator</title>
+<style>
+  :root{
+    --gold:#c8ae79;
+    --gold-light:rgba(200,174,121,0.12);
+    --black:#1a1a1a;
+    --white:#ffffff;
+    --grey-100:#f7f7f7;
+    --grey-200:#ebebeb;
+    --grey-300:#d4d4d4;
+    --grey-500:#999999;
+    --grey-700:#555555;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Segoe UI',Arial,sans-serif;
+    background:var(--grey-100);
+    color:var(--black);
+  }
+  .app{
+    display:grid;
+    grid-template-columns:420px 1fr;
+    min-height:100vh;
+  }
+  .panel{
+    background:var(--white);
+    border-right:1px solid var(--grey-200);
+    padding:22px 22px 80px;
+    overflow-y:auto;
+    max-height:100vh;
+  }
+  .panel h1{
+    font-size:15px;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    margin:0 0 4px;
+    border-bottom:2px solid var(--gold);
+    padding-bottom:10px;
+  }
+  .panel .sub{
+    font-size:11px;
+    color:var(--grey-500);
+    margin-bottom:18px;
+  }
+  fieldset{
+    border:1px solid var(--grey-200);
+    border-radius:4px;
+    margin:0 0 14px;
+    padding:12px 14px 14px;
+  }
+  legend{
+    font-size:10px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.06em;
+    color:var(--grey-700);
+    padding:0 6px;
+  }
+  label{
+    display:block;
+    font-size:10.5px;
+    font-weight:600;
+    color:var(--grey-700);
+    margin:8px 0 3px;
+  }
+  input[type=text], input[type=date], select, textarea{
+    width:100%;
+    font-size:12.5px;
+    padding:6px 8px;
+    border:1px solid var(--grey-300);
+    border-radius:3px;
+    font-family:inherit;
+    background:var(--white);
+  }
+  textarea{resize:vertical;min-height:44px;}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .repeat-item{
+    border:1px dashed var(--grey-300);
+    border-radius:4px;
+    padding:8px 8px 4px;
+    margin-bottom:8px;
+    position:relative;
+    background:var(--grey-100);
+  }
+  .repeat-item .rm{
+    position:absolute;top:4px;right:4px;
+    background:none;border:none;color:var(--grey-500);
+    cursor:pointer;font-size:14px;line-height:1;padding:2px 6px;
+  }
+  .repeat-item .rm:hover{color:#b33;}
+  .add-btn{
+    width:100%;
+    padding:7px;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+    background:var(--gold-light);
+    color:#8a7442;
+    border:1px solid var(--gold);
+    border-radius:3px;
+    cursor:pointer;
+    margin-top:2px;
+  }
+  .add-btn:hover{background:var(--gold);color:var(--white);}
+  .checkbox-row{display:flex;align-items:center;gap:6px;margin:8px 0;}
+  .checkbox-row input{width:auto;}
+  .checkbox-row label{margin:0;font-weight:600;}
+  .actions{
+    position:sticky;bottom:0;
+    background:var(--white);
+    border-top:1px solid var(--grey-200);
+    padding:12px 0 0;
+    margin-top:10px;
+    display:flex;gap:8px;flex-wrap:wrap;
+  }
+  .btn{
+    flex:1;
+    min-width:100px;
+    padding:9px 10px;
+    font-size:11px;
+    font-weight:700;
+    text-transform:uppercase;
+    letter-spacing:.04em;
+    border-radius:3px;
+    cursor:pointer;
+    border:none;
+  }
+  .btn-primary{background:var(--black);color:var(--white);}
+  .btn-primary:hover{background:#333;}
+  .btn-secondary{background:var(--white);color:var(--black);border:1px solid var(--grey-300);}
+  .btn-secondary:hover{background:var(--grey-100);}
+  #jsonFileInput{display:none;}
+
+  /* PREVIEW */
+  .preview-wrap{
+    padding:28px 28px 60px;
+    display:flex;
+    justify-content:center;
+    background:var(--grey-100);
+  }
+  .page{
+    background:var(--white);
+    width:794px;
+    min-height:1123px;
+    padding:56px 60px 40px;
+    box-shadow:0 1px 4px rgba(0,0,0,0.12);
+    font-family:'Calibri','Segoe UI',Arial,sans-serif;
+    font-size:13.5px;
+    line-height:1.55;
+    color:#222;
+    position:relative;
+  }
+  .logo{
+    font-family:Georgia,'Times New Roman',serif;
+    font-size:30px;
+    letter-spacing:.08em;
+    margin-bottom:26px;
+  }
+  .logo .dot{color:var(--gold);}
+  .meta strong{display:block;}
+  .meta{margin-bottom:14px;font-size:13px;}
+  .hr{border:none;border-top:1px solid var(--grey-300);margin:14px 0;}
+  .title-block{font-weight:700;margin-bottom:4px;}
+  .store-sub{font-weight:700;margin-bottom:14px;}
+  p{margin:0 0 12px;}
+  ul{margin:0 0 12px;padding-left:22px;}
+  li{margin-bottom:6px;}
+  ol{margin:0 0 12px;padding-left:20px;}
+  .footer{
+    position:absolute;
+    left:60px;right:60px;bottom:26px;
+    border-top:2px solid var(--gold);
+    padding-top:8px;
+    display:flex;
+    justify-content:space-between;
+    font-size:10px;
+    color:var(--grey-700);
+  }
+  .footer .col{line-height:1.5;}
+  .empty-note{color:var(--grey-500);font-style:italic;}
+
+  @media print{
+    .panel{display:none;}
+    .app{display:block;}
+    .preview-wrap{padding:0;background:var(--white);}
+    .page{box-shadow:none;width:auto;min-height:auto;}
+  }
+</style>
+</head>
+<body>
+<div id="bosBar" style="background:#1a1a1a;color:#fff;padding:8px 18px;font-size:11px;display:flex;justify-content:space-between;align-items:center;">
+  <a href="/" style="color:#c8ae79;text-decoration:none;font-weight:700;letter-spacing:.04em;text-transform:uppercase;">&larr; Back to BOS Dashboard</a>
+  <span id="bosUserBadge"></span>
+</div>
+<div id="authGate" style="display:none;padding:60px 20px;text-align:center;font-family:'Segoe UI',Arial,sans-serif;">
+  <h2>Please sign in</h2>
+  <p>Sign in via the main BOS Dashboard, then come back to this tab.</p>
+  <a href="/" style="color:#c8ae79;">&larr; Go to BOS Dashboard</a>
+</div>
+<div id="mainApp">
+<div class="app">
+
+  <!-- ===================== FORM PANEL ===================== -->
+  <div class="panel">
+    <h1>Non-Conformance Notification</h1>
+    <div class="sub">Fill in the fields below — the letter builds itself on the right, matching the standard breach/non-conformance notice format. Works fully offline; nothing leaves this page.</div>
+
+    <fieldset style="background:var(--gold-light);border-color:var(--gold);">
+      <legend>Step 1 · Raw conformance data</legend>
+      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Paste the raw notes that led to this notice — inspection findings, audit comments, an e-mail, a WhatsApp report, whatever you have. Or upload a text file. Click the button and the notice below will populate itself, matched to the relevant Franchise Agreement clauses.</div>
+      <textarea id="rawNotes" style="min-height:110px;" placeholder="e.g. Visited Franschhoek 22/06. Found expired stock in the walk-in, staff not in uniform, POS not reconciled daily for 2 weeks, fridge temp logs missing since March. Franchisee is Bootlegger Franschhoek, attn Shaun Gainsford."></textarea>
+      <div class="row2" style="margin-top:6px;">
+        <input type="file" id="rawFileInput" accept=".txt,.md,.csv" onchange="loadRawFile(event)" style="font-size:10.5px;padding:4px;">
+        <button type="button" class="btn btn-primary" style="width:100%;" onclick="autoPopulate()" id="autoPopulateBtn">✦ Auto-populate notice</button>
+      </div>
+      <div id="autoPopulateStatus" style="font-size:10.5px;color:var(--grey-700);margin-top:6px;"></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Notice basics</legend>
+      <div class="row2">
+        <div>
+          <label>Notice date</label>
+          <input type="date" id="noticeDate">
+        </div>
+        <div>
+          <label>Notice title</label>
+          <select id="noticeTitle">
+            <option value="NOTICE OF BREACH IN TERMS OF FRANCHISE AGREEMENT">Notice of Breach (Franchise Agreement)</option>
+            <option value="FORMAL NOTICE OF BREACH: NON-COMPLIANCE WITH BRAND STANDARDS">Formal Notice of Breach (Brand Standards)</option>
+            <option value="NON-CONFORMANCE NOTIFICATION">Non-Conformance Notification</option>
+            <option value="__custom">Custom…</option>
+          </select>
+        </div>
+      </div>
+      <div id="customTitleWrap" style="display:none;">
+        <label>Custom title</label>
+        <input type="text" id="customTitle" placeholder="e.g. NOTICE OF NON-CONFORMANCE">
+      </div>
+
+      <label>To (franchisee entity / store)</label>
+      <input type="text" id="toEntity" placeholder="e.g. Bootlegger Franschhoek">
+
+      <label>Attention (comma separated)</label>
+      <input type="text" id="attention" placeholder="e.g. Shaun Gainsford">
+
+      <label>Store / location name (shown as sub-heading, optional)</label>
+      <input type="text" id="storeName" placeholder="e.g. Bootlegger Franschhoek" list="storeDatalist">
+      <datalist id="storeDatalist"></datalist>
+
+      <label>Greeting (optional — leave blank for none)</label>
+      <input type="text" id="greeting" placeholder="e.g. Dear Shaun">
+    </fieldset>
+
+    <fieldset>
+      <legend>Basis for notice</legend>
+      <label>Triggered by</label>
+      <select id="basisType">
+        <option value="operational_visit">Operational visit conducted on…</option>
+        <option value="email_correspondence">Operational feedback from e-mail correspondence dated…</option>
+        <option value="operational_review">Recent operational reviews and follow-up enquiries</option>
+        <option value="custom">Custom wording</option>
+      </select>
+      <label id="basisDateLabel">Date of visit / correspondence</label>
+      <input type="date" id="basisDate">
+      <div id="basisCustomWrap" style="display:none;">
+        <label>Custom basis wording</label>
+        <textarea id="basisCustom" placeholder="e.g. consumer complaints received during June 2026"></textarea>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Clauses breached</legend>
+      <label>Insert from Franchise Agreement</label>
+      <select id="clauseLibrarySelect">
+        <option value="">— choose a clause —</option>
+      </select>
+      <button type="button" class="add-btn" style="margin-top:4px;" onclick="insertLibraryClause()">+ Insert selected clause</button>
+      <div id="clausesList" style="margin-top:10px;"></div>
+      <button type="button" class="add-btn" onclick="addClause()">+ Add custom clause</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Specific non-conformance / breach items</legend>
+      <div id="breachList"></div>
+      <button type="button" class="add-btn" onclick="addBreach()">+ Add item</button>
+    </fieldset>
+
+    <fieldset>
+      <legend>Immediate action required (optional)</legend>
+      <div class="checkbox-row">
+        <input type="checkbox" id="immediateEnabled" onchange="toggleImmediate()">
+        <label for="immediateEnabled">Include an immediate-cessation timeframe</label>
+      </div>
+      <div id="immediateBlock" style="display:none;">
+        <label>Timeframe</label>
+        <input type="text" id="immediateTimeframe" placeholder="e.g. 24 (twenty-four) hours">
+        <div id="immediateList"></div>
+        <button type="button" class="add-btn" onclick="addImmediate()">+ Add immediate action</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Remedy required</legend>
+      <label>Remedy timeframe</label>
+      <input type="text" id="remedyTimeframe" value="7 (seven) days">
+      <div id="remedyList"></div>
+      <button type="button" class="add-btn" onclick="addRemedy()">+ Add remedy requirement</button>
+
+      <div class="checkbox-row">
+        <input type="checkbox" id="requireEvidence" checked>
+        <label for="requireEvidence">Require supporting photographic evidence</label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="followUpInspection" checked>
+        <label for="followUpInspection">Reserve right to conduct follow-up inspection</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Consequence clause</legend>
+      <label>Termination clause reference</label>
+      <input type="text" id="terminationRef" value="Clause 17 (Termination of this Agreement)">
+      <label>Closing urgency line (optional)</label>
+      <textarea id="urgencyLine" placeholder="e.g. This matter is being treated with urgency given its direct impact on customer perception and the Bootlegger brand.">This matter is being treated with urgency given its direct impact on customer perception and the Bootlegger brand. We expect immediate corrective action and full alignment to Brand standards.</textarea>
+      <label>Support offer line (optional)</label>
+      <textarea id="supportLine">Should you require clarification or operational support to rectify the above, the operations and support teams have already reached out with the relevant information.</textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>Signatory</legend>
+      <label>Name</label>
+      <input type="text" id="sigName" value="Franlo Geldenhuys">
+      <label>Title</label>
+      <input type="text" id="sigTitle" value="Franchise Operations Manager">
+      <label>Phone</label>
+      <input type="text" id="sigPhone" value="083 984 3268">
+    </fieldset>
+
+    <fieldset>
+      <legend>Log to Task Tracker</legend>
+      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Adds this as a Non-Conformance entry in the Task Tracker (Conformance department) so it's tracked and followed up like any other task.</div>
+      <label>Escalation timeframe (Task Tracker due date)</label>
+      <select id="trackerTimeframe">
+        <option value="24">24 hrs</option>
+        <option value="48">48 hrs</option>
+        <option value="72">72 hrs</option>
+        <option value="168" selected>7 days</option>
+        <option value="240">10 days</option>
+      </select>
+      <div id="trackerStatus" style="font-size:10.5px;color:var(--grey-700);margin:8px 0 0;"></div>
+    </fieldset>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="render()">↻ Update preview</button>
+      <button class="btn btn-secondary" onclick="window.print()">🖨 Print / Save PDF</button>
+      <button class="btn btn-secondary" onclick="exportJSON()">⬇ Export data (JSON)</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('jsonFileInput').click()">⬆ Load data (JSON)</button>
+      <input type="file" id="jsonFileInput" accept="application/json" onchange="importJSON(event)">
+      <button class="btn btn-primary" style="background:#8a1a1a;" onclick="issueToTracker()">⚠ Log to Task Tracker</button>
+    </div>
+  </div>
+
+  <!-- ===================== PREVIEW ===================== -->
+  <div class="preview-wrap">
+    <div class="page" id="page">
+      <!-- rendered by JS -->
+    </div>
+  </div>
+
+</div>
+</div>
+<script>
+// ---------- BOS integration: auth, store list, tracker logging ----------
+const BOS_TOKEN = localStorage.getItem('bos_token');
+if (!BOS_TOKEN) {
+  document.getElementById('mainApp').style.display = 'none';
+  document.getElementById('authGate').style.display = 'block';
+}
+
+async function loadBosUser(){
+  if (!BOS_TOKEN) return;
+  try{
+    const res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + BOS_TOKEN } });
+    if (!res.ok) return;
+    const me = await res.json();
+    document.getElementById('bosUserBadge').textContent = me.displayName || me.username || '';
+  }catch(e){ /* ignore */ }
+}
+
+async function loadStoreDatalist(){
+  if (!BOS_TOKEN) return;
+  try{
+    const res = await fetch('/api/reference-data', { headers: { 'Authorization': 'Bearer ' + BOS_TOKEN } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const names = new Set();
+    Object.values(data.fsmStores || {}).forEach(list => (list||[]).forEach(n => names.add(n)));
+    const dl = document.getElementById('storeDatalist');
+    dl.innerHTML = Array.from(names).sort().map(n => `<option value="${n}">`).join('');
+  }catch(e){ /* leave empty if this fails */ }
+}
+
+async function issueToTracker(){
+  const statusEl = document.getElementById('trackerStatus');
+  if (!BOS_TOKEN) { statusEl.textContent = 'Please sign in via the BOS Dashboard first.'; return; }
+  const d = collectData();
+  if (!d.storeName && !d.toEntity) { statusEl.textContent = 'Add a store name before logging to the tracker.'; return; }
+
+  const cafe = d.storeName || d.toEntity;
+  const hours = parseInt(document.getElementById('trackerTimeframe').value, 10);
+  const labelMap = {24:'24 hrs', 48:'48 hrs', 72:'72 hrs', 168:'7 days', 240:'10 days (Marketing)'};
+
+  let comments = `Non-conformance notification: ${d.title || 'Non-Conformance'}\n\n`;
+  if (d.breachItems.length) comments += 'Items:\n' + d.breachItems.map(b=>'- '+b).join('\n') + '\n\n';
+  if (d.clausesBreached.length) comments += 'Clauses referenced: ' + d.clausesBreached.map(c=>c.clause).filter(Boolean).join('; ') + '\n\n';
+  if (d.remedy.items.length) comments += `Remedy required by ${d.remedy.timeframe}:\n` + d.remedy.items.map(r=>'- '+r).join('\n');
+
+  const body = {
+    department: 'Conformance',
+    cafe: cafe,
+    escalationLabel: labelMap[hours] || (hours + ' hrs'),
+    escalationHours: hours,
+    comments: comments,
+    submitterName: d.signatory.name || undefined,
+    responsiblePerson: (d.attention && d.attention[0]) || null,
+    photoUrls: [],
+    isNonConformance: true,
+  };
+
+  statusEl.textContent = 'Logging to Task Tracker…';
+  try{
+    const res = await fetch('/api/ops-tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + BOS_TOKEN },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.error || ('Request failed: ' + res.status)); }
+    statusEl.textContent = '✓ Logged to Task Tracker (Conformance) for ' + cafe + '.';
+  }catch(err){
+    statusEl.textContent = 'Could not log to Task Tracker: ' + err.message;
+  }
+}
+
+loadBosUser();
+loadStoreDatalist();
+</script>
+<script>
+// ---------- Franchise Agreement clause library ----------
+// Paraphrased from Bootlegger Franchise Agreement Full Store 2025 V1, for quick insertion into notices.
+const CLAUSE_LIBRARY = [
+  { id:'c2.1.1',   num:'Clause 2.1.1',   title:'Business System & Operations Manual', text:'Requiring the Franchisee to use the Intellectual Property together with the Business System strictly in accordance with the Operations Manual.' },
+  { id:'c12.1',    num:'Clause 12.1',    title:'Adherence to Business System / Operations Manual', text:'Requiring the Franchisee to operate the Franchised Business strictly in accordance with the Business System and to ensure strict adherence to the Operations Manual.' },
+  { id:'c12.2',    num:'Clause 12.2',    title:'Use of approved Items', text:'Requiring the Franchisee to use the Items, or similar items approved by the Franchisor, as directed by the Franchisor from time to time.' },
+  { id:'c12.15',   num:'Clause 12.15',   title:'Compliance with laws', text:'Requiring the Franchisee to comply in the conduct of the Franchised Business with all applicable laws, by-laws and regulations of any competent authority.' },
+  { id:'c12.17',   num:'Clause 12.17',   title:'Inspections and audits', text:'Requiring the Franchisee to permit the Franchisor to carry out inspections or investigations and to ensure that it and its employees co-operate fully.' },
+  { id:'c12.18',   num:'Clause 12.18',   title:'Hygiene audits', text:'Requiring the Franchisee to comply and abide with health, safety and hygiene rules at all times, and to remedy any areas found unsatisfactory immediately upon receipt of written notice.' },
+  { id:'c12.20',   num:'Clause 12.20',   title:'Approved suppliers and Items', text:'Requiring the Franchisee to only procure Items from suppliers approved by the Franchisor for the full duration of the Agreement.' },
+  { id:'c12.22',   num:'Clause 12.22',   title:'Insurance', text:'Requiring the Franchisee to maintain such policies of insurance as may be reasonably stipulated by the Franchisor and to ensure premiums are paid promptly.' },
+  { id:'c12.24',   num:'Clause 12.24',   title:'Books, records & financial access', text:'Requiring the Franchisee to allow the Franchisor full and immediate access to documentation and financial information relating to the Franchised Business.' },
+  { id:'c12.27',   num:'Clause 12.27',   title:'Cleanliness, standards & brand reputation', text:'Requiring the Franchisee to maintain acceptable standards of cleanliness, tidiness, orderliness and professionalism, and to ensure the name and reputation of the Franchised Business and Franchise System is never impaired.' },
+  { id:'c12.32',   num:'Clause 12.32',   title:'Approved promotional/advertising material', text:'Requiring that all promotional and advertising material be approved by the Franchisor before use.' },
+  { id:'c12.36',   num:'Clause 12.36',   title:'Trading hours', text:'Requiring the trading hours of the Franchised Business to be agreed with the Franchisor, with any amendments requiring the Franchisor\'s written consent.' },
+  { id:'c12.37',   num:'Clause 12.37',   title:'Equipment repairs (24 hours)', text:'Requiring the Franchisee to repair any equipment required to facilitate the running of the Franchised Business within 24 (twenty four) hours of becoming aware of the problem.' },
+  { id:'c12.38',   num:'Clause 12.38',   title:'Premises repairs & maintenance (48 hours)', text:'Requiring the Franchisee to ensure that repairs and maintenance to the Premises take place within 48 (forty eight) hours of becoming aware of the problem.' },
+  { id:'c12.39',   num:'Clause 12.39',   title:'Staff wage rates', text:'Requiring the Franchisee to pay members of staff no less than the wage rate proposed in the Franchisor\'s wage rate recommendation document.' },
+  { id:'c12.40',   num:'Clause 12.40',   title:'Employment documentation on request', text:'Requiring the Franchisee to make available for inspection all contracts of employment, disciplinary notices, employee ID copies and sick notes within 24 (twenty four) hours of written request.' },
+  { id:'c13.3',    num:'Clause 13.3',    title:'Correct use of Trade Marks', text:'Requiring the Franchisee to reproduce the Trade Marks exactly and accurately and in accordance with specifications and directions laid down by the Franchisor.' },
+  { id:'c17.2.1',  num:'Clause 17.2.1',  title:'General breach (7 day remedy)', text:'Any breach of the terms and conditions of the Agreement, all of which are declared material, entitling the Franchisor to terminate if not remedied within 7 (seven) days of written notice.' },
+  { id:'c17.2.14', num:'Clause 17.2.14', title:'Cleanliness/sanitation standards', text:'Failing or refusing to comply with any mandatory specification, standard or operating procedure prescribed by the Franchisor relating to the cleanliness or sanitation of the Franchised Business.' },
+  { id:'c17.2.15', num:'Clause 17.2.15', title:'Health, safety & sanitation law (3 day remedy)', text:'Violating any health, safety or sanitation law, ordinance or regulation and failing to correct the violation within 3 (three) days of written notice.' },
+  { id:'c17.2.16', num:'Clause 17.2.16', title:'Accurate gross sales reporting', text:'Failing to accurately report the gross sales of the Franchised Business.' },
+  { id:'c17.2.20', num:'Clause 17.2.20', title:'Repeat breach', text:'Committing the same breach more than twice in any 12 (twelve) month period, entitling the Franchisor to terminate if not remedied within 7 (seven) days of written notice.' }
+];
+
+function populateClauseLibrarySelect(){
+  const sel = document.getElementById('clauseLibrarySelect');
+  CLAUSE_LIBRARY.forEach(c=>{
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.num} — ${c.title}`;
+    sel.appendChild(opt);
+  });
+}
+
+function insertLibraryClause(){
+  const sel = document.getElementById('clauseLibrarySelect');
+  const c = CLAUSE_LIBRARY.find(x=>x.id === sel.value);
+  if(!c) return;
+  addClause(`${c.num} (${c.title})`, c.text);
+  sel.value = '';
+}
+
+function loadRawFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { document.getElementById('rawNotes').value = e.target.result; };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+// ---------- AI auto-populate from raw notes ----------
+async function autoPopulate(){
+  const raw = document.getElementById('rawNotes').value.trim();
+  const statusEl = document.getElementById('autoPopulateStatus');
+  const btn = document.getElementById('autoPopulateBtn');
+  if(!raw){ statusEl.textContent = 'Paste or upload some raw notes first.'; return; }
+
+  btn.disabled = true;
+  statusEl.textContent = 'Analysing notes and matching against the Franchise Agreement…';
+
+  try{
+    const response = await fetch("/api/notices/auto-populate", {
+      method: "POST",
+      headers: Object.assign({ "Content-Type": "application/json" }, BOS_TOKEN ? { 'Authorization': 'Bearer ' + BOS_TOKEN } : {}),
+      body: JSON.stringify({ rawNotes: raw, clauseLibrary: CLAUSE_LIBRARY, today: new Date().toISOString().slice(0,10) })
+    });
+    if (!response.ok) { const e = await response.json().catch(()=>({})); throw new Error(e.error || ('Request failed: ' + response.status)); }
+    const parsed = await response.json();
+
+    // map into populateForm-compatible shape, preserving anything already typed for fields the AI left blank
+    const current = collectData();
+    const merged = {
+      noticeDate: current.noticeDate,
+      title: current.title,
+      toEntity: parsed.toEntity || current.toEntity,
+      attention: (parsed.attention && parsed.attention.length) ? parsed.attention : current.attention,
+      storeName: parsed.storeName || current.storeName,
+      greeting: parsed.greeting || current.greeting,
+      basis: {
+        type: parsed.basisType || current.basis.type,
+        date: parsed.basisDate || current.basis.date,
+        custom: parsed.basisCustom || current.basis.custom
+      },
+      clausesBreached: (parsed.clausesBreached && parsed.clausesBreached.length) ?
+        parsed.clausesBreached.map(c=>({clause:c.clause,description:c.description})) : current.clausesBreached,
+      breachItems: (parsed.breachItems && parsed.breachItems.length) ? parsed.breachItems : current.breachItems,
+      immediateAction: {
+        enabled: !!parsed.immediateEnabled,
+        timeframe: parsed.immediateTimeframe || current.immediateAction.timeframe,
+        items: (parsed.immediateItems && parsed.immediateItems.length) ? parsed.immediateItems : current.immediateAction.items
+      },
+      remedy: {
+        timeframe: parsed.remedyTimeframe || current.remedy.timeframe,
+        items: (parsed.remedyItems && parsed.remedyItems.length) ? parsed.remedyItems : current.remedy.items
+      },
+      requireEvidence: parsed.requireEvidence !== undefined ? parsed.requireEvidence : current.requireEvidence,
+      followUpInspection: parsed.followUpInspection !== undefined ? parsed.followUpInspection : current.followUpInspection,
+      terminationRef: current.terminationRef,
+      urgencyLine: parsed.urgencyLine || current.urgencyLine,
+      supportLine: parsed.supportLine || current.supportLine,
+      signatory: current.signatory
+    };
+
+    populateForm(merged);
+    render();
+    statusEl.textContent = '✓ Notice populated — review the fields below (franchisee name, attention, store name are worth double-checking), then update the preview.';
+  }catch(err){
+    statusEl.textContent = 'Could not auto-populate — please check your notes and try again, or fill in the fields manually.';
+    console.error(err);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+// ---------- repeatable field helpers ----------
+function makeRepeatItem(containerId, fields, removeFn){
+  const div = document.createElement('div');
+  div.className = 'repeat-item';
+  let html = `<button type="button" class="rm" onclick="${removeFn}(this)">✕</button>`;
+  fields.forEach(f=>{
+    if(f.type==='textarea'){
+      html += `<label>${f.label}</label><textarea class="${f.cls}" placeholder="${f.ph||''}">${f.val||''}</textarea>`;
+    } else {
+      html += `<label>${f.label}</label><input type="text" class="${f.cls}" placeholder="${f.ph||''}" value="${f.val||''}">`;
+    }
+  });
+  div.innerHTML = html;
+  document.getElementById(containerId).appendChild(div);
+}
+
+function removeItem(btn){ btn.parentElement.remove(); }
+
+function addClause(clauseVal, descVal){
+  makeRepeatItem('clausesList', [
+    {label:'Clause name / number', cls:'clause-name', ph:'e.g. Clause 12.20 relating to specified suppliers and product', val:clauseVal},
+    {label:'Clause requirement (description)', cls:'clause-desc', type:'textarea', ph:'e.g. Requiring the Franchisee to make use of approved suppliers and specified products…', val:descVal}
+  ], 'removeItem');
+}
+function addBreach(val){
+  makeRepeatItem('breachList', [
+    {label:'Breach / non-conformance item', cls:'breach-item', type:'textarea', ph:'e.g. Non-approved products being purchased and used in contravention of Brand instruction', val:val}
+  ], 'removeItem');
+}
+function addImmediate(val){
+  makeRepeatItem('immediateList', [
+    {label:'Action to cease immediately', cls:'immediate-item', ph:'e.g. the use of any non-approved packaging', val:val}
+  ], 'removeItem');
+}
+function addRemedy(val){
+  makeRepeatItem('remedyList', [
+    {label:'Remedy requirement', cls:'remedy-item', type:'textarea', ph:'e.g. Provide written confirmation of full compliance', val:val}
+  ], 'removeItem');
+}
+
+function toggleImmediate(){
+  document.getElementById('immediateBlock').style.display =
+    document.getElementById('immediateEnabled').checked ? 'block' : 'none';
+}
+
+document.getElementById('noticeTitle').addEventListener('change', function(){
+  document.getElementById('customTitleWrap').style.display = this.value === '__custom' ? 'block' : 'none';
+});
+document.getElementById('basisType').addEventListener('change', function(){
+  const isCustom = this.value === 'custom';
+  document.getElementById('basisCustomWrap').style.display = isCustom ? 'block' : 'none';
+  document.getElementById('basisDateLabel').style.display = isCustom ? 'none' : 'block';
+  document.getElementById('basisDate').style.display = isCustom ? 'none' : 'block';
+});
+
+// ---------- seed with example rows ----------
+function seedDefaults(){
+  document.getElementById('noticeDate').value = new Date().toISOString().slice(0,10);
+  addClause('Maintenance and Repairs Clause', 'Requiring the Franchisee to maintain the premises, equipment, and all installations in good order and condition at all times.');
+  addBreach('');
+  addRemedy('Provide written confirmation once all breaches have been remedied, together with supporting evidence.');
+}
+
+// ---------- data model ----------
+function collectData(){
+  const titleSel = document.getElementById('noticeTitle');
+  const title = titleSel.value === '__custom' ? document.getElementById('customTitle').value : titleSel.value;
+
+  const clauses = Array.from(document.querySelectorAll('#clausesList .repeat-item')).map(el=>({
+    clause: el.querySelector('.clause-name').value.trim(),
+    description: el.querySelector('.clause-desc').value.trim()
+  })).filter(c=>c.clause || c.description);
+
+  const breachItems = Array.from(document.querySelectorAll('#breachList .breach-item'))
+    .map(el=>el.value.trim()).filter(Boolean);
+
+  const immediateItems = Array.from(document.querySelectorAll('#immediateList .immediate-item'))
+    .map(el=>el.value.trim()).filter(Boolean);
+
+  const remedyItems = Array.from(document.querySelectorAll('#remedyList .remedy-item'))
+    .map(el=>el.value.trim()).filter(Boolean);
+
+  return {
+    noticeDate: document.getElementById('noticeDate').value,
+    title: title,
+    toEntity: document.getElementById('toEntity').value.trim(),
+    attention: document.getElementById('attention').value.split(',').map(s=>s.trim()).filter(Boolean),
+    storeName: document.getElementById('storeName').value.trim(),
+    greeting: document.getElementById('greeting').value.trim(),
+    basis: {
+      type: document.getElementById('basisType').value,
+      date: document.getElementById('basisDate').value,
+      custom: document.getElementById('basisCustom').value.trim()
+    },
+    clausesBreached: clauses,
+    breachItems: breachItems,
+    immediateAction: {
+      enabled: document.getElementById('immediateEnabled').checked,
+      timeframe: document.getElementById('immediateTimeframe').value.trim(),
+      items: immediateItems
+    },
+    remedy: {
+      timeframe: document.getElementById('remedyTimeframe').value.trim(),
+      items: remedyItems
+    },
+    requireEvidence: document.getElementById('requireEvidence').checked,
+    followUpInspection: document.getElementById('followUpInspection').checked,
+    terminationRef: document.getElementById('terminationRef').value.trim(),
+    urgencyLine: document.getElementById('urgencyLine').value.trim(),
+    supportLine: document.getElementById('supportLine').value.trim(),
+    signatory: {
+      name: document.getElementById('sigName').value.trim(),
+      title: document.getElementById('sigTitle').value.trim(),
+      phone: document.getElementById('sigPhone').value.trim()
+    }
+  };
+}
+
+function fmtDate(iso){
+  if(!iso) return '';
+  const [y,m,d] = iso.split('-');
+  return `${y}/${m}/${d}`;
+}
+function fmtDateLong(iso){
+  if(!iso) return '';
+  const dt = new Date(iso+'T00:00:00');
+  return dt.toLocaleDateString('en-ZA', {day:'numeric', month:'long', year:'numeric'});
+}
+
+function basisSentence(d){
+  const b = d.basis;
+  if(b.type==='operational_visit'){
+    return `Following the operational visit conducted on <strong>${fmtDateLong(b.date)}</strong>, this letter serves as formal notice that you are in breach of your obligations in terms of the Agreement, including but not limited to the following provisions:`;
+  }
+  if(b.type==='email_correspondence'){
+    return `Following the operational feedback sprouting from e-mail correspondence from ${fmtDateLong(b.date)}, this letter serves as formal notice that you are in breach of your obligations in terms of the Agreement, including but not limited to the following provisions:`;
+  }
+  if(b.type==='operational_review'){
+    return `It has been identified, through both recent operational reviews and follow-up enquiries, that ${d.storeName || 'the Franchisee'} is in breach of these obligations, specifically:`;
+  }
+  return (b.custom || 'Following recent operational feedback, this letter serves as formal notice that you are in breach of your obligations in terms of the Agreement, including but not limited to the following provisions:');
+}
+
+function render(){
+  const d = collectData();
+  const page = document.getElementById('page');
+
+  let html = '';
+  html += `<div class="logo">BOOTLEGGER<span class="dot">.</span></div>`;
+  html += `<div class="meta">
+    <strong>BOOTLEGGER FRANCHISE COMPANY (PTY) LTD</strong>
+    1st floor, Silo Building, The Coffee Depot<br>
+    ${fmtDate(d.noticeDate) || '&nbsp;'}
+  </div>`;
+  html += `<div class="meta"><strong>To:</strong><br>${d.toEntity || '<span class="empty-note">[Franchisee entity]</span>'}</div>`;
+  if(d.attention.length){
+    html += `<div class="meta"><strong>Attention: ${d.attention.join(' &amp; ')}</strong></div>`;
+  }
+  html += `<hr class="hr">`;
+  html += `<div class="title-block">${d.title || '[NOTICE TITLE]'}</div>`;
+  if(d.storeName){
+    html += `<div class="store-sub">${d.storeName}</div>`;
+  }
+  html += `<hr class="hr">`;
+
+  if(d.greeting){
+    html += `<p>${d.greeting}</p>`;
+  }
+
+  html += `<p>We refer to the agreement(s) entered into between yourself and Bootlegger Coffee Company (&ldquo;the Agreement&rdquo;)${d.storeName ? ' in respect of ' + d.storeName : ''}.</p>`;
+
+  html += `<p>${basisSentence(d)}</p>`;
+
+  if(d.clausesBreached.length){
+    html += '<ul>';
+    d.clausesBreached.forEach(c=>{
+      html += `<li>${c.clause ? '<strong>'+c.clause+':</strong> ' : ''}${c.description}</li>`;
+    });
+    html += '</ul>';
+  }
+
+  if(d.breachItems.length){
+    html += `<p>Despite these obligations, and prior operational feedback, the following breaches/non-conformances remain outstanding:</p><ul>`;
+    d.breachItems.forEach(b=>{ html += `<li>${b}</li>`; });
+    html += '</ul>';
+  }
+
+  html += `<p>These actions constitute a material breach of the Franchise Agreement, as they undermine customer perception and brand integrity across the network. Given the nature of the breach and its direct impact on brand standards, <strong>immediate compliance is required</strong>.</p>`;
+
+  html += `<p>Accordingly, you are hereby required to:</p>`;
+  html += '<ol>';
+  if(d.immediateAction.enabled && d.immediateAction.items.length){
+    html += `<li>Immediately, and within <strong>${d.immediateAction.timeframe}</strong> of receipt of this notice, cease:
+      <ul>${d.immediateAction.items.map(i=>`<li>${i}</li>`).join('')}</ul>
+    </li>`;
+  }
+  if(d.remedy.items.length){
+    html += `<li>Within <strong>${d.remedy.timeframe}</strong>, provide written confirmation that:
+      <ul>${d.remedy.items.map(i=>`<li>${i}</li>`).join('')}</ul>
+    </li>`;
+  }
+  html += '</ol>';
+
+  if(d.requireEvidence || d.followUpInspection){
+    let bits = [];
+    if(d.requireEvidence) bits.push('together with supporting photographic evidence');
+    html += `<p>You are required to provide written confirmation once all breaches/non-conformances have been remedied${d.requireEvidence ? ', ' + bits.join(', ') : ''}.${d.followUpInspection ? ' Bootlegger Coffee Company reserves the right to conduct a follow-up inspection to verify compliance.' : ''}</p>`;
+  }
+
+  html += `<p>Please note that failure to remedy these breaches within the stipulated period will constitute a continuing material breach and may result in the Franchisor exercising its rights in terms of ${d.terminationRef || 'the Agreement'}, including but not limited to issuing further notices, enforcing penalties, or proceeding with termination.</p>`;
+
+  if(d.urgencyLine){
+    html += `<p>${d.urgencyLine}</p>`;
+  }
+  if(d.supportLine){
+    html += `<p>${d.supportLine}</p>`;
+  }
+
+  html += `<p>Regards,</p>`;
+  html += `<p style="margin-bottom:2px;">${d.signatory.name}</p>`;
+  html += `<p style="margin-bottom:2px;">${d.signatory.title}</p>`;
+  html += `<p>${d.signatory.phone}</p>`;
+
+  html += `<div class="footer">
+    <div class="col"><strong>Bootlegger Head Office</strong><br>1st floor, Silo Building, The Coffee Depot,<br>47 Morningside Road, Ndabeni, 7405<br>t: +27 21 433 2599</div>
+    <div class="col" style="text-align:right;"><strong>Bootlegger Franchise (Pty) Ltd.</strong><br>Reg No: 2017/428048/07<br>VAT No: 4110284793</div>
+  </div>`;
+
+  page.innerHTML = html;
+}
+
+// ---------- JSON export / import (this is the schema that will later map to a BOS API payload) ----------
+function exportJSON(){
+  const d = collectData();
+  const blob = new Blob([JSON.stringify(d, null, 2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const namePart = (d.storeName || d.toEntity || 'notification').replace(/[^a-z0-9]+/gi,'-').toLowerCase();
+  a.href = url;
+  a.download = `non-conformance-${namePart}-${d.noticeDate || 'draft'}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJSON(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      const d = JSON.parse(e.target.result);
+      populateForm(d);
+      render();
+    }catch(err){
+      alert('Could not read that file — make sure it is a JSON export from this tool.');
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
+}
+
+function populateForm(d){
+  document.getElementById('noticeDate').value = d.noticeDate || '';
+  const titleSel = document.getElementById('noticeTitle');
+  const known = Array.from(titleSel.options).some(o=>o.value===d.title);
+  if(known){ titleSel.value = d.title; document.getElementById('customTitleWrap').style.display='none'; }
+  else { titleSel.value='__custom'; document.getElementById('customTitle').value = d.title||''; document.getElementById('customTitleWrap').style.display='block'; }
+
+  document.getElementById('toEntity').value = d.toEntity || '';
+  document.getElementById('attention').value = (d.attention||[]).join(', ');
+  document.getElementById('storeName').value = d.storeName || '';
+  document.getElementById('greeting').value = d.greeting || '';
+
+  document.getElementById('basisType').value = (d.basis && d.basis.type) || 'operational_visit';
+  document.getElementById('basisDate').value = (d.basis && d.basis.date) || '';
+  document.getElementById('basisCustom').value = (d.basis && d.basis.custom) || '';
+  document.getElementById('basisType').dispatchEvent(new Event('change'));
+
+  document.getElementById('clausesList').innerHTML = '';
+  (d.clausesBreached||[]).forEach(c=>addClause(c.clause, c.description));
+
+  document.getElementById('breachList').innerHTML = '';
+  (d.breachItems||[]).forEach(b=>addBreach(b));
+
+  const im = d.immediateAction || {};
+  document.getElementById('immediateEnabled').checked = !!im.enabled;
+  document.getElementById('immediateTimeframe').value = im.timeframe || '';
+  document.getElementById('immediateList').innerHTML = '';
+  (im.items||[]).forEach(i=>addImmediate(i));
+  toggleImmediate();
+
+  const rem = d.remedy || {};
+  document.getElementById('remedyTimeframe').value = rem.timeframe || '7 (seven) days';
+  document.getElementById('remedyList').innerHTML = '';
+  (rem.items||[]).forEach(i=>addRemedy(i));
+
+  document.getElementById('requireEvidence').checked = d.requireEvidence !== false;
+  document.getElementById('followUpInspection').checked = d.followUpInspection !== false;
+  document.getElementById('terminationRef').value = d.terminationRef || 'Clause 17 (Termination of this Agreement)';
+  document.getElementById('urgencyLine').value = d.urgencyLine || '';
+  document.getElementById('supportLine').value = d.supportLine || '';
+
+  const sig = d.signatory || {};
+  document.getElementById('sigName').value = sig.name || 'Franlo Geldenhuys';
+  document.getElementById('sigTitle').value = sig.title || 'Franchise Operations Manager';
+  document.getElementById('sigPhone').value = sig.phone || '083 984 3268';
+}
+
+// ---------- init ----------
+populateClauseLibrarySelect();
+seedDefaults();
+render();
+</script>
+</body>
+</html>
