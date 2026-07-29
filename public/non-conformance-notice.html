@@ -198,6 +198,7 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 </head>
 <body>
 <div id="bosBar" style="background:#1a1a1a;color:#fff;padding:8px 18px;font-size:11px;display:flex;justify-content:space-between;align-items:center;">
@@ -219,7 +220,7 @@
 
     <fieldset style="background:var(--gold-light);border-color:var(--gold);">
       <legend>Step 1 · Raw conformance data</legend>
-      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Paste the raw notes that led to this notice — inspection findings, audit comments, an e-mail, a WhatsApp report, whatever you have. Or upload a text file or PDF (e.g. a Visit Report export). Click the button and the notice below will populate itself, matched to the relevant Franchise Agreement clauses.</div>
+      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Paste the raw notes that led to this notice — inspection findings, audit comments, an e-mail, a WhatsApp report, whatever you have. Or upload a text file or PDF (e.g. a Visit Report export) — scanned/image-only PDFs are read with OCR automatically, which may take a minute and isn't always perfect, so double-check the result. Click the button and the notice below will populate itself, matched to the relevant Franchise Agreement clauses.</div>
       <textarea id="rawNotes" style="min-height:110px;" placeholder="e.g. Visited Franschhoek 22/06. Found expired stock in the walk-in, staff not in uniform, POS not reconciled daily for 2 weeks, fridge temp logs missing since March. Franchisee is Bootlegger Franschhoek, attn Shaun Gainsford."></textarea>
       <div class="row2" style="margin-top:6px;">
         <input type="file" id="rawFileInput" accept=".txt,.md,.csv,.pdf,application/pdf" onchange="loadRawFile(event)" style="font-size:10.5px;padding:4px;">
@@ -526,11 +527,18 @@ async function loadRawFile(event){
         fullText += pageText + '\n\n';
       }
       fullText = fullText.trim();
-      if (!fullText) {
-        statusEl.textContent = 'Could not find any selectable text in that PDF — it may be a scanned image. Please paste the notes manually.';
-      } else {
+
+      if (fullText) {
         document.getElementById('rawNotes').value = fullText;
         statusEl.textContent = `✓ Loaded text from ${pdf.numPages} page(s) of "${file.name}".`;
+      } else {
+        // No text layer at all — this is a scanned/rasterised PDF. Fall back to OCR.
+        const ocrText = await ocrPdfPages(pdf, statusEl, file.name);
+        if (ocrText.trim()) {
+          document.getElementById('rawNotes').value = ocrText.trim();
+          statusEl.textContent = `✓ OCR complete — read ${pdf.numPages} page(s) of "${file.name}". OCR isn't perfect, so please check the text over before generating the notice.`;
+        }
+        // if ocrText is empty, ocrPdfPages already set an explanatory status message
       }
     } catch (err) {
       statusEl.textContent = 'Could not read that PDF — please try pasting the text directly instead.';
@@ -545,6 +553,47 @@ async function loadRawFile(event){
   reader.readAsText(file);
   event.target.value = '';
 }
+
+// ---------- OCR fallback for scanned/image PDFs (e.g. print-to-PDF visit reports) ----------
+// Renders each PDF page to a canvas with pdf.js, then reads the text off that
+// image with Tesseract.js. Runs entirely in the browser — no server changes.
+async function ocrPdfPages(pdf, statusEl, fileName){
+  if (!window['Tesseract']) {
+    statusEl.textContent = 'OCR engine did not load — check your internet connection and try again, or paste the text directly.';
+    return '';
+  }
+  statusEl.textContent = `No selectable text found in "${fileName}" — this looks like a scanned/image PDF. Running OCR, this can take a minute…`;
+
+  let worker;
+  let allText = '';
+  try {
+    worker = await Tesseract.createWorker('eng');
+    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+      statusEl.textContent = `Running OCR on page ${pageNum} of ${pdf.numPages} of "${fileName}"…`;
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 2.0 }); // higher scale = sharper text = better OCR accuracy
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      const { data: { text } } = await worker.recognize(canvas);
+      allText += text.trim() + '\n\n';
+    }
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'OCR failed partway through — please try again, or paste the notes manually.';
+    return allText;
+  } finally {
+    if (worker) await worker.terminate();
+  }
+
+  if (!allText.trim()) {
+    statusEl.textContent = 'OCR could not find any readable text in this PDF. Please paste the notes manually.';
+  }
+  return allText;
+}
+
 
 // ---------- AI auto-populate from raw notes ----------
 async function autoPopulate(){
