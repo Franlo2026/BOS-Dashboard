@@ -709,6 +709,21 @@ Object.entries(DATA.managers).forEach(([mgr, fsms]) => fsms.forEach(f => MANAGER
 // Single shared roster used by both "Reported By" and "Responsible Person" in
 // the Add Task form, so the two dropdowns always list the same people.
 const OT_PEOPLE_LIST = Array.from(new Set(["Franlo Geldenhuys", "Tarryn Palmer", ...FSM_LIST, ...SUPPORT_TEAM])).sort();
+// Every user account an admin enables should be selectable when logging a
+// task or visit report, not just names already in the hardcoded FSM/support
+// roster above. The admin-only /api/admin/users list gets mirrored (display
+// names only) to a plain storage key whenever the Admin tab loads it —
+// merge that in here, for every role, so the picker stays current without
+// needing another manual roster edit each time someone's added.
+async function syncOTPeopleListWithActiveUsers(){
+  try {
+    const r = await apiGet('/api/storage/active-user-roster');
+    const names = JSON.parse(r.value || '[]');
+    let added = false;
+    names.forEach(n => { if (n && !OT_PEOPLE_LIST.includes(n)) { OT_PEOPLE_LIST.push(n); added = true; } });
+    if (added) OT_PEOPLE_LIST.sort();
+  } catch (e) { /* no roster published yet — static list still works */ }
+}
 
 function fsmOfStore(store){
   for (const f of FSM_LIST) if (DATA.fsmStores[f].includes(store)) return f;
@@ -1329,7 +1344,7 @@ function viewTrade(){
     </div>
     <div class="filter-row no-print">
       <input type="text" id="tradeSearch" placeholder="Search store...">
-      <select id="tradeFormatFilter"><option value="">All Formats</option><option value="Full Store">Full Store</option><option value="XS">XS</option><option value="Kiosk">Kiosk</option><option value="C Store Inline">C Store Inline</option></select>
+      <select id="tradeFormatFilter"><option value="">All Formats</option>${[...new Set(Object.values(TURNOVER_DATA).map(t=>t.store_type))].filter(Boolean).sort().map(t=>`<option value="${t}">${t}</option>`).join('')}</select>
       <select id="tradeRegionFilter"><option value="">All Regions</option>${FSM_LIST.map(f=>`<option value="${f}">${f}${MANAGER_OF_FSM[f] ? ' ('+MANAGER_OF_FSM[f]+"'s team)" : ''}</option>`).join('')}</select>
       <select id="tradeSort">
         <option value="name">Sort: Store Name</option>
@@ -3016,6 +3031,15 @@ Share the app URL with everyone. Each person signs in with their own username/pa
   async function loadUsers(){
     try {
       const users = await apiGet('/api/admin/users');
+      // Any enabled (active) user account should be selectable in the
+      // Reported By / Responsible Person pickers on the Add Task form —
+      // not just people already in the hardcoded FSM/support roster. The
+      // roster endpoint itself is admin-only, so publish just the display
+      // names to a plain storage key any signed-in role can read.
+      try {
+        const activeNames = users.filter(u => u.active).map(u => u.display_name || u.username);
+        await fetch('/api/storage/active-user-roster', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(activeNames) }) });
+      } catch (e) { /* non-fatal — dropdowns just fall back to the static roster */ }
       document.getElementById('admUserTable').innerHTML = `
         <table class="data-table">
           <thead><tr><th>Username</th><th>Display Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
@@ -5992,6 +6016,7 @@ async function startApp(){
     await migrateHardcodedStoresIfNeeded();
     await correctOpeningDates20260714IfNeeded();
     await loadDataUploadOverrides();
+    await syncOTPeopleListWithActiveUsers();
   } catch(e) {
     if (e.message === 'unauthorized') return;
     document.getElementById('app').innerHTML = '<div class="empty-state" style="padding:80px 0;color:var(--red);">Could not connect to the server. Refresh to try again.</div>';
