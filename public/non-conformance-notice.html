@@ -192,6 +192,12 @@
     .page{box-shadow:none;width:auto;min-height:auto;}
   }
 </style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window['pdfjsLib']) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  }
+</script>
 </head>
 <body>
 <div id="bosBar" style="background:#1a1a1a;color:#fff;padding:8px 18px;font-size:11px;display:flex;justify-content:space-between;align-items:center;">
@@ -213,10 +219,10 @@
 
     <fieldset style="background:var(--gold-light);border-color:var(--gold);">
       <legend>Step 1 · Raw conformance data</legend>
-      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Paste the raw notes that led to this notice — inspection findings, audit comments, an e-mail, a WhatsApp report, whatever you have. Or upload a text file. Click the button and the notice below will populate itself, matched to the relevant Franchise Agreement clauses.</div>
+      <div style="font-size:10.5px;color:var(--grey-700);margin-bottom:6px;">Paste the raw notes that led to this notice — inspection findings, audit comments, an e-mail, a WhatsApp report, whatever you have. Or upload a text file or PDF (e.g. a Visit Report export). Click the button and the notice below will populate itself, matched to the relevant Franchise Agreement clauses.</div>
       <textarea id="rawNotes" style="min-height:110px;" placeholder="e.g. Visited Franschhoek 22/06. Found expired stock in the walk-in, staff not in uniform, POS not reconciled daily for 2 weeks, fridge temp logs missing since March. Franchisee is Bootlegger Franschhoek, attn Shaun Gainsford."></textarea>
       <div class="row2" style="margin-top:6px;">
-        <input type="file" id="rawFileInput" accept=".txt,.md,.csv" onchange="loadRawFile(event)" style="font-size:10.5px;padding:4px;">
+        <input type="file" id="rawFileInput" accept=".txt,.md,.csv,.pdf,application/pdf" onchange="loadRawFile(event)" style="font-size:10.5px;padding:4px;">
         <button type="button" class="btn btn-primary" style="width:100%;" onclick="autoPopulate()" id="autoPopulateBtn">✦ Auto-populate notice</button>
       </div>
       <div id="autoPopulateStatus" style="font-size:10.5px;color:var(--grey-700);margin-top:6px;"></div>
@@ -497,9 +503,43 @@ function insertLibraryClause(){
   sel.value = '';
 }
 
-function loadRawFile(event){
+async function loadRawFile(event){
   const file = event.target.files[0];
   if(!file) return;
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const statusEl = document.getElementById('autoPopulateStatus');
+
+  if (isPdf) {
+    if (!window['pdfjsLib']) {
+      statusEl.textContent = 'PDF reader did not load — check your internet connection and try again, or paste the text directly.';
+      return;
+    }
+    statusEl.textContent = 'Reading PDF…';
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const content = await page.getTextContent();
+        const pageText = content.items.map(it => it.str).join(' ');
+        fullText += pageText + '\n\n';
+      }
+      fullText = fullText.trim();
+      if (!fullText) {
+        statusEl.textContent = 'Could not find any selectable text in that PDF — it may be a scanned image. Please paste the notes manually.';
+      } else {
+        document.getElementById('rawNotes').value = fullText;
+        statusEl.textContent = `✓ Loaded text from ${pdf.numPages} page(s) of "${file.name}".`;
+      }
+    } catch (err) {
+      statusEl.textContent = 'Could not read that PDF — please try pasting the text directly instead.';
+      console.error(err);
+    }
+    event.target.value = '';
+    return;
+  }
+
   const reader = new FileReader();
   reader.onload = e => { document.getElementById('rawNotes').value = e.target.result; };
   reader.readAsText(file);
