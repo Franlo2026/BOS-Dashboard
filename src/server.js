@@ -807,6 +807,68 @@ app.post('/api/admin/cleanup-photos', authRequired, requireAdmin, async (req, re
 // front-end HTML so it stays a single source of truth); this endpoint just
 // adds the system prompt and forwards to Anthropic with the server-side key,
 // since a public page can't safely hold an API key itself.
+// ---------- Escalation Matrix (Brand Standards, June 2026 v1.0) ----------
+// Used to determine the correct first-deviation action/deadline for each
+// non-conformance category identified in raw notes. Kept server-side since
+// it informs the notice's remedy timeframe rather than the letter template.
+const ESCALATION_MATRIX = [
+  { category: 'Coffee beans (espresso/decaf) out of stock', action1: 'Immediate store closure — may not trade without coffee beans in stock; auto-generated emergency order same day; special delivery charge to franchisee', escalation: 'Breach letter issued by Head Office on first occurrence (critical/non-negotiable)' },
+  { category: 'Other IP/branded products out of stock (packaging, sauces, Silo Bakery, sugar sachets, serviettes, branded consumables)', action1: 'Auto-generated order placed same day; special delivery charge; must be in stock within 48–72 hours', escalation: 'Shorter deadline + escalation on 2nd deviation; breach letter on 3rd/critical' },
+  { category: 'IP element damage/absence — general (signage, fixtures)', action1: 'Repair within 3 days, franchisee pays with proof of payment', escalation: 'Contractors quoted on 2nd deviation; HQ pays and bills back franchisee + breach letter on 3rd' },
+  { category: 'Neon sign', action1: 'Repair within 7 days, franchisee pays with proof of payment', escalation: 'HQ pays and bills back + breach letter on non-compliance' },
+  { category: 'Trading hours / Wi-Fi signage', action1: 'Must be displayed, current and undamaged at all times; repair/replace immediately', escalation: 'HQ pays and bills back + breach letter on non-compliance' },
+  { category: 'Plants (upkeep/replacement)', action1: 'Replace within 7 days', escalation: 'Order placed on behalf of store; billed back; breach letter if unresolved' },
+  { category: 'Branded crockery & glassware', action1: 'Order for next delivery', escalation: 'Order placed on behalf of store; billed back' },
+  { category: 'A-Frame & table talkers', action1: 'Order for next delivery', escalation: 'Order placed on behalf of store; billed back' },
+  { category: 'Timber slatted hatch / floating timber ceiling', action1: 'Repair within 3 days', escalation: 'HQ pays and bills back + breach letter' },
+  { category: 'Marketing/advertising not brand-compliant', action1: 'Remove from all mediums and correct before re-publishing', escalation: 'Immediate removal + breach letter on 2nd deviation/critical' },
+  { category: 'Certificates — legal (liquor licence, COA, occupancy, business licence)', action1: 'Application submitted to relevant council/supplier within 7 days', escalation: 'Breach letter issued by Head Office if not resolved' },
+  { category: 'Certificates — financial (VAT, tax clearance)', action1: 'Application made to SARS and submitted to HQ within 14 days', escalation: 'Breach letter issued by Head Office if not resolved' },
+  { category: 'Certificates — technical COCs (electrical, gas, HVAC, plumbing, glazing, fire, pest control, extraction cleaning)', action1: 'Application submitted to relevant council/supplier within 7 days', escalation: 'Breach letter issued by Head Office if not resolved' },
+  { category: 'Certificates — entertainment (SAMRO, SAMPRO, TV licence)', action1: 'Application made to relevant department within 14 days', escalation: 'Breach letter issued by Head Office if not resolved' },
+  { category: 'Certificates — safety (First Aid, Fire Fighter, H&S Rep, COVID Officer)', action1: 'Training and certification completed within 30 days', escalation: 'Breach letter issued by Head Office if not resolved' },
+  { category: 'Payroll documentation (payslips, UIF, hours, rate, leave, minimum wage)', action1: 'Complete payslip with all required detail provided in the next payroll run', escalation: 'Breach letter issued by Head Office if unresolved' },
+  { category: 'Employment contracts (signed, commencement date, CoC, remuneration, hours, supporting documents)', action1: 'Complete contract with all required detail provided within 30 days', escalation: 'Breach letter issued by Head Office if unresolved' },
+  { category: 'Uniform — management/barista/FOH/kitchen items (branded golfer, denim shirt, chef jacket, apron, cap, jersey, name badge)', action1: 'Order placed by franchisee same day; POP sent to FSM/RFM; 7-day lead time', escalation: 'Auto-generated order with special delivery charge + breach letter issued by Head Office' },
+  { category: 'Uniform — own-purchase items (blue jeans, black shoes, black chef pants, boots)', action1: 'Staff to purchase within 48 hours', escalation: 'Staff to purchase within 24 hours + breach letter issued if unresolved' },
+  { category: 'Hygiene — FOH surfaces/floors/fixtures/POS/menus/chairs/sauce fridge', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Hygiene — customer toilets', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Hygiene — bar/deli (incl. coffee machine & grinder)', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Hygiene — grill line (incl. fryer, extraction canopy, fridges)', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Hygiene — filleting & storage areas', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Hygiene — scullery (dishwasher, crockery, cutlery, hand basin)', action1: 'Rectify within 24 hours, or FSM conducts a field audit', escalation: 'RFM calls in a cleaning company at franchisee\'s expense, billed back; breach letter issued' },
+  { category: 'Cleaning chemicals (Kem Klean) missing/low', action1: 'Order placed by franchisee same day; POP to FSM/RFM; next delivery day', escalation: 'Auto-generated order with special delivery charge + breach letter issued' },
+  { category: 'Field audit swab test failure', action1: 'Surfaces retested within 24 hours; Kem Klean training within 24 hours', escalation: 'FCS called in by RFM at franchisee\'s expense + breach letter issued' },
+  { category: 'Colour coding & hand wash facilities', action1: 'Items cleaned immediately per Bootlegger SOP', escalation: 'Items cleaned immediately per SOP + breach letter issued' },
+  { category: 'Equipment — flat tops / salamanders', action1: 'If only one in store: cannot open; if two: 7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back franchisee + breach letter issued' },
+  { category: 'Equipment — fryers (double)', action1: 'Damaged double fryer: store may not trade', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Equipment — extractor fan', action1: 'Immediate — store may not trade', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Fire equipment service', action1: 'Immediate action required', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Freezer / cold room', action1: 'Immediate action required', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Dishwasher / thermometer', action1: 'Immediate action required', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Geysers / blockages / plumbing', action1: 'Geysers & blockages: immediate; plumbing: 3 days', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'POS hardware & software', action1: 'Immediate, unless a secondary device is in place', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Credit card machines / takeaway devices', action1: 'Immediate action required', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Alarm system / fire equipment (FOH)', action1: 'Immediate action required', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Lights / signage (general)', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Chip warmer / chest freezer / upright fridge-freezer', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Underbar fridge / section tables', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Gas boiling table / induction cookers / mincer', action1: '3 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Coffee machine / grinder — missed service schedule', action1: 'HQ automatically books the service on the store\'s behalf; full cost recovered from franchisee, no grace period', escalation: 'Same — no grace period applies' },
+  { category: 'Merry Chef — missed service schedule', action1: 'HQ automatically books the service on the store\'s behalf; full cost recovered from franchisee, no grace period', escalation: 'Same — no grace period applies' },
+  { category: 'Merry Chef — unscheduled breakdown', action1: '3 days to repair; contractor appointed, quote submitted; HQ pays and bills back franchisee', escalation: 'Breach letter issued' },
+  { category: 'Oven', action1: '3 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Milkshake mixer / blender', action1: '3 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Microwave', action1: 'Immediate', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Cameras', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Tables / chairs (FOH)', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Air conditioning & air duct extraction', action1: '7 days to repair', escalation: 'Contractor appointed, quote submitted; HQ pays and bills back + breach letter issued' },
+  { category: 'Franchise fee non-payment', action1: 'Due 7th of the month; letter of demand issued on Day 8', escalation: 'Breach letter issued by the 10th of the month if payment not received' },
+  { category: 'Roastery account non-payment', action1: 'Due 7 days from delivery invoice date; account blocked immediately if not paid within 7 days', escalation: 'Breach letter issued if payment not received within 10 days of invoice' },
+  { category: 'B.Better Academy course completion below 90%', action1: 'Immediate non-conformance notice', escalation: 'Breach letter issued if 90% compliance not achieved within 7 days of the notice' },
+  { category: 'Failure to acknowledge Head Office/franchise support communication', action1: 'Must acknowledge within 48 hours of receipt', escalation: 'Immediate breach letter issued on non-compliance' },
+];
+
 app.post('/api/notices/auto-populate', authRequired, async (req, res) => {
   try {
     const { rawNotes, clauseLibrary, today } = req.body;
@@ -820,10 +882,19 @@ app.post('/api/notices/auto-populate', authRequired, async (req, res) => {
       .map(c => `${c.id}: Clause ${c.id.replace(/^c/, '')} — ${c.title} — ${c.text}`)
       .join('\n');
 
+    const escalationText = ESCALATION_MATRIX
+      .map(m => `- ${m.category} → 1st deviation: ${m.action1}. Escalation if unresolved: ${m.escalation}`)
+      .join('\n');
+
     const systemPrompt = `You convert raw, messy field notes about a Bootlegger franchisee non-conformance into structured JSON for a breach/non-conformance notice generator. Respond with ONLY a single valid JSON object — no markdown fences, no preamble, no commentary.
 
 Available Franchise Agreement clauses (use the "id" field verbatim when you reference one, pick only clauses genuinely supported by the notes, do not invent clauses):
 ${clauseListText}
+
+Brand Standards Escalation Matrix (June 2026 v1.0) — use this to determine the correct action and completion deadline for each non-conformance item, based on category:
+${escalationText}
+
+How to use the Escalation Matrix: for each breach item you identify, match it to the closest category above and use its "1st deviation" action and deadline to set remedyTimeframe/remedyItems (or immediateAction if the action says "Immediate" or describes something the store must stop or close for). If the raw notes indicate this is a repeat/second occurrence of the same issue, use the escalation (2nd/3rd deviation) action instead and mention the shorter deadline. If an item doesn't clearly match any category, fall back to sensible judgement using the Franchise Agreement clauses instead. Do not invent categories or deadlines not supported by the matrix or the notes.
 
 Output JSON schema (all fields optional/omit if not inferable, use empty string/array/false as appropriate):
 {
