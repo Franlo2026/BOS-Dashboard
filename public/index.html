@@ -3168,7 +3168,7 @@ function viewVisitReports(){
   // keeping whichever entry was created last.
   function findDuplicateGroups(){
     const groups = {};
-    STATE.visits.forEach(v => {
+    STATE.visits.filter(v => v.source !== 'scheduler-confirmation').forEach(v => {
       const k = [v.store, v.date, v.fsm, v.type].join('||');
       (groups[k] = groups[k] || []).push(v);
     });
@@ -3210,6 +3210,7 @@ function viewVisitReports(){
     const search = document.getElementById('vrSearch').value.toLowerCase();
     const typeFilter = document.getElementById('vrTypeFilter').value;
     const rows = [...STATE.visits]
+      .filter(v => v.source !== 'scheduler-confirmation')
       .filter(v => (!typeFilter || v.type === typeFilter) && (!search || v.store.toLowerCase().includes(search) || v.fsm.toLowerCase().includes(search)))
       .filter(v => VR_TAB === 'archived' ? isArchived(v) : !isArchived(v))
       .sort((a,b) => b.date.localeCompare(a.date));
@@ -3315,13 +3316,17 @@ function viewVisitReports(){
     const comment = ((fr.comments||{})[id] || '').trim();
     const photos = (fr.photos||{})[id] || [];
     const hasAction = !!(step && step.action);
-    const flagged = !!comment || hasAction;
+    const flagged = !!comment || hasAction || photos.length > 0;
+    // A question that wasn't opened/selected, and has no comment, action or
+    // photo attached, has nothing to report — leave it out of the PDF
+    // entirely rather than printing a blank row.
+    if (!flagged) return '';
     return `
-    <div style="padding:8px 0;border-bottom:1px solid #ebebeb;">
+    <div style="padding:8px 0;border-bottom:1px solid #ebebeb;${hasAction ? 'background:rgba(200,174,121,0.16);border-left:3px solid #c8ae79;padding-left:8px;margin-left:-1px;' : ''}">
       <div style="font-weight:700;font-size:11.5px;">${escapeHtmlVR(text)}</div>
-      <div style="font-size:11px;color:${flagged ? '#8f733f' : '#aaaaaa'};border:1px solid ${flagged ? '#c8ae79' : '#ebebeb'};background:${flagged ? 'rgba(200,174,121,0.10)' : '#fafafa'};padding:5px 8px;margin-top:5px;min-height:13px;">${comment ? escapeHtmlVR(comment) : '&nbsp;'}</div>
+      ${comment ? `<div style="font-size:11px;color:#8f733f;border:1px solid #c8ae79;background:rgba(200,174,121,0.10);padding:5px 8px;margin-top:5px;">${escapeHtmlVR(comment)}</div>` : ''}
       ${vrPhotosBlock(photos)}
-      ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:4px;">→ ${vrActionLabel(step)}</div>` : ''}
+      ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:4px;font-weight:800;">→ ${vrActionLabel(step)}</div>` : ''}
     </div>`;
   }
   // Portion check entries print as plain item/comment text — no boxed
@@ -3331,12 +3336,14 @@ function viewVisitReports(){
     if (step && step.action === 'na') return ''; // N/A items are excluded from the PDF entirely
     const item = (p.item || '').trim();
     const comment = (p.comment || '').trim();
-    if (!item && !comment) return '';
     const hasAction = !!(step && step.action);
+    // Same rule as vrItemBlock — nothing flagged means nothing to print,
+    // regardless of whether an item name was typed in.
+    if (!comment && !hasAction) return '';
     const label = (p.department ? `[${escapeHtmlVR(p.department)}] ` : '') + (item ? escapeHtmlVR(item) : 'Portion check');
-    return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;">
+    return `<div style="padding:6px 0;border-bottom:1px solid #ebebeb;font-size:11.5px;${hasAction ? 'background:rgba(200,174,121,0.16);border-left:3px solid #c8ae79;padding-left:8px;margin-left:-1px;' : ''}">
       <b>${label}</b>${comment ? ' — ' + escapeHtmlVR(comment) : ''}
-      ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:2px;">→ ${vrActionLabel(step)}</div>` : ''}
+      ${hasAction ? `<div style="font-size:10px;color:#1a7a44;margin-top:2px;font-weight:800;">→ ${vrActionLabel(step)}</div>` : ''}
     </div>`;
   }
   function vrSectionBlock(tag, label, bodyHtml) {

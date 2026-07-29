@@ -331,7 +331,7 @@ body {
 
     <div class="meta-card" style="grid-template-columns: repeat(5, 1fr);">
       <div class="field"><label>FSM / Support Member</label><select id="f-fsm"><option value="">— select —</option></select></div>
-      <div class="field"><label>Store</label><input type="text" id="f-store" placeholder="e.g. V&A Waterfront"></div>
+      <div class="field" style="position:relative;"><label>Store</label><input type="text" id="f-store" placeholder="Start typing to search a café..." autocomplete="off"><div id="f-store-suggestions" style="display:none;position:absolute;top:100%;left:0;right:0;background:#fff;border:1px solid #ccc;border-top:none;max-height:220px;overflow-y:auto;z-index:30;box-shadow:0 4px 10px rgba(0,0,0,0.08);"></div></div>
       <div class="field"><label>Date</label><input type="date" id="f-date"></div>
       <div class="field"><label>Visit Type</label>
         <select id="f-visittype">
@@ -354,8 +354,39 @@ body {
       </div>
     </div>
 
+    <!-- VISIT CHECK TYPE CHOICE -->
+    <div class="intro-card" id="checkTypeChoice" style="border-color:#c8ae79;">
+      <div class="intro-head">What kind of visit is this?</div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;">
+        <button type="button" onclick="setCheckType('grind')" style="flex:1;min-width:220px;padding:16px;border:2px solid #c8ae79;background:#fff;cursor:pointer;text-align:left;border-radius:4px;">
+          <div style="font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:0.03em;">GRIND Visit</div>
+          <div style="font-size:11px;color:#666;margin-top:4px;">Quick log — add a question/observation, photos, an action and comments. No fixed checklist.</div>
+        </button>
+        <button type="button" onclick="setCheckType('monthly')" style="flex:1;min-width:220px;padding:16px;border:2px solid #1a1a1a;background:#fff;cursor:pointer;text-align:left;border-radius:4px;">
+          <div style="font-weight:800;font-size:13px;text-transform:uppercase;letter-spacing:0.03em;">Monthly Support Visit</div>
+          <div style="font-size:11px;color:#666;margin-top:4px;">The full checklist — GRIND Reset, QC Tasting, FSM Only status check &amp; portioning. Every question starts as Satisfactory / No Action — change any that need one.</div>
+        </button>
+      </div>
+      <div id="checkTypeCurrent" style="margin-top:10px;font-size:11px;color:#8f733f;font-weight:700;"></div>
+    </div>
+
+    <!-- GRIND VISIT (lightweight — questions, photos, actions, comments only) -->
+    <div class="section" data-stage="note" id="sec-grindvisit" style="display:none;">
+      <div class="section-head" onclick="toggleSection('sec-grindvisit')">
+        <span class="tag">Visit</span>
+        <h2>GRIND Visit — Notes &amp; Actions</h2>
+        <span class="count" id="count-grindvisit"></span>
+        <span class="chev">▾</span>
+      </div>
+      <div class="section-body" id="body-grindvisit"></div>
+    </div>
+
+    <div id="monthlyBanner" style="display:none;margin:18px 0 4px;padding:8px 14px;background:#1a1a1a;color:#fff;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.05em;">
+      <span style="background:#c8ae79;color:#1a1a1a;padding:2px 7px;margin-right:8px;">Monthly</span>Monthly Support Visit — Full Checklist
+    </div>
+
     <!-- GRIND RESET (combined Fixed + Variable) -->
-    <div class="section collapsed" data-stage="note" id="sec-reset">
+    <div class="section collapsed" data-stage="note" id="sec-reset" style="display:none;">
       <div class="section-head" onclick="toggleSection('sec-reset')">
         <span class="tag">Reset</span>
         <h2>GRIND Reset</h2>
@@ -366,7 +397,7 @@ body {
     </div>
 
     <!-- QC TASTING -->
-    <div class="section collapsed" data-stage="inspect" id="sec-tasting">
+    <div class="section collapsed" data-stage="inspect" id="sec-tasting" style="display:none;">
       <div class="section-head" onclick="toggleSection('sec-tasting')">
         <span class="tag">Inspect</span>
         <h2>QC Tasting</h2>
@@ -377,7 +408,7 @@ body {
     </div>
 
     <!-- ADMIN SECTION -->
-    <div class="section admin-section collapsed" data-stage="debrief" id="sec-admin">
+    <div class="section admin-section collapsed" data-stage="debrief" id="sec-admin" style="display:none;">
       <div class="section-head" onclick="toggleSection('sec-admin')">
         <span class="tag admin">Admin</span>
         <h2>FSM Only — Status Check</h2>
@@ -469,23 +500,37 @@ async function loadFsmStores() {
     updateStoreOptionsForFsm();
   } catch (e) { /* leave dropdown empty if this fails */ }
 }
+let storeSearchWired = false;
 function updateStoreOptionsForFsm() {
   // All support members (FSMs and support team alike) can log a visit at
   // any store — no portfolio restriction, so the full store list always shows.
   const stores = Object.values(FSM_STORES).flat().sort();
-  const storeField = document.getElementById('f-store');
-  // Store started life as a free-text input — convert it to a select the first time this runs.
-  if (storeField.tagName === 'INPUT') {
-    const sel = document.createElement('select');
-    sel.id = 'f-store';
-    sel.innerHTML = '<option value="">— select store —</option>';
-    storeField.replaceWith(sel);
-    sel.addEventListener('change', persist);
+  const input = document.getElementById('f-store');
+  const box = document.getElementById('f-store-suggestions');
+
+  function showMatches() {
+    const q = input.value.trim().toLowerCase();
+    const matches = (q ? stores.filter(s => s.toLowerCase().includes(q)) : stores).slice(0, 30);
+    if (!matches.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    box.innerHTML = matches.map(s => `<div class="f-store-option" data-name="${s.replace(/"/g,'&quot;')}" style="padding:9px 10px;font-size:12.5px;cursor:pointer;border-bottom:1px solid #f0f0f0;">${escapeHtml(s)}</div>`).join('');
+    box.style.display = 'block';
   }
-  const finalSelect = document.getElementById('f-store');
-  const current = finalSelect.value;
-  finalSelect.innerHTML = '<option value="">— select store —</option>' + stores.map(s => `<option>${s}</option>`).join('');
-  if (current && stores.includes(current)) finalSelect.value = current;
+
+  if (!storeSearchWired) {
+    storeSearchWired = true;
+    input.addEventListener('input', showMatches);
+    input.addEventListener('focus', showMatches);
+    box.addEventListener('click', (e) => {
+      const opt = e.target.closest('.f-store-option');
+      if (!opt) return;
+      input.value = opt.dataset.name;
+      box.style.display = 'none';
+      input.dispatchEvent(new Event('change'));
+    });
+    document.addEventListener('click', (e) => {
+      if (e.target !== input && !box.contains(e.target)) box.style.display = 'none';
+    });
+  }
 }
 
 checkBosSession().then(async me => {
@@ -538,6 +583,7 @@ const ADMIN = [
 // ---------- STATE ----------
 let state = {
   meta: { store:'', date:'', manager:'', support:'', startTime:'', endTime:'' },
+  visitCheckType: '',   // '' | 'grind' | 'monthly' — chosen at the top of the page
   comments: {},          // id -> text. Non-empty comment = flagged.
   photos: {},            // id -> [dataURL, ...] (multiple photos per item now)
   customItems: [],        // [{id, text}] — flat list, GRIND Reset is the only section now
@@ -925,7 +971,73 @@ function toggleSection(id) {
 }
 
 // ---------- RENDER ORCHESTRATION ----------
+// ---------- VISIT CHECK TYPE (GRIND Visit vs Monthly Support Visit) ----------
+function setCheckType(type) {
+  state.visitCheckType = type;
+  if (type === 'monthly') seedMonthlyDefaults();
+  document.getElementById('checkTypeChoice').style.display = 'none';
+  applyCheckTypeVisibility();
+  refreshCurrentSections();
+  persist();
+}
+function applyCheckTypeVisibility() {
+  const type = state.visitCheckType;
+  document.getElementById('sec-grindvisit').style.display = (type === 'grind') ? '' : 'none';
+  document.getElementById('sec-reset').style.display = (type === 'monthly') ? '' : 'none';
+  document.getElementById('sec-tasting').style.display = (type === 'monthly') ? '' : 'none';
+  document.getElementById('sec-admin').style.display = (type === 'monthly') ? '' : 'none';
+  document.getElementById('monthlyBanner').style.display = (type === 'monthly') ? '' : 'none';
+  const label = type === 'grind' ? 'GRIND Visit selected — a lighter, ad-hoc log (questions, photos, actions, comments).'
+    : type === 'monthly' ? 'Monthly Support Visit selected — full checklist below, every item defaults to Satisfactory / No Action.'
+    : '';
+  document.getElementById('checkTypeCurrent').innerHTML = label ? `${label} <span style="text-decoration:underline;cursor:pointer;" onclick="document.getElementById('checkTypeChoice').style.display='';">Change</span>` : '';
+}
+// Every preset question (GRIND Reset, FSM Only, and the default Bar/Kitchen
+// portion rows) starts as "Satisfactory Outcome — No Action" the first time
+// Monthly Support Visit is opened for this report, rather than blank —
+// change any of them manually if something actually needs logging.
+function seedMonthlyDefaults() {
+  if (!state.portion || state.portion.length < 2) {
+    state.portion = [
+      { department: 'Bar', item: '', comment: '' },
+      { department: 'Kitchen', item: '', comment: '' },
+    ];
+  }
+  const presetIds = GRIND_RESET.map(g => g.id)
+    .concat(ADMIN.map(a => a.id))
+    .concat(state.portion.map((p, i) => `portion-${i}`));
+  presetIds.forEach(id => {
+    if (!state.nextSteps[id]) state.nextSteps[id] = { action: 'satisfactory', notes: '', owner: '', dueDate: '' };
+  });
+}
+
+// ---------- GRIND VISIT (lightweight — add question, photo, action, comment) ----------
+function renderGrindVisit() {
+  const customRows = state.customItems.map(c => `
+    <div class="row" id="row-${c.id}">
+      <div class="rowtext"><b>${escapeHtml(c.text)}</b> <span class="remove-x" onclick="removeCustomItem('${c.id}')">✕</span></div>
+      <div class="row-controls"><div class="row-controls-top">${photoControl(c.id)}${commentControl(c.id)}</div>${nextStepControl(c.id)}</div>
+    </div>`).join('');
+  const addRow = `
+    <div class="add-item-row">
+      <input type="text" id="addcustom-grindvisit" placeholder="New question / observation / action…">
+      <button type="button" class="add-btn" onclick="addCustomItemGrindVisit()">+ Add</button>
+    </div>`;
+  document.getElementById('body-grindvisit').innerHTML = (customRows || '<div style="font-size:11px;color:#999;padding:8px 0;">Add a question below to log a note, photo, action or comment for this visit.</div>') + addRow;
+}
+function addCustomItemGrindVisit() {
+  const input = document.getElementById('addcustom-grindvisit');
+  const text = input.value.trim();
+  if (!text) return;
+  const id = 'custom-' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+  state.customItems.push({ id, text });
+  input.value = '';
+  refreshCurrentSections();
+  persist();
+}
+
 function refreshCurrentSections() {
+  renderGrindVisit();
   renderTasting();
   renderReset();
   renderAdmin();
@@ -935,6 +1047,8 @@ function refreshCurrentSections() {
 function renderAll() { refreshCurrentSections(); updateTimestampLine(); }
 
 function updateSectionCounts() {
+  const grindFlagged = state.customItems.filter(c => (state.comments[c.id] && state.comments[c.id].trim()) || (state.nextSteps[c.id] && state.nextSteps[c.id].action)).length;
+  document.getElementById('count-grindvisit').textContent = grindFlagged ? grindFlagged + ' logged' : '';
   const resetIds = GRIND_RESET.map(g => g.id).concat(state.customItems.map(c => c.id)).concat(state.portion.map((p,i) => `portion-${i}`));
   const resetFlagged = resetIds.filter(id => state.comments[id] && state.comments[id].trim()).length;
   document.getElementById('count-reset').textContent = resetFlagged ? resetFlagged + ' flagged' : '';
@@ -1009,6 +1123,10 @@ async function loadVisitForEdit(visitId) {
     if (state.portion[1] && !state.portion[1].department) state.portion[1].department = 'Kitchen';
     if (!state.tasting) state.tasting = { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] };
     if (!state.nextSteps) state.nextSteps = {};
+    // Visits logged before this GRIND/Monthly split existed used the full
+    // checklist by default — treat them as Monthly Support Visit so editing
+    // one shows the same sections it was originally filled out with.
+    if (!state.visitCheckType) state.visitCheckType = 'monthly';
     state.meta = Object.assign({ store: visit.store, date: visit.date, manager: '', support: visit.fsm, startTime: '', endTime: '' }, state.meta || {});
 
     document.getElementById('f-fsm').value = state.meta.support || visit.fsm || '';
@@ -1022,7 +1140,9 @@ async function loadVisitForEdit(visitId) {
     document.querySelector('.page-header h1').textContent = 'GRIND Café Support Summary — Editing Saved Visit';
     document.getElementById('submitBtn').textContent = 'Save Changes';
     document.getElementById('saveStatus').textContent = 'Editing a saved visit — click Save Changes to update it';
+    document.getElementById('checkTypeChoice').style.display = 'none'; // already committed to a type when first submitted
 
+    applyCheckTypeVisibility();
     renderAll();
   } catch (e) {
     alert('Could not load visit for editing: ' + e.message);
@@ -1049,6 +1169,8 @@ async function loadExisting() {
   document.getElementById('f-fsm').value = state.meta.support || '';
   document.getElementById('f-manager').value = state.meta.manager || '';
   lastKnownKey = keyForToday();
+  if (state.visitCheckType) document.getElementById('checkTypeChoice').style.display = 'none';
+  applyCheckTypeVisibility();
   renderAll();
   persist();
 }
@@ -1085,6 +1207,10 @@ async function submitToBOS(){
     alert('FSM, Store and Date are required before this visit can be logged to BOS.');
     return;
   }
+  if (!state.visitCheckType) {
+    alert('Choose GRIND Visit or Monthly Support Visit at the top of the page before submitting.');
+    return;
+  }
 
   const flags = buildFlagList();
   const taskFlags = flags.filter(f => state.nextSteps[f.id] && (state.nextSteps[f.id].action === 'tasktracker' || state.nextSteps[f.id].action === 'nonconformance'));
@@ -1111,7 +1237,8 @@ async function submitToBOS(){
   const naCount = flags.filter(f => state.nextSteps[f.id] && state.nextSteps[f.id].action === 'na').length;
   const nonConformanceCount = actions.filter(a => a.isNonConformance).length;
 
-  const notes = `${visitType} — GRIND Café Support Summary. ` +
+  const checkTypeLabel = state.visitCheckType === 'grind' ? 'GRIND Visit' : 'Monthly Support Visit';
+  const notes = `${visitType} — ${checkTypeLabel}. ` +
     (flags.length ? `${flags.length} item(s) flagged (${taskFlags.length-nonConformanceCount} to Task Tracker, ${nonConformanceCount} logged as Non-Conformance, ${retrainedCount} retrained on the spot, ${satisfactoryCount} satisfactory — no action, ${naCount} N/A).` : 'No flags raised.');
 
   const btn = document.getElementById('submitBtn');
@@ -1170,6 +1297,7 @@ function resetForNextVisit() {
   const keepFsm = document.getElementById('f-fsm').value;
   state = {
     meta: { store: '', date: new Date().toISOString().split('T')[0], manager: '', support: keepFsm, startTime: new Date().toISOString(), endTime: '' },
+    visitCheckType: '',
     comments: {}, photos: {}, customItems: [],
     portion: [],
     tasting: { Coffee: [], 'New Beverages': [], 'New Dishes': [], 'Base Sauces': [] },
@@ -1180,6 +1308,8 @@ function resetForNextVisit() {
   document.getElementById('f-date').value = state.meta.date;
   const storeField = document.getElementById('f-store');
   if (storeField) storeField.value = '';
+  document.getElementById('checkTypeChoice').style.display = '';
+  applyCheckTypeVisibility();
   document.querySelectorAll('.section').forEach(s => s.classList.add('collapsed'));
   renderAll();
   persist();

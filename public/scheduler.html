@@ -197,6 +197,12 @@ async function logConfirmedVisitToDashboard(managerKey, personLabel, text) {
         date: new Date().toISOString().slice(0, 10),
         type: 'Support Visit',
         notes: 'Confirmed via Support Schedule',
+        // Still counts toward the Visit Frequency KPI (same store/date is all
+        // that calculation checks), but this tag lets the Visit Reports list
+        // filter it out — a schedule confirmation isn't a GRIND report, and
+        // showing both side by side for the same café/date looked like a
+        // duplicate visit even though they're really two different things.
+        source: 'scheduler-confirmation',
       })
     });
   } catch (e) { /* best-effort — the local confirmation above already succeeded */ }
