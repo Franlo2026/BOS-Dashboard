@@ -425,6 +425,8 @@ body {
   </div>
 </div>
 
+<button type="button" id="switchTypeFab" onclick="showCheckTypeChoice()" style="display:none;position:fixed;right:16px;bottom:78px;z-index:40;align-items:center;gap:6px;background:#1a1a1a;color:#fff;border:2px solid #c8ae79;border-radius:24px;padding:10px 16px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.03em;box-shadow:0 4px 12px rgba(0,0,0,0.25);cursor:pointer;">↺ Switch Visit Type</button>
+
 <div class="actions-bar">
   <span class="save-status" id="saveStatus">All changes saved locally</span>
   <div style="display:flex; gap:8px;">
@@ -492,7 +494,19 @@ async function loadFsmStores() {
     FSM_STORES = data.fsmStores || {};
     // Combined list = every FSM plus support team members and leadership who
     // aren't FSMs — anyone can log a visit, at any store (see updateStoreOptionsForFsm).
-    const names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY, ...LEADERSHIP_ONLY])).sort();
+    let names = Array.from(new Set([...Object.keys(FSM_STORES), ...SUPPORT_TEAM_ONLY, ...LEADERSHIP_ONLY])).sort();
+    // Everyone who can actually submit this form is already a logged-in,
+    // enabled BOS user — so the live active-user roster (published from the
+    // Admin tab's user list whenever it loads) is a complete, current picture
+    // of who should appear here. Use it once it's been published at least
+    // once: this both adds anyone newly enabled and drops anyone disabled,
+    // without needing this hardcoded list kept in sync by hand. Before the
+    // roster's ever been published, fall back to the hardcoded list above.
+    try {
+      const r = await window.storage.get('active-user-roster');
+      const roster = JSON.parse(r.value || '[]');
+      if (Array.isArray(roster) && roster.length) names = roster.slice().sort();
+    } catch (e) { /* roster not published yet — keep the hardcoded list */ }
     const fsmSel = document.getElementById('f-fsm');
     fsmSel.innerHTML = '<option value="">— select —</option>' + names.map(f => `<option>${f}</option>`).join('');
     // Every support member is linked to every store — populate the full
@@ -990,7 +1004,17 @@ function applyCheckTypeVisibility() {
   const label = type === 'grind' ? 'GRIND Visit selected — a lighter, ad-hoc log (questions, photos, actions, comments).'
     : type === 'monthly' ? 'Monthly Support Visit selected — full checklist below, every item defaults to Satisfactory / No Action.'
     : '';
-  document.getElementById('checkTypeCurrent').innerHTML = label ? `${label} <span style="text-decoration:underline;cursor:pointer;" onclick="document.getElementById('checkTypeChoice').style.display='';">Change</span>` : '';
+  document.getElementById('checkTypeCurrent').innerHTML = label ? `${label} <button type="button" onclick="showCheckTypeChoice()" style="margin-left:6px;padding:3px 10px;border:1px solid #8f733f;background:#fff;color:#8f733f;font-size:10px;font-weight:700;text-transform:uppercase;border-radius:3px;cursor:pointer;">Change</button>` : '';
+  // Mobile-friendly floating button — reachable with a thumb regardless of
+  // scroll position, so switching to do the other report type (e.g. a GRIND
+  // Visit right after a Monthly Support Visit for the same café) doesn't
+  // mean scrolling all the way back to the top first.
+  const fab = document.getElementById('switchTypeFab');
+  fab.style.display = type ? 'flex' : 'none';
+}
+function showCheckTypeChoice() {
+  document.getElementById('checkTypeChoice').style.display = '';
+  document.getElementById('checkTypeChoice').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 // Every preset question (GRIND Reset, FSM Only, and the default Bar/Kitchen
 // portion rows) starts as "Satisfactory Outcome — No Action" the first time
