@@ -2677,9 +2677,9 @@ const UPLOAD_TYPES = [
   { key:'bbetter', label:'B.Better Training', accept:'.xlsx,.xls', ready:true,
     desc:'The Beeline "Groups" export, as-is (Group, Classification, Location kind, Completion %, Members, Avg progress %, FSM, Region, Store Type, ...).',
     note:'Only rows where Classification="Location" and Location kind="SITE" are used — everything else in that export (roles, the network-wide container row) is skipped automatically.' },
-  { key:'flow', label:'Flow (Recipe & Cleaning)', accept:'.csv,.xlsx,.xls', ready:false,
-    desc:'Format not yet configured for this one.',
-    note:'Share a sample KeyTech export and this card gets wired up next.' },
+  { key:'flow', label:'Flow (Recipe & Cleaning)', accept:'.csv,.xlsx,.xls', ready:true,
+    desc:'The KeyTech Flow monthly report, as-is (site_name, shot_count, met_recipe_percent, bean_usage_kg, cleaning_score_percent, ...).',
+    note:'This is a single month\'s snapshot, not MTD-vs-previous — whatever was previously "current" automatically becomes "previous month" when a new upload lands, so month-over-month still shows correctly.' },
   { key:'social', label:'Social / Google Places', accept:'.xlsx,.xls', ready:true,
     desc:'The "#1 [Brand]" sheet from the Google ratings export, as-is (Store, Live Page Score, Brand Review Avg.).',
     note:'This export doesn\'t include a review count, only the live star rating and the network brand average — a review-count tracker would need a different source.' },
@@ -2716,6 +2716,12 @@ async function loadDataUploadOverrides(){
     if (UPLOAD_META.social) {
       const r = await apiGet('/api/storage/bos-upload-data-social');
       mutateReplace(GOOGLE_DATA, JSON.parse(r.value));
+    }
+  } catch (e) { /* keep embedded data if this fails */ }
+  try {
+    if (UPLOAD_META.flow) {
+      const r = await apiGet('/api/storage/bos-upload-data-flow');
+      mutateReplace(FLOW_DATA, JSON.parse(r.value));
     }
   } catch (e) { /* keep embedded data if this fails */ }
 }
@@ -2876,6 +2882,58 @@ function parseLTLUploadRows(aoa){
   return Object.values(byStore);
 }
 
+// KeyTech Flow monthly export: a few metadata rows (period/date range,
+// organisation) above the real header, a "Bootlegger " prefix on every site
+// name, and a TOTALS row at the bottom to skip. This is a single month's
+// snapshot — it doesn't include a "previous month" figure of its own, so
+// whatever FLOW_DATA already holds as "current" becomes "previous" as part
+// of applying this upload (see handleDataUpload), the same way a new month
+// naturally rolls forward.
+// The KeyTech Flow export uses its own short names, and — importantly —
+// Cafe Status looks Flow data up by STORES.store_name directly (no alias
+// resolution there), which isn't always the same target the Trade-data
+// resolveAlias() points to (e.g. Trade's "Hoedspruit" alias resolves to
+// "Hoedspruit XS", but the café directory's actual store_name is just
+// "Hoedspruit"). Kept separate from resolveAlias for that reason.
+const FLOW_ALIASES = {
+  'Woodlands': 'Woodland Hills', 'Cavendish': 'Cavendish Mall', 'Preller': 'Preller Walk',
+  'Winchester Hills': 'Winchester Hill XS', 'TEMSA N12': 'N12 East', 'Windhoek XS': 'FNB',
+  'Simmonds Temsa': 'Simmonds', 'Laguna': 'Laguna Mall XS', 'N1 City Value Centre': 'N1 Value Centre (XS)',
+  'Mall Of Africa': 'Mall of Africa XS', 'Hoedspruit XS': 'Hoedspruit', 'Durbanville Temsa': 'Durbanville',
+  'Plattekloof': 'Plattekloof Village', 'XS Sandkraal': 'Sandkraal XS', 'Paarl TE': 'Paarl Mall',
+  'Pineworx': 'PineworX (XS)', 'Middelburg': 'Middleburg XS', 'Thabazimbi TEMSA': 'Thabazimbi',
+  'Yellowoods': 'Yellowoods Centre', 'Kimberley': 'Lennox Kimberly',
+  'Delta Central': 'Delta Central XS', 'Cape Gate': 'Cape Gate XS', 'Hermanus XS': 'Hermanus Kiosk',
+  'Paardevlei': 'Paardevlei XS', 'Clearwater': 'Clearwater Mall XS', 'Westlake': 'Westlake XS',
+  'Welgelee Plein': 'Welgelee Plein XS', 'Musgrave': 'Musgrave Centre', 'Steiltes': 'TEMSA Steiltes',
+  'Foreshore': 'Foreshore XS', 'Bram Fischer': 'Bram Fischer XS', 'Sunninghill': 'Sunninghill Village XS',
+  'Milkwood': 'Milkwood Square Centre',
+  // 'Route N4' is a genuine gap — not present anywhere in the café directory
+  // (same class of issue as the earlier TEMSA Steiltes / Sea Point High
+  // gaps) — left unmapped rather than guessed at.
+};
+function parseFlowUploadRows(aoa){
+  const rows = rowsFromAOA(aoa, ['site_name', 'met_recipe_percent', 'cleaning_score_percent']);
+  if (!rows) return null;
+  const FLOW_DATA_NEW = {};
+  rows.forEach(r => {
+    let name = String(r['site_name']||'').trim();
+    if (!name || name.toUpperCase() === 'TOTALS') return;
+    name = name.replace(/^Bootlegger\s+/i, '').trim();
+    if (name === 'Training Centre') return; // internal site, not a café
+    name = FLOW_ALIASES[name] || name;
+    const recipe = r['met_recipe_percent']===''||r['met_recipe_percent']==null ? null : Number(r['met_recipe_percent'])/100;
+    const cleaning = r['cleaning_score_percent']===''||r['cleaning_score_percent']==null ? null : Number(r['cleaning_score_percent'])/100;
+    FLOW_DATA_NEW[name] = {
+      mtd_recipe: recipe,
+      cleaning_score: cleaning,
+      shot_count: r['shot_count']===''||r['shot_count']==null ? null : Number(r['shot_count']),
+      bean_usage_kg: r['bean_usage_kg']===''||r['bean_usage_kg']==null ? null : Number(r['bean_usage_kg']),
+    };
+  });
+  return FLOW_DATA_NEW;
+}
+
 function readWorkbookRows(file, opts){
   opts = opts || {};
   return new Promise((resolve, reject) => {
@@ -2947,6 +3005,23 @@ async function handleDataUpload(key, file){
       await refreshState();
       meta.rows = ok;
       if (failed) meta.notes = failed + ' row(s) failed to save';
+
+    } else if (key === 'flow') {
+      const aoa = await readWorkbookRows(file, { asArray: true });
+      const parsed = parseFlowUploadRows(aoa);
+      if (!parsed) { toast('Could not find the site_name / met_recipe_percent / cleaning_score_percent header row in this file'); return; }
+      if (!Object.keys(parsed).length) { toast('No café rows found in that file'); return; }
+      // This export is a single month's snapshot with no "previous month"
+      // figure of its own — roll whatever FLOW_DATA currently holds as
+      // "current" into "previous" before applying the new upload, so the
+      // Cafe Status Flow section still shows a month-over-month comparison.
+      Object.keys(parsed).forEach(name => {
+        const prior = FLOW_DATA[name];
+        parsed[name].prev_month_recipe = prior ? prior.mtd_recipe : null;
+      });
+      mutateReplace(FLOW_DATA, parsed);
+      await fetch('/api/storage/bos-upload-data-flow', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
+      meta.rows = Object.keys(parsed).length;
 
     } else {
       toast('This upload type isn\'t wired up yet — share a sample file and it can be added.');
