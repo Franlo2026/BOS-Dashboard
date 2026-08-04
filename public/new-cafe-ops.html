@@ -206,8 +206,25 @@ let SAVE_TIMER = null;
 
 const NAV_TABS = [
   { id:'pipeline', label:'Pipeline' },
-  { id:'readiness', label:'Project Readiness' },
-  { id:'training', label:'7-Day Training' },
+];
+
+// Profile mode: when PROFILE_CAFE_ID is set, the Pipeline view renders a
+// single café's full profile (5 navigable sub-sections) instead of the
+// café list. PROFILE_SECTION picks which sub-section is showing.
+let PROFILE_CAFE_ID = null;
+let PROFILE_SECTION = 'cpa'; // 'cpa' | 'trainingrec' | 'details' | 'readiness' | 'training7day'
+// Readiness/7-Day Training completion % for cafés other than the one
+// currently open in Profile — populated as each café's profile is opened
+// at least once, since loading every café's checklists up front for the
+// whole list would mean dozens of extra API calls.
+const CAFE_READINESS_CACHE = {};
+const CAFE_TRAINING7_CACHE = {};
+const PROFILE_SECTIONS = [
+  { id:'cpa', label:'📅 CPA Timeline' },
+  { id:'trainingrec', label:'🎓 Training & Recruitment' },
+  { id:'details', label:'🏢 Franchisee & Store Details' },
+  { id:'readiness', label:'✅ Project Readiness' },
+  { id:'training7day', label:'🎯 7-Day Training' },
 ];
 
 function setSaveStatus(text, cls){
@@ -400,6 +417,21 @@ function viewPipeline(){
   // into extraStores by migrateHardcodedStoresIfNeeded (see near its
   // declaration) and is only kept around as that migration's seed data.
 
+
+  // extraStores is global now (see near OT_TRAINING_DATA) — shared with
+  // the Home tab's pipeline KPIs, not redeclared here.
+  let expanded = null;
+  let expandedMilestones = new Set(); // "storeName::milestoneKey" — which CPA milestone rows are expanded
+  let detailSubTab = {}; // { storeName: 'cpa'|'training'|'bbetter'|'details' } — which sub-dash tab is showing for an expanded café
+  let subTab = 'active';
+  let cpaConfirmations = {};
+  let cafeSubmissions = []; // pending New Café requests awaiting Tarryn/Franlo approval
+  let storeDetails = {}; // { storeName: { address, description, location, size, seats, turnover, ... } }
+  let supportAllocations = {}; // { storeName: ["Support Member", ...] }
+  let newStoreSupport = []; // pending selection for the "Add a New Café" form
+  let trainingCalendars = {}; // { storeName: { weekLabels: ["Week 1",...], staff: [{position,name,startDateOverride,weeks:[...]}], positionRequirements: {position: count} } }
+  let newCafeBBetter = {}; // { storeName: { avgCompletion, onboardedMembers, onboardedPct, uploadedAt } } — from Beeline Groups Report upload
+
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <div><div class="page-title">New Cafes</div><div class="page-subtitle">CPA milestones, training progress, new store pipeline</div></div>
@@ -463,20 +495,6 @@ function viewPipeline(){
       <div id="otlAddedList" style="margin-top:16px;"></div>
     </div>
   `;
-
-  // extraStores is global now (see near OT_TRAINING_DATA) — shared with
-  // the Home tab's pipeline KPIs, not redeclared here.
-  let expanded = null;
-  let expandedMilestones = new Set(); // "storeName::milestoneKey" — which CPA milestone rows are expanded
-  let detailSubTab = {}; // { storeName: 'cpa'|'training'|'bbetter'|'details' } — which sub-dash tab is showing for an expanded café
-  let subTab = 'active';
-  let cpaConfirmations = {};
-  let cafeSubmissions = []; // pending New Café requests awaiting Tarryn/Franlo approval
-  let storeDetails = {}; // { storeName: { address, description, location, size, seats, turnover, ... } }
-  let supportAllocations = {}; // { storeName: ["Support Member", ...] }
-  let newStoreSupport = []; // pending selection for the "Add a New Café" form
-  let trainingCalendars = {}; // { storeName: { weekLabels: ["Week 1",...], staff: [{position,name,startDateOverride,weeks:[...]}], positionRequirements: {position: count} } }
-  let newCafeBBetter = {}; // { storeName: { avgCompletion, onboardedMembers, onboardedPct, uploadedAt } } — from Beeline Groups Report upload
   // Seed data pulled from the "New Store Dates" workbook (13 July 2026) for
   // stores that hadn't opened yet at that point and had real staff names
   // filled in on their own tab (positions-only templates with no names were
@@ -1720,9 +1738,10 @@ function viewPipeline(){
   }
 
   function renderAll(){
+    const regionSel = document.getElementById('otlRegion');
+    if (!regionSel) return; // dashboard shell no longer in the DOM
     const stores = allStores().filter(s => !isArchived(s));
     const regions = ['All', ...Array.from(new Set(stores.map(s=>s.region))).sort()];
-    const regionSel = document.getElementById('otlRegion');
     if (regionSel.options.length === 0) regionSel.innerHTML = regions.map(r=>`<option>${r}</option>`).join('');
 
     const upcoming90 = stores.filter(s => s.openDate && (new Date(s.openDate)-new Date(today))/86400000 <= 90 && (new Date(s.openDate)-new Date(today))/86400000 >= 0).length;
@@ -1777,8 +1796,383 @@ function viewPipeline(){
     }
   }
 
+  // ---------- Section content builders (shared by the Pipeline list's
+  // read-only snapshot and each café's full navigable Profile page) ----------
+  function progressBar(pct, color){ return `<div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.max(0,Math.min(100,pct||0))}%;background:${color};height:100%;border-radius:4px;"></div></div>`; }
+
+  function cpaSectionContent(s){
+    const milestoneList = s.cpa ? s.cpa.milestones.map(m => ({
+      key: m.key,
+      label: m.label,
+      date: m.date,
+      isCheckin: /^franchiseeMeeting\d+$/.test(m.key),
+      overridable: m.key !== 'openDate',
+    })) : [];
+    const confRec = cpaConfirmations[s.name] || {};
+    const customList = Array.isArray(confRec.__custom) ? confRec.__custom : [];
+    const cpaRows = milestoneList.length ? milestoneList.map(({key, label, date, isCheckin, overridable}) => {
+      const meta = getMilestoneMeta(s.name, key);
+      const mkey = s.name + '::' + key;
+      const isRowExpanded = expandedMilestones.has(mkey);
+      const overrideValue = (s.cpaOverrides && s.cpaOverrides[key]) || '';
+      const displayTitle = meta.title || label;
+      const flags = (meta.fileUrl ? ' 📎' : '') + (meta.comment ? ' 💬' : '') + (meta.description ? ' 📝' : '');
+      const expandedPanel = isRowExpanded ? `
+        <div style="padding:8px 10px 10px 26px;background:var(--grey-100);border-radius:0 0 4px 4px;">
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Title</label>
+            <input type="text" class="cpaTitleField" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(displayTitle)}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;box-sizing:border-box;font-weight:600;">
+          </div>
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Description</label>
+            <textarea class="cpaDescField" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Brief description of this action..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.description||'')}</textarea>
+          </div>
+          ${overridable ? `<div style="margin-bottom:6px;">
+            <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Manual Date Override</label>
+            <input type="date" class="cpaDateOverride" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(overrideValue)}" style="font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;">
+          </div>` : ''}
+          <div style="margin-bottom:6px;">
+            <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Comment</label>
+            <textarea class="cpaComment" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Notes..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.comment||'')}</textarea>
+          </div>
+          <div>
+            <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Attachment</label>
+            ${meta.fileUrl
+              ? `<a href="${meta.fileUrl}" target="_blank" style="font-size:11px;">📎 ${escTC(meta.fileName||'View file')}</a> <button type="button" class="cpaFileRemove" data-store="${escTC(s.name)}" data-key="${key}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;">Remove</button>`
+              : `<input type="file" class="cpaFileInput" data-store="${escTC(s.name)}" data-key="${key}" style="font-size:11px;">`}
+          </div>
+        </div>` : '';
+      return `<div style="border-bottom:1px solid var(--grey-200);">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;${isCheckin ? 'background:#e6f6f6;border-radius:3px;' : ''}">
+          <button type="button" class="cpaMilestoneToggle" data-mkey="${mkey}" title="Show title, description, notes &amp; attachment" style="border:none;background:none;cursor:pointer;font-size:9px;color:var(--grey-500);padding:0 2px;width:14px;flex-shrink:0;">${isRowExpanded ? '▾' : '▸'}</button>
+          <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${escTC(displayTitle)}${flags}</span>
+          <b style="white-space:nowrap;">${date || '—'}</b>
+          <input type="checkbox" class="cpaConfirmCheck" data-store="${escTC(s.name)}" data-key="${key}" ${meta.confirmed ? 'checked' : ''} title="Confirm next phase started successfully" style="cursor:pointer;width:14px;height:14px;flex-shrink:0;">
+        </div>
+        ${expandedPanel}
+      </div>`;
+    }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>`
+      : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
+    const customRows = customList.length ? customList.map((c, ci) => `
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border-bottom:1px solid var(--grey-200);">
+        <span style="flex:1;font-style:italic;">${escTC(c.label)} <span style="font-size:9px;color:var(--grey-500);">(manual entry)</span></span>
+        <b style="white-space:nowrap;">${escTC(c.date||'—')}</b>
+        <input type="checkbox" class="cpaCustomConfirmCheck" data-store="${escTC(s.name)}" data-idx="${ci}" ${c.confirmed ? 'checked' : ''}>
+        <button type="button" class="cpaCustomRemove" data-store="${escTC(s.name)}" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button>
+      </div>`).join('') : '';
+    const addCustomForm = `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <input type="text" class="cpaCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom milestone / action..." style="flex:1;min-width:180px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
+      <input type="date" class="cpaCustomDateInput" data-store="${escTC(s.name)}" style="font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
+      <button type="button" class="btn btn-outline btn-mini cpaCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
+    </div>`;
+    const postSupport = s.cpa ? `<div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:10px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>` : '';
+    const total = milestoneList.length + customList.length;
+    let done = 0;
+    milestoneList.forEach(m => { if (getMilestoneMeta(s.name, m.key).confirmed) done++; });
+    customList.forEach(c => { if (c.confirmed) done++; });
+    const pct = total ? Math.round((done/total)*100) : 0;
+    const html = `<div class="section-title">📅 CPA Timeline</div><div>${cpaRows}${customRows}${addCustomForm}${postSupport}</div>`;
+    return { html, pct };
+  }
+
+  function trainingRecSectionContent(s){
+    const t = s.training;
+    const progressMeter = `
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Recruitment</span><b>${t.recruitmentPct===null?'—':Math.round(t.recruitmentPct)+'%'}</b></div>
+        ${progressBar(t.recruitmentPct, 'var(--gold)')}
+        <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.recruitmentPct===null ? 'Add position rows in the Training Calendar below to track recruitment' : `${t.totalFilled} of ${t.totalRequired} positions filled`}</div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Training Progress</span><b>${Math.round(t.trainingPct)}%</b></div>
+        ${progressBar(t.trainingPct, 'var(--gold)')}
+        <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.avgWeek ? `Avg. week ${Math.max(1,Math.round(t.avgWeek))} of 4` : 'No trainees started yet'}</div>
+      </div>`;
+    const ncBB = newCafeBBetterFor(s.name);
+    const bbetterHtml = ncBB ? `
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Completion</span><b>${Math.round(ncBB.avgCompletion)}%</b></div>
+        ${progressBar(ncBB.avgCompletion, ncBB.avgCompletion>=85?'var(--green)':ncBB.avgCompletion>=60?'var(--gold)':'var(--red)')}
+        <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">Avg. course completion · Source: Beeline Groups Report${ncBB.uploadedAt?' · '+fmtShortDate(ncBB.uploadedAt):''}</div>
+      </div>
+      <div style="border-top:1px solid var(--grey-200);padding-top:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Onboarding</span><b>${Math.round(ncBB.onboardedPct)}%</b></div>
+        ${progressBar(ncBB.onboardedPct, 'var(--gold)')}
+        <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${ncBB.onboardedMembers} member(s) onboarded</div>
+      </div>`
+      : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data loaded for this store.<br>Upload a Groups Report above to populate this section.</div>`;
+    const supportChipsHtml = `<div>${OT_PEOPLE_LIST.map(member => {
+      const assigned = (supportAllocations[s.name] || []).includes(member);
+      return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
+    }).join('')}</div>
+    <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>`;
+    const cal = getTrainingCalendar(s.name);
+    if (!Array.isArray(cal.customItems)) cal.customItems = [];
+    const colCount = 4 + cal.weekLabels.length + 1;
+    const calRows = cal.staff.map((p, pi) => {
+      const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
+      return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+      ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
+    </tr>`;
+    }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
+    const calendarHtml = `
+      <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
+          <thead><tr>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
+            ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
+            <th style="border-bottom:1px solid var(--grey-200);"></th>
+          </tr></thead>
+          <tbody>${calRows}</tbody>
+        </table>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+        <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
+        <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
+        <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4.</span>
+      </div>`;
+    const customRows = cal.customItems.map((c, ci) => `
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border-bottom:1px solid var(--grey-200);">
+        <span style="flex:1;font-style:italic;">${escTC(c.label)} <span style="font-size:9px;color:var(--grey-500);">(manual entry)</span></span>
+        <select class="trainRecCustomStatus" data-store="${escTC(s.name)}" data-idx="${ci}" style="font-size:11px;padding:3px 5px;border:1px solid var(--grey-300);">
+          <option value="Pending" ${(!c.status||c.status==='Pending')?'selected':''}>Pending</option>
+          <option value="Done" ${c.status==='Done'?'selected':''}>Done</option>
+          <option value="N/A" ${c.status==='N/A'?'selected':''}>N/A</option>
+        </select>
+        <button type="button" class="trainRecCustomRemove" data-store="${escTC(s.name)}" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button>
+      </div>`).join('');
+    const addCustomForm = `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <input type="text" class="trainRecCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom training/recruitment action..." style="flex:1;min-width:180px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
+      <button type="button" class="btn btn-outline btn-mini trainRecCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
+    </div>`;
+    const subScores = [];
+    if (t.recruitmentPct !== null && t.recruitmentPct !== undefined) subScores.push(t.recruitmentPct);
+    if (t.trainingPct !== null && t.trainingPct !== undefined) subScores.push(t.trainingPct);
+    if (ncBB) subScores.push(ncBB.avgCompletion);
+    let doneCustom = 0;
+    cal.customItems.forEach(c => { if (c.status && c.status !== 'Pending') doneCustom++; });
+    if (cal.customItems.length) subScores.push((doneCustom/cal.customItems.length)*100);
+    const pct = subScores.length ? Math.round(subScores.reduce((a,b)=>a+b,0)/subScores.length) : 0;
+    const html = `
+      <div class="section-title">🎓 Training & Recruitment</div>
+      ${progressMeter}
+      <div style="margin-top:20px;"><div class="section-title">🏅 B.Better Academy</div>${bbetterHtml}</div>
+      <div style="margin-top:20px;"><div class="section-title">🤝 Support Team Allocation</div>${supportChipsHtml}</div>
+      <div style="margin-top:20px;"><div class="section-title">📅 Training Calendar</div>${calendarHtml}</div>
+      <div style="margin-top:20px;">
+        <div class="section-title">📝 Manual Entries</div>
+        ${customRows || '<div class="empty-state" style="padding:10px;font-size:11px;">No manual entries yet.</div>'}
+        ${addCustomForm}
+      </div>`;
+    return { html, pct };
+  }
+
+  function detailsSectionContent(s){
+    const det = storeDetails[s.name] || {};
+    if (!Array.isArray(det.customFields)) det.customFields = [];
+    const field = (key, label, type) => `<div>
+      <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">${label}</label>
+      <input type="${type||'text'}" class="sdField" data-store="${escTC(s.name)}" data-field="${key}" value="${escTC(det[key]||'')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">
+    </div>`;
+    const contactGroup = (label, nameField, nameValue, emailField, phoneField) => `
+      <div style="border:1px solid var(--grey-200);border-radius:3px;padding:8px 10px;">
+        <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.05em;margin-bottom:6px;">${label}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
+          ${nameField ? field(nameField, 'Name') : `<div><label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Name</label><div style="padding:5px 0;font-size:11.5px;">${escTC(nameValue || '—')}</div></div>`}
+          ${field(emailField, 'Email')}
+          ${field(phoneField, 'Contact No.')}
+        </div>
+      </div>`;
+    const isEditableStore = s.id !== undefined;
+    const openDateField = `<div>
+      <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Store Opening Date</label>
+      <input type="date" ${isEditableStore ? `class="odField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.openDate||'')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
+    </div>`;
+    const createdDateField = `<div>
+      <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Café Created Date</label>
+      <input type="date" ${isEditableStore ? `class="cdField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.createdDate || (s.cpa && s.cpa.createdDate) || '')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
+    </div>`;
+    const customRows = det.customFields.map((c, ci) => `
+      <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;border-bottom:1px solid var(--grey-200);">
+        <span style="width:160px;font-style:italic;">${escTC(c.label)}</span>
+        <input type="text" class="detailsCustomValue" data-store="${escTC(s.name)}" data-idx="${ci}" value="${escTC(c.value||'')}" style="flex:1;font-size:11.5px;padding:5px 7px;border:1px solid var(--grey-200);">
+        <button type="button" class="detailsCustomRemove" data-store="${escTC(s.name)}" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button>
+      </div>`).join('');
+    const addCustomForm = `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+      <input type="text" class="detailsCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom field name..." style="flex:1;min-width:160px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
+      <button type="button" class="btn btn-outline btn-mini detailsCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
+    </div>`;
+    const trackedKeys = ['location','seats','turnover','address','invoicingDetails','representative','representativeEmail','representativeContactNumber','fsmEmail','fsmContactNumber','pm','pmEmail','pmContactNumber','landlordContact','landlordEmail','landlordContactNumber'];
+    let filled = trackedKeys.filter(k => det[k] && String(det[k]).trim()).length;
+    let total = trackedKeys.length + 2;
+    if (s.openDate) filled++;
+    if (s.createdDate || (s.cpa && s.cpa.createdDate)) filled++;
+    det.customFields.forEach(c => { total++; if (c.value && String(c.value).trim()) filled++; });
+    const pct = total ? Math.round((filled/total)*100) : 0;
+    const html = `<div class="section-title">🏢 Franchisee & Store Details</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
+        ${openDateField}${createdDateField}
+        ${field('location','Location')}${field('seats','Seat No.')}${field('turnover','Anticipated Turnover')}${field('address','Store Address')}${field('invoicingDetails','Franchisee Invoicing Details')}
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:16px;">
+        ${contactGroup('Representative', 'representative', null, 'representativeEmail', 'representativeContactNumber')}
+        ${contactGroup('FSM', null, s.fsm, 'fsmEmail', 'fsmContactNumber')}
+        ${contactGroup('Project Manager', 'pm', null, 'pmEmail', 'pmContactNumber')}
+        ${contactGroup('Landlord Contact', 'landlordContact', null, 'landlordEmail', 'landlordContactNumber')}
+      </div>
+      <div class="section-title">📝 Manual Entries</div>
+      ${customRows || '<div class="empty-state" style="padding:10px;font-size:11px;">No manual entries yet.</div>'}
+      ${addCustomForm}`;
+    return { html, pct };
+  }
+
+  function readinessSectionContent(s){
+    if (!READINESS_STATE) return { html: '<div class="empty-state">Loading…</div>', pct: 0 };
+    if (!Array.isArray(READINESS_STATE.customItems)) READINESS_STATE.customItems = [];
+    const prog = readinessProgress();
+    let body = `<div class="section-title" style="margin-bottom:0;">✅ Project Readiness Checklist</div>
+      <div class="progress-track" style="margin:10px 0 20px;"><div class="progress-fill" id="readinessProgressFill" style="width:${prog.pct}%;"></div></div>`;
+    READINESS_CONFIG.phases.forEach((phase, pi) => {
+      body += `<div class="section-divider">${escapeHtml(phase.title)}</div>`;
+      phase.subsections.forEach((sub, si) => {
+        if (sub.group_only) { body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`; return; }
+        if (sub.title) body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`;
+        const rows = sub.items.map((it, ii) => {
+          const key = pi + '_' + si + '_' + ii;
+          const rowState = (READINESS_STATE.items||{})[key] || {};
+          const cols = READINESS_CONFIG.item_columns.map(col => `<td>${inputHtml(col, 'items.' + key + '.' + col.key, rowState[col.key])}</td>`).join('');
+          return `<tr><td style="width:34px;color:var(--grey-500);">${ii+1}</td><td>${escapeHtml(it.label)}</td>${cols}</tr>`;
+        }).join('');
+        const headCols = READINESS_CONFIG.item_columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
+        body += `<div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item / Task / Service</th>${headCols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+        if (sub.has_comments) {
+          const cKey = pi + '_' + si;
+          const cVal = (READINESS_STATE.subComments||{})[cKey] || '';
+          body += `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
+        }
+      });
+    });
+    const customRows = READINESS_STATE.customItems.map((c, ci) => `
+      <tr><td style="width:34px;color:var(--grey-500);">${ci+1}</td>
+      <td><input type="text" data-path="customItems.${ci}.label" data-kind="text" value="${escapeHtml(c.label)}" style="font-style:italic;"></td>
+      <td><select data-path="customItems.${ci}.status" data-kind="select"><option value="">—</option>${['Pending','Yes','No','N/A'].map(o=>`<option value="${o}" ${c.status===o?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td><input type="text" data-path="customItems.${ci}.comment" data-kind="text" value="${escapeHtml(c.comment)}"></td>
+      <td><button type="button" class="readinessCustomRemove" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
+    body += `<div class="section-divider">Manual Entries</div>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Status</th><th>Comment</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="5" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
+      <button class="btn btn-outline btn-mini readinessCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>`;
+    body += `<div class="section-divider">Sign-Off</div><div class="card">${
+      (() => {
+        const fields = READINESS_CONFIG.signoff_fields.map(f => {
+          const v = (READINESS_STATE.signoff||{})[f.key];
+          return `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, 'signoff.' + f.key, v)}</div>`;
+        }).join('');
+        return `<div class="form-grid two">${fields}</div>`;
+      })()
+    }</div>`;
+    return { html: body, pct: prog.pct };
+  }
+
+  function training7dayProgress(){
+    let total = 7, doneWeighted = 0;
+    Object.keys(TRAINING7DAY_CONFIG.days).forEach(dnum => {
+      const day = TRAINING_STATE.days && TRAINING_STATE.days[dnum];
+      const signoff = day && day.sections && day.sections['d'+dnum+'_signoff'];
+      if (signoff && signoff.overall_status === 'Pass') doneWeighted += 1;
+      else if (signoff && signoff.overall_status === 'Needs Follow-up') doneWeighted += 0.5;
+    });
+    const custom = Array.isArray(TRAINING_STATE.customItems) ? TRAINING_STATE.customItems : [];
+    total += custom.length;
+    custom.forEach(it => { if (it.status && it.status !== 'Pending') doneWeighted += 1; });
+    return { total, done: doneWeighted, pct: total ? Math.round((doneWeighted/total)*100) : 0 };
+  }
+
+  function training7daySectionContent(s){
+    if (!TRAINING_STATE) return { html: '<div class="empty-state">Loading…</div>', pct: 0 };
+    if (!Array.isArray(TRAINING_STATE.customItems)) TRAINING_STATE.customItems = [];
+    const prog = training7dayProgress();
+    const dayTabs = Object.keys(TRAINING7DAY_CONFIG.days).map(dnum => {
+      const dot = dayCompletionDot(dnum);
+      return `<button class="day-tab ${String(ACTIVE_DAY)===dnum?'active':''}" data-day="${dnum}"><span class="dot ${dot}"></span>Day ${dnum}</button>`;
+    }).join('');
+    const day = TRAINING7DAY_CONFIG.days[String(ACTIVE_DAY)];
+    const dayStatePath = 'days.' + ACTIVE_DAY;
+    if (!deepGet(TRAINING_STATE, dayStatePath)) deepSet(TRAINING_STATE, dayStatePath, { header:{}, sections:{} });
+    let sectionsHtml = '';
+    day.sections.forEach(section => {
+      const statePath = dayStatePath + '.sections.' + section.id;
+      if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, section.kind === 'dynamic' ? {rows:[]} : (section.kind==='signoff' ? {} : {rows:{}}));
+      sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
+    });
+    const headerState = deepGet(TRAINING_STATE, dayStatePath + '.header') || {};
+    const headerFields = day.header_fields.map(f => `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, dayStatePath + '.header.' + f.key, headerState[f.key])}</div>`).join('');
+    const customRows = TRAINING_STATE.customItems.map((c, ci) => `
+      <tr><td style="width:34px;color:var(--grey-500);">${ci+1}</td>
+      <td><input type="text" data-path="customItems.${ci}.label" data-kind="text" value="${escapeHtml(c.label)}" style="font-style:italic;"></td>
+      <td><select data-path="customItems.${ci}.status" data-kind="select"><option value="">—</option>${['Pending','Done','N/A'].map(o=>`<option value="${o}" ${c.status===o?'selected':''}>${o}</option>`).join('')}</select></td>
+      <td><input type="text" data-path="customItems.${ci}.notes" data-kind="text" value="${escapeHtml(c.notes)}"></td>
+      <td><button type="button" class="training7dayCustomRemove" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
+    const html = `
+      <div class="section-title" style="margin-bottom:0;">🎯 7-Day On-Site Training</div>
+      <div class="progress-track" style="margin:10px 0 16px;"><div class="progress-fill" style="width:${prog.pct}%;"></div></div>
+      <div class="day-tabs">${dayTabs}</div>
+      <div class="form-grid two" style="margin-bottom:16px;">${headerFields}</div>
+      <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(day.focus)}</div>
+      ${sectionsHtml}
+      <div class="section-divider">Manual Entries (café-wide)</div>
+      <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="5" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
+      <button class="btn btn-outline btn-mini training7dayCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>
+    `;
+    return { html, pct: prog.pct };
+  }
+
+  // ---------- Snapshot (Pipeline list) ----------
+  function readinessProgress(){
+    let total = 0, done = 0;
+    READINESS_CONFIG.phases.forEach((p, pi) => p.subsections.forEach((s, si) => {
+      if (s.group_only) return;
+      (s.items||[]).forEach((it, ii) => {
+        total++;
+        const key = pi + '_' + si + '_' + ii;
+        const v = (READINESS_STATE.items||{})[key];
+        if (v && v.status && v.status !== 'Pending') done++;
+      });
+    }));
+    (READINESS_STATE.customItems||[]).forEach(it => { total++; if (it.status && it.status !== 'Pending') done++; });
+    return { total, done, pct: total ? Math.round((done/total)*100) : 0 };
+  }
+
+  function snapshotForStore(s){
+    // Readiness/Training snapshot use whatever's currently cached for the
+    // ACTIVE profile café only (loading all cafés' checklists up front for
+    // a whole list would mean dozens of extra API calls) — for any other
+    // café in the list we show '—' until you open its profile once.
+    const isActiveProfileCafe = String(s.id) === String(PROFILE_CAFE_ID);
+    const cpa = cpaSectionContent(s);
+    const trainingRec = trainingRecSectionContent(s);
+    const details = detailsSectionContent(s);
+    const readinessPct = (isActiveProfileCafe && READINESS_STATE) ? readinessProgress().pct : (CAFE_READINESS_CACHE[s.id] != null ? CAFE_READINESS_CACHE[s.id] : null);
+    const trainingPct = (isActiveProfileCafe && TRAINING_STATE) ? training7dayProgress().pct : (CAFE_TRAINING7_CACHE[s.id] != null ? CAFE_TRAINING7_CACHE[s.id] : null);
+    const parts = [cpa.pct, trainingRec.pct, details.pct];
+    if (readinessPct !== null) parts.push(readinessPct);
+    if (trainingPct !== null) parts.push(trainingPct);
+    const overall = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length) : 0;
+    return { cpaPct: cpa.pct, trainingRecPct: trainingRec.pct, detailsPct: details.pct, readinessPct, trainingPct, overall };
+  }
+
   function renderStoreList(){
-    const search = document.getElementById('otlSearch').value.toLowerCase();
+    const searchEl = document.getElementById('otlSearch');
+    if (!searchEl) return; // dashboard shell no longer in the DOM (e.g. switched to Profile before this load resolved)
+    const search = searchEl.value.toLowerCase();
     const region = document.getElementById('otlRegion').value;
     let rows = allStores()
       .filter(s => subTab === 'archive' ? isArchived(s) : !isArchived(s))
@@ -1791,204 +2185,24 @@ function viewPipeline(){
       const status = days===null?'TBD':days<0?'Opened':days===0?'Today!':days+'d';
       let detail = '';
       if (isExp) {
-        const milestoneList = s.cpa ? s.cpa.milestones.map(m => ({
-          key: m.key,
-          label: m.label,
-          date: m.date,
-          isCheckin: /^franchiseeMeeting\d+$/.test(m.key),
-          overridable: m.key !== 'openDate', // Opening Date is edited via the Store Opening Date field itself, not overridden separately here
-        })) : [];
-        const cpaRows = milestoneList.length ? milestoneList.map(({key, label, date, isCheckin, overridable}) => {
-          const meta = getMilestoneMeta(s.name, key);
-          const mkey = s.name + '::' + key;
-          const isRowExpanded = expandedMilestones.has(mkey);
-          const overrideValue = (s.cpaOverrides && s.cpaOverrides[key]) || '';
-          const displayTitle = meta.title || label;
-          const flags = (meta.fileUrl ? ' 📎' : '') + (meta.comment ? ' 💬' : '') + (meta.description ? ' 📝' : '');
-          const expandedPanel = isRowExpanded ? `
-            <div style="padding:8px 10px 10px 26px;background:var(--grey-100);border-radius:0 0 4px 4px;">
-              <div style="margin-bottom:6px;">
-                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Title</label>
-                <input type="text" class="cpaTitleField" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(displayTitle)}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;box-sizing:border-box;font-weight:600;">
-              </div>
-              <div style="margin-bottom:6px;">
-                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Description</label>
-                <textarea class="cpaDescField" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Brief description of this action..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.description||'')}</textarea>
-              </div>
-              ${overridable ? `<div style="margin-bottom:6px;">
-                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Manual Date Override</label>
-                <input type="date" class="cpaDateOverride" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(overrideValue)}" style="font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;">
-              </div>` : ''}
-              <div style="margin-bottom:6px;">
-                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Comment</label>
-                <textarea class="cpaComment" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Notes..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.comment||'')}</textarea>
-              </div>
-              <div>
-                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Attachment</label>
-                ${meta.fileUrl
-                  ? `<a href="${meta.fileUrl}" target="_blank" style="font-size:11px;">📎 ${escTC(meta.fileName||'View file')}</a> <button type="button" class="cpaFileRemove" data-store="${escTC(s.name)}" data-key="${key}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;">Remove</button>`
-                  : `<input type="file" class="cpaFileInput" data-store="${escTC(s.name)}" data-key="${key}" style="font-size:11px;">`}
-              </div>
-            </div>` : '';
-          return `<div style="border-bottom:1px solid var(--grey-200);">
-            <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;${isCheckin ? 'background:#e6f6f6;border-radius:3px;' : ''}">
-              <button type="button" class="cpaMilestoneToggle" data-mkey="${mkey}" title="Show title, description, notes &amp; attachment" style="border:none;background:none;cursor:pointer;font-size:9px;color:var(--grey-500);padding:0 2px;width:14px;flex-shrink:0;">${isRowExpanded ? '▾' : '▸'}</button>
-              <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${escTC(displayTitle)}${flags}</span>
-              <b style="white-space:nowrap;">${date || '—'}</b>
-              <input type="checkbox" class="cpaConfirmCheck" data-store="${escTC(s.name)}" data-key="${key}" ${meta.confirmed ? 'checked' : ''} title="Confirm next phase started successfully" style="cursor:pointer;width:14px;height:14px;flex-shrink:0;">
-            </div>
-            ${expandedPanel}
-          </div>`;
-        }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>`
-          : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
-        const postSupport = s.cpa ? `<div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:10px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>` : '';
-        const t = s.training;
-        const bar = (pct, color) => `<div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.max(0,Math.min(100,pct||0))}%;background:${color};height:100%;border-radius:4px;"></div></div>`;
-        const progressMeter = `
-          <div style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Recruitment</span><b>${t.recruitmentPct===null?'—':Math.round(t.recruitmentPct)+'%'}</b></div>
-            ${bar(t.recruitmentPct, 'var(--gold)')}
-            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.recruitmentPct===null ? 'Add position rows in the Training Calendar below to track recruitment' : `${t.totalFilled} of ${t.totalRequired} positions filled`}</div>
-          </div>
-          <div style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Training Progress</span><b>${Math.round(t.trainingPct)}%</b></div>
-            ${bar(t.trainingPct, 'var(--gold)')}
-            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.avgWeek ? `Avg. week ${Math.max(1,Math.round(t.avgWeek))} of 4` : 'No trainees started yet'}</div>
-          </div>
-          <div>
-            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Overall</span><b>${t.overallPct===null?'—':Math.round(t.overallPct)+'%'}</b></div>
-            ${bar(t.overallPct, 'var(--green)')}
-          </div>`;
-        const ncBB = newCafeBBetterFor(s.name);
-        const bbetterSection = ncBB ? `
-          <div style="margin-bottom:10px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Completion</span><b>${Math.round(ncBB.avgCompletion)}%</b></div>
-            ${bar(ncBB.avgCompletion, ncBB.avgCompletion>=85?'var(--green)':ncBB.avgCompletion>=60?'var(--gold)':'var(--red)')}
-            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">Avg. course completion · Source: Beeline Groups Report${ncBB.uploadedAt?' · '+fmtShortDate(ncBB.uploadedAt):''}</div>
-          </div>
-          <div style="border-top:1px solid var(--grey-200);padding-top:8px;">
-            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Onboarding</span><b>${Math.round(ncBB.onboardedPct)}%</b></div>
-            ${bar(ncBB.onboardedPct, 'var(--gold)')}
-            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${ncBB.onboardedMembers} member(s) onboarded</div>
-          </div>`
-          : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data loaded for this store.<br>Upload a Groups Report above to populate this section.</div>`;
-        const activeSub = detailSubTab[s.name] || 'cpa';
-        const subTabBtn = (key, label) => `<button type="button" class="detailSubTabBtn" data-store="${escTC(s.name)}" data-sub="${key}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${activeSub===key?'var(--gold)':'transparent'};background:none;color:${activeSub===key?'#000':'var(--grey-500)'};">${label}</button>`;
-        const subDashNav = `<div style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:16px;overflow-x:auto;">
-          ${subTabBtn('cpa','📅 CPA Timeline')}
-          ${subTabBtn('training','🎓 Training &amp; Recruitment')}
-          ${subTabBtn('bbetter','🏅 B.Better Academy')}
-          ${subTabBtn('details','🏢 Franchisee &amp; Store Details')}
-        </div>`;
-        const cpaSectionHtml = `<div>
-          ${cpaRows}
-          ${postSupport}
-        </div>`;
-        const trainingSectionHtml = `<div>
-          <div class="section-title">📊 Training Progress</div>
-          ${progressMeter}
-          <div style="margin-top:20px;">
-            <div class="section-title">🤝 Support Team Allocation</div>
-            <div>${OT_PEOPLE_LIST.map(member => {
-              const assigned = (supportAllocations[s.name] || []).includes(member);
-              return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
-            }).join('')}</div>
-            <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>
-          </div>
-          <div style="margin-top:20px;">
-            <div class="section-title">🎓 Training Calendar</div>
-            <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
-            ${(() => {
-              const cal = getTrainingCalendar(s.name);
-              const colCount = 4 + cal.weekLabels.length + 1;
-              const rows = cal.staff.map((p, pi) => {
-                const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
-                const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
-                return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
-                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
-                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
-                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
-                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
-                ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
-                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
-              </tr>`;
-              }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
-              return `
-              <div style="overflow-x:auto;">
-                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
-                  <thead><tr>
-                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
-                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
-                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
-                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
-                    ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
-                    <th style="border-bottom:1px solid var(--grey-200);"></th>
-                  </tr></thead>
-                  <tbody>${rows}</tbody>
-                </table>
-              </div>
-              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
-                <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
-                <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
-                <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4. Start Date defaults to this café's Training Start Date (Opening Date − 5 weeks) for everyone — edit an individual row's Start Date to override it.</span>
-              </div>`;
-            })()}
-          </div>
-        </div>`;
-        const bbetterSectionHtml = `<div><div class="section-title">🏅 B.Better Academy</div>${bbetterSection}</div>`;
-        const detailsSectionHtml = `<div><div class="section-title">🏢 Franchisee &amp; Store Details</div>
-          ${(() => {
-            const det = storeDetails[s.name] || {};
-            const field = (key, label, type) => `<div>
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">${label}</label>
-              <input type="${type||'text'}" class="sdField" data-store="${escTC(s.name)}" data-field="${key}" value="${escTC(det[key]||'')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">
-            </div>`;
-            // Representative / FSM / Project Manager / Landlord Contact each
-            // get their own Name / Email / Contact No. group. FSM's name is
-            // the store's own FSM field (already tracked elsewhere in the
-            // app for roster matching), shown read-only here — only its
-            // email/contact are store-detail fields; the other three are
-            // fully editable since there's no equivalent field for them.
-            const contactGroup = (label, nameField, nameValue, emailField, phoneField) => `
-              <div style="border:1px solid var(--grey-200);border-radius:3px;padding:8px 10px;">
-                <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.05em;margin-bottom:6px;">${label}</div>
-                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
-                  ${nameField ? field(nameField, 'Name') : `<div><label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Name</label><div style="padding:5px 0;font-size:11.5px;">${escTC(nameValue || '—')}</div></div>`}
-                  ${field(emailField, 'Email')}
-                  ${field(phoneField, 'Contact No.')}
-                </div>
-              </div>`;
-            const isEditableStore = s.id !== undefined; // extraStores (added manually or via approval) carry an id; the original hardcoded pipeline stores don't
-            const openDateField = `<div>
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Store Opening Date</label>
-              <input type="date" ${isEditableStore ? `class="odField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.openDate||'')}" title="${isEditableStore ? 'Drives the CPA Timeline dates and the Post-Support Schedule' : 'This café is part of the original pipeline data — its date lives in the app source, not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
-            </div>`;
-            const createdDateField = `<div>
-              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Café Created Date</label>
-              <input type="date" ${isEditableStore ? `class="cdField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.createdDate || (s.cpa && s.cpa.createdDate) || '')}" title="${isEditableStore ? 'Auto-set to the day this café was added or its submission form was uploaded. Cafés predating that (no recorded date) default to a calculated point well before Handover — this field is only for a manual override if you know the actual real-world date.' : 'This café is part of the original pipeline data — not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
-            </div>`;
-            return `
-            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
-              ${openDateField}
-              ${createdDateField}
-              ${field('location','Location')}
-              ${field('seats','Seat No.')}
-              ${field('turnover','Anticipated Turnover')}
-              ${field('address','Store Address')}
-              ${field('invoicingDetails','Franchisee Invoicing Details')}
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
-              ${contactGroup('Representative', 'representative', null, 'representativeEmail', 'representativeContactNumber')}
-              ${contactGroup('FSM', null, s.fsm, 'fsmEmail', 'fsmContactNumber')}
-              ${contactGroup('Project Manager', 'pm', null, 'pmEmail', 'pmContactNumber')}
-              ${contactGroup('Landlord Contact', 'landlordContact', null, 'landlordEmail', 'landlordContactNumber')}
-            </div>`;
-          })()}
-        </div>`;
-        const sectionByTab = { cpa: cpaSectionHtml, training: trainingSectionHtml, bbetter: bbetterSectionHtml, details: detailsSectionHtml };
+        const snap = snapshotForStore(s);
+        const rag = (pct) => pct>=80?'var(--green)':pct>=50?'var(--gold)':'var(--red)';
+        const miniBar = (label, pct, sectionId) => `
+          <button type="button" class="snapshotSectionBtn" data-store-id="${s.id}" data-section="${sectionId}" style="display:block;width:100%;text-align:left;border:none;background:none;cursor:pointer;padding:6px 0;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;"><span>${label}</span><b>${pct===null?'—':pct+'%'}</b></div>
+            ${progressBar(pct, rag(pct||0))}
+          </button>`;
         detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;">
-          ${subDashNav}
-          ${sectionByTab[activeSub] || cpaSectionHtml}
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <div style="font-size:12px;font-weight:700;">Opening Status Snapshot</div>
+            <div style="font-size:20px;font-weight:800;color:${rag(snap.overall)};">${snap.overall}%</div>
+          </div>
+          ${miniBar('📅 CPA Timeline', snap.cpaPct, 'cpa')}
+          ${miniBar('🎓 Training & Recruitment', snap.trainingRecPct, 'trainingrec')}
+          ${miniBar('🏢 Franchisee & Store Details', snap.detailsPct, 'details')}
+          ${miniBar('✅ Project Readiness', snap.readinessPct, 'readiness')}
+          ${miniBar('🎯 7-Day Training', snap.trainingPct, 'training7day')}
+          <div style="font-size:10px;color:var(--grey-500);margin-top:10px;">Click any row above, or "Opening Status →", to open the full profile.</div>
         </div>`;
       }
       const assignedSupport = supportAllocations[s.name] || [];
@@ -1997,7 +2211,7 @@ function viewPipeline(){
           <div style="flex:1;"><b>${s.name}</b><div style="font-size:11px;color:var(--grey-500);">${s.type} · ${s.region} · FSM: ${s.fsm||'—'} · Support: ${assignedSupport.length ? assignedSupport.join(', ') : '—'}</div></div>
           <div style="font-size:12px;font-weight:700;">${status}</div>
           <div style="font-size:11px;color:var(--grey-500);">${s.openDate||'Date TBC'}</div>
-          <button class="btn btn-outline btn-mini" data-open-checklists="${s.id}" style="white-space:nowrap;">Checklists →</button>
+          <button class="btn btn-outline btn-mini" data-open-checklists="${s.id}" style="white-space:nowrap;">Opening Status →</button>
         </div>
         ${detail}
       </div>`;
@@ -2005,108 +2219,205 @@ function viewPipeline(){
 
     document.querySelectorAll('[data-open-checklists]').forEach(el => el.addEventListener('click', async (e) => {
       e.stopPropagation();
-      ACTIVE_CAFE_ID = el.dataset.openChecklists;
-      ACTIVE_VIEW = 'readiness';
-      await loadCafeChecklists();
-      render();
+      await enterProfile(el.dataset.openChecklists, 'cpa');
+    }));
+    document.querySelectorAll('.snapshotSectionBtn').forEach(el => el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await enterProfile(el.dataset.storeId, el.dataset.section);
     }));
     document.querySelectorAll('[data-toggle]').forEach(el => el.addEventListener('click', () => {
       expanded = expanded === el.dataset.toggle ? null : el.dataset.toggle;
       renderStoreList();
     }));
-    document.querySelectorAll('.detailSubTabBtn').forEach(el => el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      detailSubTab[el.dataset.store] = el.dataset.sub;
-      renderStoreList();
+  }
+
+  // ---------- Profile view (per-café, navigable sub-sections) ----------
+  async function enterProfile(cafeId, section){
+    PROFILE_CAFE_ID = cafeId;
+    PROFILE_SECTION = section || 'cpa';
+    ACTIVE_CAFE_ID = cafeId;
+    await loadCafeChecklists();
+    render();
+  }
+
+  function renderProfile(){
+    const app = document.getElementById('app');
+    const s = allStores().find(x => String(x.id) === String(PROFILE_CAFE_ID));
+    if (!s) {
+      app.innerHTML = `<div class="empty-state">Café not found. <a href="#" id="profileBackLink">← Back to Pipeline</a></div>`;
+      document.getElementById('profileBackLink').addEventListener('click', (e) => { e.preventDefault(); PROFILE_CAFE_ID = null; render(); });
+      return;
+    }
+    const cpa = cpaSectionContent(s);
+    const trainingRec = trainingRecSectionContent(s);
+    const details = detailsSectionContent(s);
+    const readiness = readinessSectionContent(s);
+    const training7 = training7daySectionContent(s);
+    const sectionData = { cpa, trainingrec: trainingRec, details, readiness, training7day: training7 };
+    const pctFor = { cpa: cpa.pct, trainingrec: trainingRec.pct, details: details.pct, readiness: readiness.pct, training7day: training7.pct };
+    const overall = Math.round((cpa.pct + trainingRec.pct + details.pct + readiness.pct + training7.pct) / 5);
+    CAFE_READINESS_CACHE[s.id] = readiness.pct;
+    CAFE_TRAINING7_CACHE[s.id] = training7.pct;
+    const rag = (pct) => pct>=80?'var(--green)':pct>=50?'var(--gold)':'var(--red)';
+
+    const subNav = PROFILE_SECTIONS.map(sec => `
+      <button type="button" class="detailSubTabBtn" data-sub="${sec.id}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${PROFILE_SECTION===sec.id?'var(--gold)':'transparent'};background:none;color:${PROFILE_SECTION===sec.id?'#000':'var(--grey-500)'};white-space:nowrap;">${sec.label} <span style="color:${rag(pctFor[sec.id])};font-weight:800;">${pctFor[sec.id]}%</span></button>`).join('');
+
+    app.innerHTML = `
+      <div class="page-header">
+        <div><div class="page-title">${escapeHtml(s.name)}</div><div class="page-subtitle">${escapeHtml(s.type||'')} · ${escapeHtml(s.region||'')} · FSM: ${escapeHtml(s.fsm||'—')} · Opening ${escapeHtml(s.openDate||'TBC')}</div></div>
+        <div style="text-align:right;">
+          <div style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey-500);">Overall Readiness</div>
+          <div style="font-size:28px;font-weight:800;color:${rag(overall)};">${overall}%</div>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;"><a href="#" id="profileBackLink" style="font-size:11px;color:var(--grey-700);">← Back to Pipeline</a></div>
+      <div style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:20px;overflow-x:auto;">${subNav}</div>
+      <div id="profileSectionContent">${sectionData[PROFILE_SECTION].html}</div>
+    `;
+
+    document.getElementById('profileBackLink').addEventListener('click', (e) => { e.preventDefault(); PROFILE_CAFE_ID = null; render(); });
+    document.querySelectorAll('.detailSubTabBtn').forEach(el => el.addEventListener('click', () => {
+      PROFILE_SECTION = el.dataset.sub;
+      renderProfile();
     }));
-    document.querySelectorAll('.cpaConfirmCheck').forEach(el => {
-      el.addEventListener('click', (e) => e.stopPropagation());
-      el.addEventListener('change', (e) => {
-        e.stopPropagation();
-        toggleCpaConfirm(el.dataset.store, el.dataset.key);
+
+    wireLegacyDetailInputs(s.name);
+    if (PROFILE_SECTION === 'readiness') {
+      wireGenericInputs(document.getElementById('profileSectionContent'), READINESS_STATE, 'readiness');
+      const addBtn = document.querySelector('.readinessCustomAddBtn');
+      if (addBtn) addBtn.addEventListener('click', () => {
+        READINESS_STATE.customItems = READINESS_STATE.customItems || [];
+        READINESS_STATE.customItems.push({ label:'', status:'Pending', comment:'' });
+        renderProfile();
       });
-    });
-    document.querySelectorAll('.cpaMilestoneToggle').forEach(el => el.addEventListener('click', (e) => {
-      e.stopPropagation();
+      document.querySelectorAll('.readinessCustomRemove').forEach(el => el.addEventListener('click', () => {
+        READINESS_STATE.customItems.splice(Number(el.dataset.idx), 1);
+        scheduleSave('readiness');
+        renderProfile();
+      }));
+      document.getElementById('profileSectionContent').addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.path) refreshProfilePct(); });
+      document.getElementById('profileSectionContent').addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.path) refreshProfilePct(); });
+    }
+    if (PROFILE_SECTION === 'training7day') {
+      wireGenericInputs(document.getElementById('profileSectionContent'), TRAINING_STATE, 'training');
+      document.querySelectorAll('.day-tab').forEach(btn => btn.addEventListener('click', () => { ACTIVE_DAY = Number(btn.dataset.day); renderProfile(); }));
+      const addBtn = document.querySelector('.training7dayCustomAddBtn');
+      if (addBtn) addBtn.addEventListener('click', () => {
+        TRAINING_STATE.customItems = TRAINING_STATE.customItems || [];
+        TRAINING_STATE.customItems.push({ label:'', status:'Pending', notes:'' });
+        renderProfile();
+      });
+      document.querySelectorAll('.training7dayCustomRemove').forEach(el => el.addEventListener('click', () => {
+        TRAINING_STATE.customItems.splice(Number(el.dataset.idx), 1);
+        scheduleSave('training');
+        renderProfile();
+      }));
+    }
+  }
+
+  function refreshProfilePct(){
+    // Lightweight live update of the sub-nav % badges without a full profile re-render (avoids losing input focus)
+    const s = allStores().find(x => String(x.id) === String(PROFILE_CAFE_ID));
+    if (!s) return;
+    const prog = readinessProgress();
+    const btns = document.querySelectorAll('.detailSubTabBtn');
+    btns.forEach(btn => { if (btn.dataset.sub === 'readiness') { const span = btn.querySelector('span'); if (span) span.textContent = prog.pct + '%'; } });
+  }
+
+  // ---------- Shared wiring for CPA / Training&Rec / Details fields ----------
+  function wireLegacyDetailInputs(storeName){
+    document.querySelectorAll('.cpaConfirmCheck').forEach(el => el.addEventListener('change', (e) => { toggleCpaConfirm(el.dataset.store, el.dataset.key); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.cpaMilestoneToggle').forEach(el => el.addEventListener('click', () => {
       const k = el.dataset.mkey;
       if (expandedMilestones.has(k)) expandedMilestones.delete(k); else expandedMilestones.add(k);
-      renderStoreList();
+      if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
     }));
-    document.querySelectorAll('.cpaTitleField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setCpaMilestoneTitle(el.dataset.store, el.dataset.key, el.value));
-    });
-    document.querySelectorAll('.cpaDescField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setCpaMilestoneDescription(el.dataset.store, el.dataset.key, el.value));
-    });
-    document.querySelectorAll('.cpaDateOverride').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setCpaOverride(el.dataset.store, el.dataset.key, el.value));
-    });
-    document.querySelectorAll('.cpaComment').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setCpaMilestoneComment(el.dataset.store, el.dataset.key, el.value));
-    });
-    document.querySelectorAll('.cpaFileInput').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) uploadCpaMilestoneFile(el.dataset.store, el.dataset.key, file);
-      });
-    });
-    document.querySelectorAll('.cpaFileRemove').forEach(el => el.addEventListener('click', (e) => {
-      e.stopPropagation();
-      removeCpaMilestoneFile(el.dataset.store, el.dataset.key);
+    document.querySelectorAll('.cpaTitleField').forEach(el => el.addEventListener('change', () => setCpaMilestoneTitle(el.dataset.store, el.dataset.key, el.value)));
+    document.querySelectorAll('.cpaDescField').forEach(el => el.addEventListener('change', () => setCpaMilestoneDescription(el.dataset.store, el.dataset.key, el.value)));
+    document.querySelectorAll('.cpaDateOverride').forEach(el => el.addEventListener('change', () => setCpaOverride(el.dataset.store, el.dataset.key, el.value)));
+    document.querySelectorAll('.cpaComment').forEach(el => el.addEventListener('change', () => setCpaMilestoneComment(el.dataset.store, el.dataset.key, el.value)));
+    document.querySelectorAll('.cpaFileInput').forEach(el => el.addEventListener('change', (e) => { const file = e.target.files[0]; if (file) uploadCpaMilestoneFile(el.dataset.store, el.dataset.key, file); }));
+    document.querySelectorAll('.cpaFileRemove').forEach(el => el.addEventListener('click', () => removeCpaMilestoneFile(el.dataset.store, el.dataset.key)));
+    document.querySelectorAll('.cpaCustomAddBtn').forEach(el => el.addEventListener('click', () => {
+      const label = document.querySelector('.cpaCustomLabelInput').value.trim();
+      const date = document.querySelector('.cpaCustomDateInput').value;
+      if (!label) { toast('Enter a label for the manual entry'); return; }
+      const rec = Object.assign({}, cpaConfirmations[storeName] || {});
+      rec.__custom = Array.isArray(rec.__custom) ? [...rec.__custom] : [];
+      rec.__custom.push({ label, date, confirmed: false });
+      cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: rec });
+      saveCpaConfirmations();
+      if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
     }));
-    document.querySelectorAll('.supportAllocChip').forEach(el => {
-      el.addEventListener('click', (e) => {
-        e.stopPropagation();
-        toggleSupportAllocation(el.dataset.store, el.dataset.member);
-      });
-    });
-    document.querySelectorAll('.tcAddStaffBtn').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); addTrainingStaff(el.dataset.store); }));
-    document.querySelectorAll('.tcRemoveBtn').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); removeTrainingStaff(el.dataset.store, parseInt(el.dataset.idx, 10)); }));
-    document.querySelectorAll('.tcField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => {
-        const tr = el.closest('tr');
-        setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), el.dataset.field, el.value);
-      });
-    });
-    document.querySelectorAll('.tcStartOverride').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => {
-        const tr = el.closest('tr');
-        setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'startDateOverride', el.value);
-      });
-    });
-    document.querySelectorAll('.tcWeekField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => {
-        const tr = el.closest('tr');
-        setTrainingWeekField(tr.dataset.store, parseInt(tr.dataset.idx, 10), parseInt(el.dataset.week, 10), el.value);
-      });
-    });
-    document.querySelectorAll('.tcCsvInput').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => {
-        const file = el.files[0];
-        if (file) importTrainingCsv(el.dataset.store, file);
-      });
-    });
-    document.querySelectorAll('.sdField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setStoreDetailField(el.dataset.store, el.dataset.field, el.value));
-    });
-    document.querySelectorAll('.odField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setStoreOpenDate(el.dataset.store, el.value));
-    });
-    document.querySelectorAll('.cdField').forEach(el => {
-      el.addEventListener('click', e => e.stopPropagation());
-      el.addEventListener('change', () => setStoreCreatedDate(el.dataset.store, el.value));
-    });
+    document.querySelectorAll('.cpaCustomConfirmCheck').forEach(el => el.addEventListener('change', () => {
+      const rec = Object.assign({}, cpaConfirmations[el.dataset.store] || {});
+      rec.__custom = [...(rec.__custom||[])];
+      rec.__custom[Number(el.dataset.idx)] = Object.assign({}, rec.__custom[Number(el.dataset.idx)], { confirmed: el.checked });
+      cpaConfirmations = Object.assign({}, cpaConfirmations, { [el.dataset.store]: rec });
+      saveCpaConfirmations();
+      if (PROFILE_CAFE_ID) renderProfile();
+    }));
+    document.querySelectorAll('.cpaCustomRemove').forEach(el => el.addEventListener('click', () => {
+      const rec = Object.assign({}, cpaConfirmations[el.dataset.store] || {});
+      rec.__custom = (rec.__custom||[]).filter((_,i) => i !== Number(el.dataset.idx));
+      cpaConfirmations = Object.assign({}, cpaConfirmations, { [el.dataset.store]: rec });
+      saveCpaConfirmations();
+      if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
+    }));
+    document.querySelectorAll('.supportAllocChip').forEach(el => el.addEventListener('click', () => { toggleSupportAllocation(el.dataset.store, el.dataset.member); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.tcAddStaffBtn').forEach(el => el.addEventListener('click', () => { addTrainingStaff(el.dataset.store); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.tcRemoveBtn').forEach(el => el.addEventListener('click', () => { removeTrainingStaff(el.dataset.store, parseInt(el.dataset.idx, 10)); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.tcField').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), el.dataset.field, el.value); }));
+    document.querySelectorAll('.tcStartOverride').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'startDateOverride', el.value); }));
+    document.querySelectorAll('.tcWeekField').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingWeekField(tr.dataset.store, parseInt(tr.dataset.idx, 10), parseInt(el.dataset.week, 10), el.value); }));
+    document.querySelectorAll('.tcCsvInput').forEach(el => el.addEventListener('change', () => { const file = el.files[0]; if (file) importTrainingCsv(el.dataset.store, file).then(() => { if (PROFILE_CAFE_ID) renderProfile(); }); }));
+    document.querySelectorAll('.trainRecCustomAddBtn').forEach(el => el.addEventListener('click', () => {
+      const input = document.querySelector('.trainRecCustomLabelInput');
+      const label = input.value.trim();
+      if (!label) { toast('Enter a label for the manual entry'); return; }
+      const cal = getTrainingCalendar(el.dataset.store);
+      cal.customItems = cal.customItems || [];
+      cal.customItems.push({ label, status:'Pending' });
+      saveTrainingCalendars();
+      if (PROFILE_CAFE_ID) renderProfile();
+    }));
+    document.querySelectorAll('.trainRecCustomStatus').forEach(el => el.addEventListener('change', () => {
+      const cal = getTrainingCalendar(el.dataset.store);
+      cal.customItems[Number(el.dataset.idx)].status = el.value;
+      saveTrainingCalendars();
+    }));
+    document.querySelectorAll('.trainRecCustomRemove').forEach(el => el.addEventListener('click', () => {
+      const cal = getTrainingCalendar(el.dataset.store);
+      cal.customItems.splice(Number(el.dataset.idx), 1);
+      saveTrainingCalendars();
+      if (PROFILE_CAFE_ID) renderProfile();
+    }));
+    document.querySelectorAll('.sdField').forEach(el => el.addEventListener('change', () => setStoreDetailField(el.dataset.store, el.dataset.field, el.value)));
+    document.querySelectorAll('.odField').forEach(el => el.addEventListener('change', () => { setStoreOpenDate(el.dataset.store, el.value); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.cdField').forEach(el => el.addEventListener('change', () => setStoreCreatedDate(el.dataset.store, el.value)));
+    document.querySelectorAll('.detailsCustomAddBtn').forEach(el => el.addEventListener('click', () => {
+      const input = document.querySelector('.detailsCustomLabelInput');
+      const label = input.value.trim();
+      if (!label) { toast('Enter a field name'); return; }
+      const det = storeDetails[el.dataset.store] || {};
+      det.customFields = det.customFields || [];
+      det.customFields.push({ label, value:'' });
+      storeDetails = Object.assign({}, storeDetails, { [el.dataset.store]: det });
+      saveStoreDetails();
+      if (PROFILE_CAFE_ID) renderProfile();
+    }));
+    document.querySelectorAll('.detailsCustomValue').forEach(el => el.addEventListener('change', () => {
+      const det = storeDetails[el.dataset.store] || {};
+      det.customFields[Number(el.dataset.idx)].value = el.value;
+      saveStoreDetails();
+    }));
+    document.querySelectorAll('.detailsCustomRemove').forEach(el => el.addEventListener('click', () => {
+      const det = storeDetails[el.dataset.store] || {};
+      det.customFields.splice(Number(el.dataset.idx), 1);
+      saveStoreDetails();
+      if (PROFILE_CAFE_ID) renderProfile();
+    }));
   }
 
   document.getElementById('otlSearch').addEventListener('input', renderStoreList);
@@ -2145,6 +2456,24 @@ function viewPipeline(){
     if (file) importBBetterWorkbook(file);
     e.target.value = '';
   });
+
+  loadCpaConfirmations().then(renderStoreList);
+  loadSupportAllocations().then(renderStoreList);
+  loadTrainingCalendars().then(renderStoreList);
+  if (PROFILE_CAFE_ID) {
+    // Every load/save/render helper above is now safely declared (past any
+    // temporal-dead-zone risk from seed constants further down this
+    // function) — switch to Profile here, overwriting the dashboard shell
+    // synchronously before the browser paints anything.
+    loadCpaConfirmations().then(renderProfile);
+    loadSupportAllocations().then(renderProfile);
+    loadTrainingCalendars().then(renderProfile);
+    loadNewCafeBBetter().then(renderProfile);
+    loadStoreDetails().then(() => migrateStoreDetailsFromMasterSheetIfNeeded().then(renderProfile));
+    loadExtraStores().then(renderProfile);
+    renderProfile();
+    return;
+  }
 
   loadCpaConfirmations().then(renderStoreList);
   loadSupportAllocations().then(renderStoreList);
@@ -2267,83 +2596,11 @@ async function loadCafeChecklists(){
   catch(e){ TRAINING_STATE = {days:{}}; }
 }
 
-function readinessProgress(){
-  let total = 0, done = 0;
-  READINESS_CONFIG.phases.forEach((p, pi) => p.subsections.forEach((s, si) => {
-    if (s.group_only) return;
-    (s.items||[]).forEach((it, ii) => {
-      total++;
-      const key = pi + '_' + si + '_' + ii;
-      const v = (READINESS_STATE.items||{})[key];
-      if (v && v.status && v.status !== 'Pending') done++;
-    });
-  }));
-  return { total, done, pct: total ? Math.round((done/total)*100) : 0 };
-}
-function refreshReadinessProgressBadge(){
-  const badge = document.getElementById('readinessProgressBadge');
-  const fill = document.getElementById('readinessProgressFill');
-  if (!badge || !fill) return;
-  const prog = readinessProgress();
-  badge.textContent = prog.done + ' / ' + prog.total + ' complete';
-  fill.style.width = prog.pct + '%';
-}
-
-function viewReadiness(){
-  const app = document.getElementById('app');
-  const c = activeCafe();
-  if (!c) { app.innerHTML = activeCafeBanner() + `<div class="empty-state">Select a café from the Pipeline tab first.</div>`; return; }
-  const prog = readinessProgress();
-  let body = `
-    ${activeCafeBanner()}
-    <div class="page-header">
-      <div><div class="page-title">Project Readiness Checklist</div><div class="page-subtitle">${escapeHtml(c.name)} — phase-by-phase opening readiness</div></div>
-      <div class="period-badge" id="readinessProgressBadge">${prog.done} / ${prog.total} complete</div>
-    </div>
-    <div class="progress-track" style="margin-bottom:24px;"><div class="progress-fill" id="readinessProgressFill" style="width:${prog.pct}%;"></div></div>
-  `;
-
-  READINESS_CONFIG.phases.forEach((phase, pi) => {
-    body += `<div class="section-divider">${escapeHtml(phase.title)}</div>`;
-    phase.subsections.forEach((sub, si) => {
-      if (sub.group_only) { body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`; return; }
-      if (sub.title) body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`;
-      const rows = sub.items.map((it, ii) => {
-        const key = pi + '_' + si + '_' + ii;
-        const rowState = (READINESS_STATE.items||{})[key] || {};
-        const cols = READINESS_CONFIG.item_columns.map(col => `<td>${inputHtml(col, 'items.' + key + '.' + col.key, rowState[col.key])}</td>`).join('');
-        return `<tr><td style="width:34px;color:var(--grey-500);">${ii+1}</td><td>${escapeHtml(it.label)}</td>${cols}</tr>`;
-      }).join('');
-      const headCols = READINESS_CONFIG.item_columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
-      body += `<div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item / Task / Service</th>${headCols}</tr></thead><tbody>${rows}</tbody></table></div>`;
-      if (sub.has_comments) {
-        const cKey = pi + '_' + si;
-        const cVal = (READINESS_STATE.subComments||{})[cKey] || '';
-        body += `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
-      }
-    });
-  });
-
-  body += `<div class="section-divider">Sign-Off</div><div class="card">${
-    (() => {
-      const fields = READINESS_CONFIG.signoff_fields.map(f => {
-        const v = (READINESS_STATE.signoff||{})[f.key];
-        return `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, 'signoff.' + f.key, v)}</div>`;
-      }).join('');
-      return `<div class="form-grid two">${fields}</div>`;
-    })()
-  }</div>`;
-
-  app.innerHTML = body;
-  wireCafeBanner();
-  // textarea 'input' events aren't caught by the generic delegated listener's value read for textarea (works fine, textarea has .value too)
-  wireGenericInputs(app, READINESS_STATE, 'readiness');
-  app.addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.path && e.target.dataset.path.startsWith('items.')) refreshReadinessProgressBadge(); });
-  app.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.path && e.target.dataset.path.startsWith('items.')) refreshReadinessProgressBadge(); });
-}
-
 // ==================================================================
-// 7-DAY TRAINING VIEW
+// (readinessProgress/training7dayProgress and the section renderers now
+// live nested inside viewPipeline() as cpaSectionContent/readinessSectionContent/
+// training7daySectionContent etc — see the Profile view. dayCompletionDot
+// stays here since it only touches module-level TRAINING_STATE/TRAINING7DAY_CONFIG.)
 // ==================================================================
 function dayCompletionDot(dnum){
   const day = TRAINING_STATE.days && TRAINING_STATE.days[dnum];
@@ -2354,57 +2611,12 @@ function dayCompletionDot(dnum){
   return '';
 }
 
-function viewTraining(){
-  const app = document.getElementById('app');
-  const c = activeCafe();
-  if (!c) { app.innerHTML = activeCafeBanner() + `<div class="empty-state">Select a café from the Pipeline tab first.</div>`; return; }
-
-  const dayTabs = Object.keys(TRAINING7DAY_CONFIG.days).map(dnum => {
-    const dot = dayCompletionDot(dnum);
-    return `<button class="day-tab ${String(ACTIVE_DAY)===dnum?'active':''}" data-day="${dnum}"><span class="dot ${dot}"></span>Day ${dnum}</button>`;
-  }).join('');
-
-  const day = TRAINING7DAY_CONFIG.days[String(ACTIVE_DAY)];
-  const dayStatePath = 'days.' + ACTIVE_DAY;
-  if (!deepGet(TRAINING_STATE, dayStatePath)) deepSet(TRAINING_STATE, dayStatePath, { header:{}, sections:{} });
-
-  let sectionsHtml = '';
-  day.sections.forEach(section => {
-    const statePath = dayStatePath + '.sections.' + section.id;
-    if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, section.kind === 'dynamic' ? {rows:[]} : (section.kind==='signoff' ? {} : {rows:{}}));
-    sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
-  });
-
-  const headerState = deepGet(TRAINING_STATE, dayStatePath + '.header') || {};
-  const headerFields = day.header_fields.map(f => `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, dayStatePath + '.header.' + f.key, headerState[f.key])}</div>`).join('');
-
-  app.innerHTML = `
-    ${activeCafeBanner()}
-    <div class="page-header">
-      <div><div class="page-title">7-Day On-Site Training</div><div class="page-subtitle">${escapeHtml(c.name)} — Day ${ACTIVE_DAY}: ${escapeHtml(day.title)}</div></div>
-      <div class="period-badge">Day ${ACTIVE_DAY} of 7</div>
-    </div>
-    <div class="day-tabs">${dayTabs}</div>
-    <div class="form-grid two" style="margin-bottom:16px;">${headerFields}</div>
-    <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(day.focus)}</div>
-    ${sectionsHtml}
-  `;
-  wireCafeBanner();
-  app.querySelectorAll('.day-tab').forEach(btn => btn.addEventListener('click', () => {
-    ACTIVE_DAY = Number(btn.dataset.day);
-    render();
-  }));
-  wireGenericInputs(app, TRAINING_STATE, 'training');
-}
-
 // ==================================================================
 // RENDER DISPATCH
 // ==================================================================
 function render(){
   renderNavTabs();
-  if (ACTIVE_VIEW === 'pipeline') viewPipeline();
-  else if (ACTIVE_VIEW === 'readiness') viewReadiness();
-  else if (ACTIVE_VIEW === 'training') viewTraining();
+  viewPipeline();
 }
 
 // ==================================================================
