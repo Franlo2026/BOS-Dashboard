@@ -963,7 +963,7 @@ const TABS = [
   { id:'weekly', label:'Weekly Report' },
   { id:'print', label:'Print View' },
   { id:'ops', label:'+ Add Task' },
-  { id:'timelines', label:'New Cafes' },
+  { id:'timelines', label:'New Cafes', href:'/new-cafe-ops.html' },
   { id:'regionalreport', label:'Regional Report' },
   { id:'cafeoverview2', label:'Cafe Overview' },
   { id:'cafestatus2', label:'Cafe Status' },
@@ -1089,7 +1089,7 @@ const HOME_META = {
   weekly:        { icon:'🗞️', desc:'Weekly Report — printable leadership summary' },
   print:         { icon:'🖨️', desc:'Print View — clean printable dashboard' },
   ops:           { icon:'🛠️', desc:'Add Task — report an operational issue at a café' },
-  timelines:     { icon:'🏗️', desc:'New Cafes — opening timelines & CPA milestones' },
+  timelines:     { icon:'🏗️', desc:'New Café Ops — pipeline, Project Readiness & 7-Day Training checklists' },
   cafeoverview2: { icon:'☕', desc:'Cafe Overview — store directory, contacts, hours & franchise info' },
   cafestatus2:   { icon:'📇', desc:'Cafe Status — turnover, COS, Google, CSPI, Flow & training per store' },
   regionalreport:{ icon:'🗺️', desc:'Regional Report — turnover, visits, tasks, B-Better & new cafés by team' },
@@ -1226,7 +1226,7 @@ function renderKpiStrip(){
       </div>
     </div>
     <div class="kpi-hint">Click a card to see the stores behind that number</div>`;
-  document.getElementById('kpiPipelineCard').addEventListener('click', () => { ACTIVE_TAB = 'timelines'; render(); });
+  document.getElementById('kpiPipelineCard').addEventListener('click', () => { window.location.href = '/new-cafe-ops.html'; });
   document.querySelectorAll('.kpi-clickable').forEach(el => el.addEventListener('click', () => {
     DASH_DRILLDOWN = DASH_DRILLDOWN === el.dataset.metric ? null : el.dataset.metric;
     renderKpiStrip();

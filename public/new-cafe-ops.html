@@ -1,0 +1,2432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOS — New Café Ops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="/vendor/xlsx.full.min.js" onerror="window.__cdnLoadFailed='XLSX'"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&display=swap');
+:root {
+  --gold: #c8ae79; --gold-light: rgba(200,174,121,0.12);
+  --black: #1a1a1a; --white: #ffffff;
+  --grey-100: #f7f7f7; --grey-200: #ebebeb; --grey-300: #d4d4d4; --grey-500: #999999; --grey-700: #555555;
+  --green: #2e7d32; --green-bg: rgba(46,125,50,0.10);
+  --amber: #e65100; --amber-bg: rgba(230,81,0,0.10);
+  --red: #c62828; --red-bg: rgba(198,40,40,0.10);
+  --font: 'Montserrat', Arial, sans-serif;
+}
+* , *::before, *::after { box-sizing: border-box; margin:0; padding:0; }
+body { font-family: var(--font); background: var(--grey-100); color: var(--black); min-height:100vh; font-size:13px; }
+nav.topnav { background: var(--black); min-height: 52px; position: sticky; top:0; z-index: 50; display:flex; align-items:center; justify-content:space-between; padding: 0 24px; flex-wrap:wrap; }
+.brand { color: var(--white); font-weight:700; font-size:13px; letter-spacing:0.2em; text-transform:uppercase; white-space:nowrap; padding:14px 0; }
+.topnav a.backlink { color: var(--gold); text-decoration:none; font-size:11px; border:1px solid var(--gold); padding:6px 12px; border-radius:3px; }
+.topnav .tabs { display:flex; gap:24px; margin-left:20px; }
+.topnav .tab-btn { color: var(--grey-500); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; cursor:pointer; padding:18px 0; border:none; background:none; border-bottom:2px solid transparent; font-family:var(--font); }
+.topnav .tab-btn:hover { color: var(--white); }
+.topnav .tab-btn.active { color: var(--gold); border-bottom-color: var(--gold); }
+.topnav-right { display:flex; align-items:center; gap:14px; }
+.container { max-width: 1200px; margin:0 auto; padding: 28px 24px 80px; }
+.page-header { display:flex; align-items:flex-end; justify-content:space-between; border-bottom: 1px solid var(--gold); padding-bottom: 14px; margin-bottom: 24px; flex-wrap:wrap; gap:10px; }
+.page-title { font-size:18px; font-weight:700; text-transform:uppercase; letter-spacing:0.03em; }
+.page-subtitle { font-size:11px; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.06em; margin-top:4px; }
+.period-badge { border:1px solid var(--gold); background:var(--gold-light); color:var(--gold); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; padding:6px 12px; white-space:nowrap; }
+.card { background:var(--white); border:1px solid var(--grey-200); padding:20px 22px; margin-bottom:16px; }
+.section-title { font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:14px; }
+.section-divider { border-bottom:1px solid rgba(200,174,121,0.5); margin: 26px 0 18px; padding-bottom:6px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--grey-700); }
+.kpi-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--white); border:1px solid var(--grey-200); margin-bottom:20px; }
+.kpi-strip > div { padding:16px 20px; border-right:1px solid var(--grey-200); }
+.kpi-strip > div:last-child{ border-right:none; }
+.card-label { font-size:9px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--grey-500); margin-bottom:6px; }
+.card-value { font-size:24px; font-weight:700; color:var(--black); }
+.card-sub { font-size:10px; color:var(--grey-500); margin-top:4px; text-transform:uppercase; letter-spacing:0.04em; }
+.badge { font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; padding:3px 8px; border-radius:2px; display:inline-block; }
+.badge.green { background:var(--green-bg); color:var(--green); }
+.badge.amber { background:var(--amber-bg); color:var(--amber); }
+.badge.red { background:var(--red-bg); color:var(--red); }
+.badge.grey { background:var(--grey-200); color:var(--grey-700); }
+.badge.gold { background:var(--gold-light); color:#8a7238; }
+.btn { display:inline-flex; align-items:center; gap:6px; padding:9px 16px; font-family:var(--font); font-size:11px; font-weight:700; letter-spacing:0.04em; text-transform:uppercase; cursor:pointer; border:none; border-radius:2px; }
+.btn-gold { background:var(--gold); color:var(--black); }
+.btn-black { background:var(--black); color:var(--gold); }
+.btn-outline { background:transparent; color:var(--black); border:1px solid var(--black); }
+.btn-mini { padding:5px 10px; font-size:9.5px; }
+.btn:hover{ opacity:0.85; } .btn:disabled{ opacity:0.4; cursor:not-allowed; }
+.field { display:flex; flex-direction:column; gap:5px; }
+.field label { font-size:9.5px; font-weight:700; text-transform:uppercase; color:var(--grey-500); letter-spacing:0.05em; }
+.field input, .field select, .field textarea { font-family:var(--font); font-size:12.5px; padding:8px 10px; border:1px solid var(--grey-300); background:var(--white); color:var(--black); }
+.field input:focus, .field select:focus, .field textarea:focus { outline:none; border-color:var(--gold); }
+.form-grid { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:14px 16px; margin-bottom:16px; }
+.form-grid.two { grid-template-columns:1fr 1fr; }
+table.data-table { width:100%; border-collapse:collapse; font-size:12px; }
+.data-table thead th { font-weight:700; font-size:9.5px; letter-spacing:0.05em; text-transform:uppercase; padding:8px 8px; border-bottom:1px solid var(--black); text-align:left; color:var(--black); white-space:nowrap; }
+.data-table tbody td { padding:7px 8px; border-bottom:1px solid var(--grey-200); vertical-align:middle; }
+.data-table tbody tr:hover { background: var(--grey-100); }
+.data-table input[type=text], .data-table input[type=number], .data-table input[type=date] { width:100%; font-family:var(--font); font-size:11.5px; padding:6px 7px; border:1px solid var(--grey-300); background:var(--white); }
+.data-table select { width:100%; font-family:var(--font); font-size:11px; padding:6px 5px; border:1px solid var(--grey-300); background:var(--white); }
+.data-table input[type=checkbox] { width:16px; height:16px; accent-color: var(--gold); cursor:pointer; }
+.data-table .meta-badge { font-size:9px; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.03em; white-space:nowrap; }
+.table-wrap { border:1px solid var(--grey-200); overflow-x:auto; margin-bottom:6px; }
+.empty-state { color:var(--grey-500); font-size:12px; padding:32px 0; text-align:center; }
+.toast { position:fixed; bottom:24px; right:24px; background:var(--black); color:var(--gold); padding:12px 20px; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; display:none; z-index:200; }
+.save-status { font-size:9.5px; color:var(--grey-500); text-transform:uppercase; letter-spacing:0.04em; }
+.save-status.saving { color:var(--gold); }
+.progress-track { height:5px; background:var(--grey-200); border-radius:3px; overflow:hidden; margin-top:6px; }
+.progress-fill { height:100%; background:var(--gold); }
+.day-tabs { display:flex; gap:6px; margin-bottom:20px; flex-wrap:wrap; }
+.day-tab { padding:9px 16px; border:1px solid var(--grey-300); background:var(--white); font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.04em; cursor:pointer; font-family:var(--font); }
+.day-tab.active { background:var(--black); color:var(--gold); border-color:var(--black); }
+.day-tab .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; background:var(--grey-300); vertical-align:middle; }
+.day-tab .dot.done { background:var(--green); }
+.day-tab .dot.partial { background:var(--amber); }
+.cafe-list { display:flex; flex-direction:column; gap:0; }
+.cafe-row { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--grey-200); cursor:pointer; }
+.cafe-row:last-child { border-bottom:none; }
+.cafe-row:hover { background:var(--grey-100); }
+.cafe-row .cn { font-weight:700; font-size:13px; }
+.cafe-row .cm { font-size:10.5px; color:var(--grey-500); margin-top:3px; }
+.cafe-row .cr { display:flex; align-items:center; gap:10px; }
+.active-cafe-banner { background:var(--black); color:var(--gold); padding:12px 18px; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; }
+.active-cafe-banner .switch { color:var(--white); text-decoration:underline; cursor:pointer; font-weight:400; text-transform:none; letter-spacing:0; }
+.subsection-title { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; color:var(--grey-700); margin:18px 0 8px; padding-top:10px; border-top:1px solid var(--grey-200); }
+.subsection-title:first-child { border-top:none; padding-top:0; margin-top:0; }
+.note-text { font-size:10.5px; color:var(--grey-500); margin-bottom:8px; }
+.day-focus-box { background:var(--gold-light); border-left:3px solid var(--gold); padding:12px 14px; font-size:11.5px; margin-bottom:20px; }
+.grid-5 { display:grid; grid-template-columns:repeat(5,1fr); border:1px solid var(--grey-200); background:var(--white); }
+.grid-5 > div { border-right:1px solid var(--grey-200); }
+.grid-5 > div:last-child { border-right:none; }
+.grid-2-1 { display:grid; grid-template-columns:2fr 1fr; gap:16px; }
+.section-title-toggle { cursor:pointer; list-style:none; display:flex; align-items:center; justify-content:space-between; user-select:none; }
+.section-title-toggle::-webkit-details-marker { display:none; }
+.section-title-toggle::after { content:'▾'; font-size:10px; margin-left:8px; color:var(--grey-500); transition:transform .15s ease; }
+details[open] > .section-title-toggle::after { transform:rotate(180deg); }
+details:not([open]) > .section-title-toggle { margin-bottom:0; }
+.badge.red { background:var(--red-bg); color:var(--red); }
+label.field-label { display:block; font-size:9px; font-weight:700; text-transform:uppercase; letter-spacing:0.06em; color:var(--grey-500); margin-bottom:5px; margin-top:12px; }
+.form-row { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+.segmented { display:flex; border:1px solid var(--grey-200); background:var(--white); margin-bottom:16px; }
+.segmented-btn { flex:1; text-align:center; padding:12px 16px; background:var(--white); color:var(--grey-500); border:none; border-right:1px solid var(--grey-200); font-family:var(--font); font-size:11px; font-weight:700; letter-spacing:0.06em; text-transform:uppercase; cursor:pointer; }
+.segmented-btn:last-child{ border-right:none; }
+.segmented-btn.active { background:var(--black); color:var(--gold); }
+.segmented-btn:not(.active):hover { color:var(--black); }
+@media (max-width: 900px){ .grid-5 { grid-template-columns:repeat(2,1fr); } .grid-5>div{border-right:none;border-bottom:1px solid var(--grey-200);} .grid-2-1{grid-template-columns:1fr;} }
+@media (max-width: 800px) {
+  .form-grid { grid-template-columns:1fr 1fr; }
+  .container { padding:16px 12px 60px; }
+  .kpi-strip { grid-template-columns:repeat(2,1fr); }
+}
+</style>
+</head>
+<body>
+
+<div id="bosGate" style="position:fixed;inset:0;z-index:9999;background:#0a0a0a;display:flex;align-items:center;justify-content:center;font-family:-apple-system,sans-serif;">
+  <div style="width:360px;max-width:90vw;text-align:center;background:#141414;border:1px solid #2a2a2a;border-top:3px solid #c8a96e;border-radius:6px;padding:28px 24px;">
+    <div style="font-size:22px;letter-spacing:2px;color:#f0ebe1;margin-bottom:4px;">BOOTLEGGER<span style="color:#c8a96e;">.</span></div>
+    <div style="font-size:10px;letter-spacing:2px;color:#666;text-transform:uppercase;margin-bottom:24px;">New Café Ops</div>
+    <div style="font-size:12px;color:#aaa;line-height:1.6;margin-bottom:18px;" id="gateMsg">Checking session…</div>
+    <a href="/" style="display:none;width:100%;box-sizing:border-box;background:#c8a96e;color:#111;padding:11px;border-radius:4px;font-size:12px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;text-decoration:none;" id="gateLink">Sign In via BOS Dashboard</a>
+  </div>
+</div>
+
+<nav class="topnav" id="topNav" style="display:none;">
+  <div style="display:flex;align-items:center;">
+    <div class="brand">BOOTLEGGER<span style="color:var(--gold);">.</span></div>
+    <div class="tabs" id="navTabs"></div>
+  </div>
+  <div class="topnav-right">
+    <span class="save-status" id="saveStatus"></span>
+    <a href="/" class="backlink">&larr; BOS Dashboard</a>
+  </div>
+</nav>
+
+<div class="container" id="app" style="display:none;"></div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------- Shared BOS session + storage shim ----------
+window.storage = {
+  async get(key) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), { headers: token ? { 'Authorization': 'Bearer ' + token } : {} });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error('storage get failed: ' + res.status);
+    return res.json();
+  },
+  async set(key, value) {
+    const token = localStorage.getItem('bos_token');
+    const res = await fetch('/api/storage/' + encodeURIComponent(key), {
+      method: 'POST',
+      headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+      body: JSON.stringify({ value })
+    });
+    if (!res.ok) throw new Error('storage set failed: ' + res.status);
+    return res.json();
+  }
+};
+
+async function checkBosSession() {
+  const token = localStorage.getItem('bos_token');
+  if (!token) return null;
+  try {
+    const res = await fetch('/api/me', { headers: { 'Authorization': 'Bearer ' + token } });
+    if (!res.ok) { localStorage.removeItem('bos_token'); return null; }
+    return await res.json();
+  } catch (e) { return null; }
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(window.__toastTimer);
+  window.__toastTimer = setTimeout(()=>{ t.style.display='none'; }, 2600);
+}
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+}
+function uid(prefix){ return (prefix||'id') + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2,8); }
+function slugify(s){ return String(s||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'cafe'; }
+
+// ---------- Embedded checklist configs (extracted from source workbooks) ----------
+const TRAINING7DAY_CONFIG = {"days": {"1": {"day": 1, "title": "Setup & Unpacking", "focus": "Unpacking, cleaning and setup. Receive all stock and smalls. Set up every station. Identify equipment gaps and missing items. Nothing is rushed — everything done right.", "sections": [{"id": "d1_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "All stock received, counted, and stored correctly — discrepancies noted immediately", "meta": "Trainer / GM"}, {"label": "All smalls unpacked and placed per station layout", "meta": "Trainer / GM"}, {"label": "Fridge and freezer temperatures confirmed and logged", "meta": "GM"}, {"label": "All kitchen equipment tested — grills, ovens, fryers, burners", "meta": "Trainer"}, {"label": "Coffee machine installed and operational — KeyTech confirmed", "meta": "Trainer"}, {"label": "Bar equipment confirmed — blenders, juicers, ice machine", "meta": "Trainer"}, {"label": "GAAP system operational — all stations, printers, and docket routing tested", "meta": "FSM"}, {"label": "Card machines and payment systems tested", "meta": "FSM"}, {"label": "Station layout agreed — kitchen, bar, and FOH floor plan", "meta": "Trainer / GM"}, {"label": "Opening stock take completed and recorded", "meta": "GM"}, {"label": "All staff attendance confirmed and posted to WhatsApp group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d1_gaps", "title": "Equipment Gaps & Missing Items — Log Everything", "kind": "dynamic", "note": "Log everything.", "label_col_name": "Item / Equipment", "blank_rows": 10, "columns": [{"key": "c0", "label": "Gap Type", "type": "text"}, {"key": "c1", "label": "Action Required", "type": "text"}, {"key": "resolved", "label": "Resolved?", "type": "checkbox"}]}, {"id": "d1_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d1_signoff", "title": "Day 1 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "2": {"day": 2, "title": "Operations & Flow", "focus": "Refine station layout. All equipment confirmed. Team understands their stations, movement, and roles. Gaps from Day 1 addressed.", "sections": [{"id": "d2_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "All Day 1 equipment gaps followed up — resolution confirmed or escalated", "meta": "Trainer / FSM"}, {"label": "Station layout refined based on Day 1 learnings", "meta": "Trainer / GM"}, {"label": "Kitchen flow walked through with full BOH team — each person knows their station", "meta": "Trainer"}, {"label": "Bar flow walked through — sequence confirmed, equipment all operational", "meta": "Trainer"}, {"label": "FOH floor plan confirmed — table layout, waiter stations, till point", "meta": "GM"}, {"label": "All staff GAAP logins active — every item that goes out goes through the system", "meta": "GM"}, {"label": "Waste and prep tracking process explained to full team", "meta": "Trainer"}, {"label": "Team uniform check — everyone in full Bootlegger uniform", "meta": "GM"}, {"label": "Daily EOD update and photos posted to WhatsApp training group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d2_gaps", "title": "Outstanding Gaps From Day 1 — Status Update", "kind": "dynamic", "note": "Carry forward anything not resolved yesterday.", "label_col_name": "Item / Equipment", "blank_rows": 10, "columns": [{"key": "c0", "label": "Status Update", "type": "text"}, {"key": "resolved", "label": "Resolved?", "type": "checkbox"}]}, {"id": "d2_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d2_signoff", "title": "Day 2 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "3": {"day": 3, "title": "Menu Execution — Part 1", "focus": "Menu execution begins — kitchen makes every breakfast item and every coffee and beverage. Each item is plated, tasted, and explained to the waiting staff. Every item goes through GAAP.", "sections": [{"id": "d3_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "All breakfast menu items made, plated, and tasted by the full team", "meta": "Kitchen lead"}, {"label": "Every coffee item made and tasted — espresso, filter, cold brew, specialties", "meta": "Barista lead"}, {"label": "Every hot and cold beverage made and tasted — juices, smoothies, shakes", "meta": "Barista lead"}, {"label": "All items put through GAAP as they are made — no exceptions", "meta": "GM"}, {"label": "Waiters can name, describe, and identify allergens for every item covered today", "meta": "Trainer"}, {"label": "Portion sizes checked against spec — photos taken for kitchen reference", "meta": "Kitchen lead"}, {"label": "Items not meeting standard re-done — root cause noted", "meta": "Trainer"}, {"label": "Product knowledge debrief at end of day — gaps listed for tomorrow", "meta": "Trainer"}, {"label": "Daily EOD update and photos posted to WhatsApp training group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d3_breakfast", "title": "Breakfast Items — Made, Tasted & Explained", "kind": "dynamic", "note": "List every breakfast item. Kitchen makes each one, team tastes it, waiters have it explained to them.", "label_col_name": "Menu Item", "blank_rows": 20, "columns": [{"key": "t0", "label": "Made & Plated?", "type": "checkbox"}, {"key": "t1", "label": "Team Tasted?", "type": "checkbox"}, {"key": "t2", "label": "Explained to Waiters?", "type": "checkbox"}, {"key": "t3", "label": "GAAP Docket?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d3_beverages", "title": "Coffee & Beverages — Made, Tasted & Explained", "kind": "dynamic", "note": "List every coffee and beverage item. Bar executes, team tastes, waiters have each explained to them.", "label_col_name": "Menu Item", "blank_rows": 20, "columns": [{"key": "t0", "label": "Made & Plated?", "type": "checkbox"}, {"key": "t1", "label": "Team Tasted?", "type": "checkbox"}, {"key": "t2", "label": "Explained to Waiters?", "type": "checkbox"}, {"key": "t3", "label": "GAAP Docket?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d3_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d3_signoff", "title": "Day 3 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "4": {"day": 4, "title": "Menu Execution + Written Test", "focus": "Kitchen makes every lunch and remaining menu item — same process as Day 3. End of day: written knowledge test for all team members.", "sections": [{"id": "d4_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "All lunch and remaining menu items made, plated, and tasted by the full team", "meta": "Kitchen lead"}, {"label": "Any remaining bar/beverage items completed from Day 3", "meta": "Barista lead"}, {"label": "All items through GAAP as they are made — no exceptions", "meta": "GM"}, {"label": "Waiters can name, describe, and identify allergens for the full menu", "meta": "Trainer"}, {"label": "Portion sizes confirmed across all items", "meta": "Kitchen lead"}, {"label": "Written knowledge test completed by all team members", "meta": "Trainer"}, {"label": "Test results reviewed — anyone who fails re-tested before Day 5", "meta": "Trainer"}, {"label": "Daily EOD update and photos posted to WhatsApp training group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d4_lunch", "title": "Lunch & Remaining Menu Items — Made, Tasted & Explained", "kind": "dynamic", "note": "Same process as Day 3, covering every remaining menu item.", "label_col_name": "Menu Item", "blank_rows": 20, "columns": [{"key": "t0", "label": "Made & Plated?", "type": "checkbox"}, {"key": "t1", "label": "Team Tasted?", "type": "checkbox"}, {"key": "t2", "label": "Explained to Waiters?", "type": "checkbox"}, {"key": "t3", "label": "GAAP Docket?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d4_test", "title": "Written Knowledge Test — All Team Members", "kind": "dynamic", "note": "Every team member completes the written test. Results recorded below. Anyone scoring below the pass mark is re-tested before Day 5 begins.", "label_col_name": "Team Member Name", "blank_rows": 22, "columns": [{"key": "score", "label": "Score (%)", "type": "number"}, {"key": "pass", "label": "Passed?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d4_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d4_signoff", "title": "Day 4 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "5": {"day": 5, "title": "Full Menu Run", "focus": "Full menu run — every item, every station, in sequence. Team can make, describe, and sell everything. Final product knowledge gaps identified and addressed before stress testing begins.", "sections": [{"id": "d5_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "Full menu run completed — all items across all stations in sequence", "meta": "Trainer"}, {"label": "All items through GAAP — dockets raised for every item made", "meta": "GM"}, {"label": "FOH can take a full table order and communicate it correctly to BOH and bar", "meta": "GM"}, {"label": "BOH producing all items to spec and within time benchmarks", "meta": "Trainer"}, {"label": "Bar producing all items to spec and within time benchmarks", "meta": "Trainer"}, {"label": "Anyone who failed Day 4 test has been re-tested and passed", "meta": "Trainer"}, {"label": "Final product knowledge gaps identified and addressed", "meta": "Trainer"}, {"label": "Prep plan for Day 6 stress test agreed and assigned", "meta": "Kitchen lead"}, {"label": "Team debrief — confidence check, outstanding questions answered", "meta": "Trainer"}, {"label": "Daily EOD update posted to WhatsApp training group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d5_confidence", "title": "Menu Item Confidence Check — Final Assessment", "kind": "dynamic", "note": "Final pass across the full menu — confirm the team can make, describe, and sell every item.", "label_col_name": "Menu Item", "blank_rows": 25, "columns": [{"key": "t0", "label": "Can Make?", "type": "checkbox"}, {"key": "t1", "label": "Can Describe?", "type": "checkbox"}, {"key": "t2", "label": "Can Sell?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d5_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d5_signoff", "title": "Day 5 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "6": {"day": 6, "title": "Stress Test", "focus": "Stress test day. Simulate real service conditions — batch ordering, volume, timing under pressure. Kitchen and bar tested under load. Identify bottlenecks and fix them.", "sections": [{"id": "d6_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "All mise en place and prep completed before stress test begins", "meta": "Kitchen lead"}, {"label": "Opening procedure rehearsed — team opens together as they will on Day 1 of trading", "meta": "GM"}, {"label": "All items through GAAP throughout — no manual recording", "meta": "GM"}, {"label": "Stress test run in waves — start manageable, increase volume", "meta": "Trainer"}, {"label": "Bottlenecks identified — layout or process adjusted in real time", "meta": "Trainer"}, {"label": "Remake log maintained throughout — causes reviewed at end of session", "meta": "Trainer"}, {"label": "FOH managed the flow — communication with kitchen, guest management", "meta": "GM"}, {"label": "Closing procedure practised in full at end of day", "meta": "GM"}, {"label": "Stock take and simulated cash-up completed at EOD", "meta": "GM"}, {"label": "Key issues from stress test documented — action plan for Day 7", "meta": "Trainer / FSM"}, {"label": "Daily EOD update posted to WhatsApp training group", "meta": "Trainer"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d6_kitchen", "title": "Kitchen Stress Test — Batch Timing Log", "kind": "dynamic", "note": "Simulate volume — log batch size, target time, actual time.", "label_col_name": "Batch / Order Description", "blank_rows": 10, "columns": [{"key": "target", "label": "Target Time", "type": "text"}, {"key": "actual", "label": "Actual Time", "type": "text"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d6_bar", "title": "Bar Stress Test — Batch Timing Log", "kind": "dynamic", "note": "Simulate volume — log batch size, target time, actual time.", "label_col_name": "Batch / Order Description", "blank_rows": 10, "columns": [{"key": "target", "label": "Target Time", "type": "text"}, {"key": "actual", "label": "Actual Time", "type": "text"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d6_bottlenecks", "title": "Bottlenecks Identified & Actions Taken", "kind": "dynamic", "note": "", "label_col_name": "Bottleneck", "blank_rows": 10, "columns": [{"key": "c0", "label": "Action Taken", "type": "text"}, {"key": "resolved", "label": "Resolved?", "type": "checkbox"}]}, {"id": "d6_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d6_signoff", "title": "Day 6 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}, "7": {"day": 7, "title": "Stress Test + Opening Prep", "focus": "Final stress test if Day 6 issues remain. Then: full opening prep — all mise en place, stock, station setup. Team is ready. Go / No-Go sign-off obtained.", "sections": [{"id": "d7_mustdo", "title": "Daily Must-Do Checklist", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "Second stress test completed if Day 6 issues were identified", "meta": "Trainer"}, {"label": "All Day 6 bottlenecks confirmed resolved", "meta": "Trainer"}, {"label": "All items through GAAP during any further testing", "meta": "GM"}, {"label": "Full opening prep completed — all mise en place, stock levels, station setup", "meta": "Kitchen lead / GM"}, {"label": "Opening procedure rehearsed one final time — team opens together", "meta": "GM"}, {"label": "Closing procedure confirmed and understood by GM", "meta": "GM"}, {"label": "All outstanding items from Days 1–6 resolved or formally escalated", "meta": "Trainer / FSM"}, {"label": "Marketing and digital listings confirmed live", "meta": "FSM / Marketing"}, {"label": "Post-opening reporting process confirmed with GM — cash-up, WhatsApp format, stock take", "meta": "FSM"}, {"label": "Go / No-Go decision confirmed and communicated to all parties", "meta": "FSM / Regional FM"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d7_finalstress", "title": "Final Stress Test (If Required) — Batch Timing Log", "kind": "dynamic", "note": "Only if Day 6 issues remain.", "label_col_name": "Batch / Order Description", "blank_rows": 10, "columns": [{"key": "target", "label": "Target Time", "type": "text"}, {"key": "actual", "label": "Actual Time", "type": "text"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d7_openingprep", "title": "Opening Prep Confirmation", "kind": "fixed", "label_col_name": "Task", "fixed_items": [{"label": "Tables set — menus, condiments, table talkers in place", "meta": "FOH"}, {"label": "Waiter stations stocked and ready", "meta": "FOH"}, {"label": "Float counted and ready in cashbox", "meta": "GM"}, {"label": "GAAP confirmed operational — all printers live", "meta": "GM"}], "columns": [{"key": "done", "label": "Done?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d7_attendance", "title": "Attendance Log", "kind": "fixed", "label_col_name": "Name", "fixed_items": [{"label": "", "meta": "General Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Manager", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Barista", "editable_label": true}, {"label": "", "meta": "Bar Supervisor", "editable_label": true}, {"label": "", "meta": "Head Chef", "editable_label": true}, {"label": "", "meta": "Kitchen Supervisor", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Griller", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Salad", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Sculler", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Waiter", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Cashier", "editable_label": true}, {"label": "", "meta": "Hostess", "editable_label": true}, {"label": "", "meta": "Runner", "editable_label": true}], "columns": [{"key": "present", "label": "Present?", "type": "checkbox"}, {"key": "notes", "label": "Notes", "type": "text"}]}, {"id": "d7_signoff", "title": "Day 7 — End-of-Day Sign-Off", "kind": "signoff", "fields": [{"key": "overall_status", "label": "Overall Status", "type": "select", "options": ["Pending", "Pass", "Needs Follow-up"]}, {"key": "trainer_fsm", "label": "Trainer / FSM", "type": "text"}, {"key": "franchisee", "label": "Franchisee", "type": "text"}, {"key": "date", "label": "Date", "type": "date"}]}], "header_fields": [{"key": "date", "label": "Date", "type": "date"}, {"key": "trainer_fsm", "label": "Trainer / FSM on Site", "type": "text"}]}}, "day_meta": {"1": {"title": "Setup & Unpacking", "phase": "Setup & Unpacking"}, "2": {"title": "Operations & Flow", "phase": "Operations & Flow"}, "3": {"title": "Menu Execution — Part 1", "phase": "Menu Execution — Part 1"}, "4": {"title": "Menu Execution + Written Test", "phase": "Menu Execution + Written Test"}, "5": {"title": "Full Menu Run", "phase": "Full Menu Run"}, "6": {"title": "Stress Test", "phase": "Stress Test"}, "7": {"title": "Stress Test + Opening Prep", "phase": "Stress Test + Opening Prep"}}};
+const READINESS_CONFIG = {"phases": [{"title": "2 WEEKS BEFORE HANDOVER", "subsections": [{"title": null, "items": [{"label": "Confirmation of WIFI availability"}, {"label": "Payfast Account Open"}, {"label": "Yoyo Account Open"}, {"label": "Snapscan Account Open"}, {"label": "Halaal Certification Application"}, {"label": "POS installed and handholding booked"}, {"label": "Delivery Partners Activated"}, {"label": "Uniform order confirmed and delivery date set"}, {"label": "Digital info communicated to Marketing  (App, Google info)"}, {"label": "Flotec Installation"}, {"label": "Full staff compliment"}], "has_comments": false}]}, {"title": "1 WEEK BEFORE OPENING", "subsections": [{"title": "PROJECT MANAGEMENT", "items": [{"label": "Signage (Front + inside + feature wall)"}, {"label": "Neon sign"}, {"label": "Vinyls (Windows, doors)"}, {"label": "\"Order & Collect\" sign (XS)"}, {"label": "Halaal Signage"}, {"label": "Awning/Pergola + Deck"}, {"label": "Music provider"}, {"label": "POS (installed + waiter station)"}, {"label": "Gas (incl. COC)"}, {"label": "Alarm system"}, {"label": "CCTV"}, {"label": "Access Point (Coffee Company auto connect active)"}, {"label": "ISP & Wifi (Franchisee preference)"}, {"label": "Digital screens installed (BBM)"}, {"label": "Grease Trap"}, {"label": "Feature wall"}, {"label": "Flowjet installed (Test system and training done)"}, {"label": "All large kitchen equipment installed"}, {"label": "Coffee station set up"}, {"label": "Flotec device and tablet installed"}, {"label": "Furniture: Tables + Chairs"}, {"label": "Banquets"}, {"label": "Brass lighting"}, {"label": "Aircon"}, {"label": "Speakers + bass"}, {"label": "Plumbing"}, {"label": "Electrical"}, {"label": "Generator/Inverter"}], "has_comments": true}, {"title": "OPERATIONS", "group_only": true}, {"title": "Equipment", "items": [{"label": "Cape Importers"}, {"label": "Citrus Juicer + blender"}, {"label": "Merrychef (Programmed)"}, {"label": "Coffee station smalls"}, {"label": "Kitchen equipment"}, {"label": "Kitchen smalls"}, {"label": "Dishwasher"}, {"label": "Umbrellas"}, {"label": "Bike rack (surf rack/store specific)"}, {"label": "Planters/hanging plants"}, {"label": "Glass box"}, {"label": "Display Fridge/Ambient Fridge"}, {"label": "Oak condiment unit/stand"}, {"label": "Oak boards for display units received"}, {"label": "Cleaning Equipment"}, {"label": "Plastics + storage containers"}, {"label": "Printer"}, {"label": "Store laptop/computer"}, {"label": "Staff Lockers"}], "has_comments": false}, {"title": "Hygiene Training (Hygene supplier)", "items": [{"label": "Hand soap dispenser + sanitizer"}, {"label": "Telephone"}, {"label": "Poster boards"}, {"label": "Fire extinguishers + signage"}], "has_comments": false}, {"title": "Staffing (sufficient staff)", "items": [{"label": "Sufficient staff"}, {"label": "Training completed"}, {"label": "All take ons + contracts signed"}, {"label": "Uniform received"}], "has_comments": true}, {"title": "General", "items": [{"label": "All accounts open + stock ordered"}, {"label": "Marketing material (posters + TT)"}, {"label": "Labels + holders"}, {"label": "Store specific marketing"}], "has_comments": true}, {"title": "Systems", "items": [{"label": "Yoyo account (BTLR app)"}, {"label": "Paygate account"}, {"label": "POS database"}, {"label": "Snapscan"}, {"label": "Credit card machines"}, {"label": "Generator test (POS + wifi + cofee + music)"}, {"label": "MrD Food & UberEats devices received"}, {"label": "Wi-Fi + correct password"}, {"label": "Halaal Certification Site inspection booked"}], "has_comments": false}, {"title": "Access systems", "items": [{"label": "Teams"}, {"label": "Trello"}, {"label": "Email"}, {"label": "AS2 OrderFlow"}, {"label": "GAAP Webapp logins requested"}], "has_comments": false}]}, {"title": "2 DAYS BEFORE OPENING", "subsections": [{"title": null, "items": [{"label": "All stock received"}, {"label": "Prep completed"}, {"label": "Restaurant set up"}, {"label": "Bar set up"}, {"label": "Kitchen set up"}, {"label": "Counter display (tags + holders)"}, {"label": "Glass box display (tags + holders)"}, {"label": "Display fridge/Ambient Unit (tags & holders)"}, {"label": "Drinks display fridge"}, {"label": "Digital Screen content"}, {"label": "Shelf display set up"}, {"label": "All staff log ins added to GAAP"}, {"label": "Merrychef set up"}, {"label": "Merrychef training"}, {"label": "Floor plan"}, {"label": "GAAP printing test"}, {"label": "Stock sheets set up"}, {"label": "App test (card + loyalty payment, Snapscan)"}, {"label": "Delivery devices ready & correct menu linked"}, {"label": "GAAP Pricing levels correct (specials)"}], "has_comments": true}, {"title": "Marketing", "group_only": true}, {"title": "Facebook", "items": [{"label": "Store page showing"}, {"label": "Able to check in"}, {"label": "Operating times"}, {"label": "Phone number"}, {"label": "Address correct"}], "has_comments": false}, {"title": "Google", "items": [{"label": "Store on Google"}, {"label": "Phone number"}, {"label": "Operating times"}, {"label": "Address correct"}, {"label": "Can review"}], "has_comments": false}, {"title": "Website", "items": [{"label": "Store on website"}, {"label": "Address correct"}], "has_comments": false}, {"title": "Bootlegger App", "items": [{"label": "Store visible on app"}, {"label": "Details correct"}], "has_comments": false}]}, {"title": "DAY OF OPENING", "subsections": [{"title": null, "items": [{"label": "Kitchen flow"}, {"label": "Bar flow"}, {"label": "Floor flow"}], "has_comments": true}]}], "item_columns": [{"key": "status", "label": "Status", "type": "select", "options": ["Pending", "Yes", "No", "N/A"]}, {"key": "comment", "label": "Comment", "type": "text"}], "signoff_fields": [{"key": "fsm_name", "label": "FSM Name", "type": "text"}, {"key": "fsm_date", "label": "FSM Sign-off Date", "type": "date"}, {"key": "franchisee_name", "label": "Franchisee Name", "type": "text"}, {"key": "franchisee_date", "label": "Franchisee Sign-off Date", "type": "date"}]};
+
+// ---------- App state ----------
+// extraStores is BOS's real New Cafés pipeline data (shared with the main
+// BOS Dashboard's Home-tab pipeline KPIs) — stored at 'dashboard-stores-v1',
+// same storage key BOS itself uses. This app reads/writes the same live data.
+let extraStores = [];
+let ACTIVE_CAFE_ID = null;
+let ACTIVE_VIEW = 'pipeline'; // 'pipeline' | 'readiness' | 'training'
+let ACTIVE_DAY = 1;
+let READINESS_STATE = null;  // loaded per active cafe
+let TRAINING_STATE = null;   // loaded per active cafe
+let SAVE_TIMER = null;
+
+const NAV_TABS = [
+  { id:'pipeline', label:'Pipeline' },
+  { id:'readiness', label:'Project Readiness' },
+  { id:'training', label:'7-Day Training' },
+];
+
+function setSaveStatus(text, cls){
+  const el = document.getElementById('saveStatus');
+  if (!el) return;
+  el.textContent = text || '';
+  el.className = 'save-status' + (cls ? ' ' + cls : '');
+}
+
+function scheduleSave(kind){
+  setSaveStatus('Saving…', 'saving');
+  clearTimeout(SAVE_TIMER);
+  SAVE_TIMER = setTimeout(async () => {
+    try {
+      if (kind === 'readiness') await window.storage.set('newcafe-readiness-' + ACTIVE_CAFE_ID, JSON.stringify(READINESS_STATE));
+      if (kind === 'training') await window.storage.set('newcafe-training7day-' + ACTIVE_CAFE_ID, JSON.stringify(TRAINING_STATE));
+      setSaveStatus('Saved ' + new Date().toLocaleTimeString('en-ZA', {hour:'2-digit',minute:'2-digit'}));
+    } catch (e) {
+      setSaveStatus('Save failed — check connection');
+      toast('Could not save — check your connection');
+    }
+  }, 700);
+}
+
+// ---------- Deep get/set helper for dotted paths ----------
+function deepGet(obj, path){
+  return path.split('.').reduce((o,k) => (o==null ? undefined : o[k]), obj);
+}
+function deepSet(obj, path, val){
+  const keys = path.split('.');
+  let cur = obj;
+  for (let i=0;i<keys.length-1;i++){
+    const k = keys[i];
+    if (cur[k] == null || typeof cur[k] !== 'object') cur[k] = /^\d+$/.test(keys[i+1]) ? [] : {};
+    cur = cur[k];
+  }
+  cur[keys[keys.length-1]] = val;
+}
+
+// ---------- BOS-compatible low-level helpers (mirrors index.html exactly) ----------
+function authHeaders(){ const t = localStorage.getItem('bos_token'); return t ? { 'Authorization': 'Bearer ' + t } : {}; }
+async function apiGet(pathUrl){
+  const res = await fetch(pathUrl, { headers: authHeaders() });
+  if (!res.ok) throw new Error('Request failed: ' + res.status);
+  return res.json();
+}
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+function isEditor(){ return window.__ME ? ['admin','editor'].includes(window.__ME.role) : true; }
+function fmtShortDate(iso){ if (!iso) return '—'; const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return iso; return d.toLocaleDateString('en-GB', {day:'2-digit', month:'short'}); }
+
+// CPA Timeline milestone engine — every milestone date is derived from
+// three anchors (Created, Handover = Opening-7d, Opening), each overridable
+// per café via store.cpaOverrides. Ported verbatim from BOS's index.html.
+function calcCPA(store){
+  if (!store || !store.openDate) return null;
+  const open = new Date(store.openDate + 'T00:00:00');
+  if (isNaN(open)) return null;
+  const add = (d, days) => { const r = new Date(d); r.setDate(r.getDate() + days); return r; };
+  const sub = (d, days) => add(d, -days);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const overrides = Object.assign({ handoverDate: store.handoverDate, trainingStart: store.trainingStartDate }, store.cpaOverrides || {});
+  const ov = (key) => {
+    const v = overrides[key];
+    if (!v) return null;
+    const d = new Date(v + 'T00:00:00');
+    return isNaN(d) ? null : d;
+  };
+  const handover = ov('handoverDate') || sub(open, 7);
+  const createdRaw = store.createdDate || (typeof store.id === 'number' ? new Date(store.id).toISOString().slice(0, 10) : null);
+  const created = createdRaw ? new Date(createdRaw + 'T00:00:00') : sub(handover, 98);
+  const franchiseeMeeting1 = ov('franchiseeMeeting1') || add(created, 14);
+  const base = [
+    { key: 'welcomeMail', label: 'Welcome Mail Sent, Masterfile Created/Updated', date: add(created, 2) },
+    { key: 'franchiseeMeeting1', label: 'Franchisee Meeting 1', date: franchiseeMeeting1 },
+    { key: 'cafeInfoCaptured', label: 'Café Info Captured & Communicated (Contact Numbers, Trading Hours, Google/App/Marketing) — Masterfile Updated', date: add(created, 21) },
+    { key: 'cafeEmailsCreated', label: 'Café E-mails Created & Orderflow Profiles Live', date: add(created, 14) },
+    { key: 'acctAppDocsReceived', label: 'Account Application Supporting Documents Received', date: add(created, 14) },
+    { key: 'acctAppCompletion', label: 'Account Application Completion', date: sub(handover, 35) },
+    { key: 'appEncryptionSetup', label: 'Bootlegger App Applications Completed & Encryption Key Shared/Set Up', date: sub(handover, 42) },
+    { key: 'handoverDate', label: 'Handover Date', date: handover },
+    { key: 'openingOrdersPlaced', label: 'Opening Orders Placed & Delivery Dates Confirmed', date: sub(handover, 28) },
+    { key: 'openingOrdersReceived', label: 'Opening Orders Received', date: add(handover, 2) },
+    { key: 'topUpOrders', label: 'Top Up Orders Completed', date: add(handover, 4) },
+    { key: 'recruitmentArtwork', label: 'Recruitment Artwork Ready, Shared & Posted (incl. Brand Socials)', date: add(created, 21) },
+    { key: 'interviewsScheduled', label: 'Interviews Scheduled', date: add(created, 35) },
+    { key: 'staffSecuredMgmt', label: 'Staff Positions Secured — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 56) },
+    { key: 'staffSecuredSupport', label: 'Staff Positions Secured — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 42) },
+    { key: 'trainingScheduleCommunicated', label: 'Training Schedule Communicated & Training Café Allocated', date: sub(handover, 56) },
+    { key: 'trainingCommencesMgmt', label: 'Training Commences — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 28) },
+    { key: 'trainingCommencesSupport', label: 'Training Commences — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 14) },
+    { key: 'bbetterCompletion', label: 'Online B.Better Training Completion — 100% All Sections', date: sub(handover, 7) },
+    { key: 'trainingEndAdjustments', label: 'Training End & Additional Training Period Adjustments (Delays)', date: sub(handover, 1) },
+    { key: 'inStoreTraining1', label: 'In-Store Training Day 1 — Clean & Set-Up', date: sub(handover, 7) },
+    { key: 'inStoreTraining2', label: 'In-Store Training Day 2 — Prep & Roleplay', date: sub(handover, 6) },
+    { key: 'inStoreTraining3', label: 'In-Store Training Day 3 — Prep & Roleplay', date: sub(handover, 5) },
+    { key: 'inStoreTraining4', label: 'In-Store Training Day 4 — All Dishes Prepped & Discussed', date: sub(handover, 4) },
+    { key: 'inStoreTraining5', label: 'In-Store Training Day 5 — All Dishes Prepped & Discussed (Problem Items)', date: sub(handover, 3) },
+    { key: 'inStoreTraining6', label: 'In-Store Training Day 6 — Full Mock Service 1 (Friends, Family, Tenants, LL)', date: sub(handover, 2) },
+    { key: 'inStoreTraining7', label: 'In-Store Training Day 7 — Full Mock Service 2 (Public)', date: sub(handover, 1) },
+    { key: 'staffRecruitmentCommences', label: 'Staff Recruitment Commences', date: add(created, 21) },
+    { key: 'baristaSignOff', label: 'Barista Sign Off', date: sub(open, 2) },
+    { key: 'openingReadinessChecklist', label: 'Opening Readiness Checklist Complete', date: sub(open, 1) },
+    { key: 'openDate', label: 'Opening Date', date: open },
+    { key: 'completeBusinessEssentials', label: 'Complete Business Essentials', date: add(open, 7) },
+    { key: 'fullPostOpeningReport', label: 'Full Post-Opening Summary/Report', date: add(open, 28) },
+    { key: 'postSupportWk1', label: 'Post-Support Week 1', date: open },
+    { key: 'postSupportWk2', label: 'Post-Support Week 2', date: add(open, 14) },
+    { key: 'postSupportWk3', label: 'Post-Support Week 3', date: add(open, 21) },
+    { key: 'postSupportWk4', label: 'Post-Support Week 4', date: add(open, 28) },
+  ];
+  const milestones = base.map(m => ({ key: m.key, label: m.label, date: fmt(ov(m.key) || m.date) }));
+  let cursor = add(franchiseeMeeting1, 14);
+  let n = 2;
+  while (cursor < open) {
+    const key = `franchiseeMeeting${n}`;
+    milestones.push({ key, label: `Franchisee Meeting ${n}`, date: fmt(ov(key) || cursor) });
+    cursor = add(cursor, 14);
+    n++;
+  }
+  milestones.sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    createdDate: fmt(created),
+    openDate: fmt(open),
+    handoverDate: fmt(handover),
+    archiveDate: fmt(add(open, 28)),
+    milestones,
+  };
+}
+
+// Current FSM roster + support team — kept in sync manually with BOS's
+// index.html (fsmStores keys + SUPPORT_TEAM array). Only used to populate
+// the "Support Team Allocation" picker on the Add-a-New-Café form.
+const OT_PEOPLE_LIST = Array.from(new Set([
+  "Franlo Geldenhuys", "Tarryn Palmer",
+  "Sipho Mabaso", "Charlene v Heerden", "Liam Smith", "Tshepo Goqo", "Raabia Isaacs", "FSM 2", "FSM 3",
+  "Tshepo Goqo", "Siphesihle Gwadela", "Raabia Isaacs", "Mini Mohale", "Aphiwe Mqakayi", "Johannes Moloto", "Addright Chigama"
+])).sort();
+
+// extraStores — same generic KV key BOS's own index.html uses, so this app
+// and BOS Dashboard's Home-tab pipeline KPIs always see the same data.
+async function loadExtraStores(){
+  try {
+    const r = await apiGet('/api/storage/dashboard-stores-v1');
+    extraStores = JSON.parse(r.value || '[]');
+  } catch(e) { extraStores = []; }
+}
+async function saveExtraStores(){
+  try {
+    await fetch('/api/storage/dashboard-stores-v1', {
+      method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+      body: JSON.stringify({ value: JSON.stringify(extraStores) })
+    });
+  } catch(e) { toast('Could not save — check connection'); }
+}
+
+// ---------- Nav rendering ----------
+function renderNavTabs(){
+  const wrap = document.getElementById('navTabs');
+  wrap.innerHTML = NAV_TABS.map(t => `<button class="tab-btn ${ACTIVE_VIEW===t.id?'active':''}" data-view="${t.id}">${t.label}</button>`).join('');
+  wrap.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+    ACTIVE_VIEW = btn.dataset.view;
+    render();
+  }));
+}
+
+function activeCafe(){ return extraStores.find(c => String(c.id) === String(ACTIVE_CAFE_ID)) || null; }
+
+function activeCafeBanner(){
+  const c = activeCafe();
+  if (!c) return '';
+  return `<div class="active-cafe-banner">
+    <span>ACTIVE CAFÉ: ${escapeHtml(c.name)} ${c.fsm ? '· FSM ' + escapeHtml(c.fsm) : ''} ${c.openDate ? '· Opening ' + escapeHtml(c.openDate) : ''}</span>
+    <span class="switch" id="switchCafeLink">Switch café</span>
+  </div>`;
+}
+function wireCafeBanner(){
+  const el = document.getElementById('switchCafeLink');
+  if (el) el.addEventListener('click', () => { ACTIVE_VIEW = 'pipeline'; render(); });
+}
+
+// ==================================================================
+// PIPELINE VIEW  (ported from BOS's native New Cafes tab — CPA Timeline,
+// Training Calendar / recruitment, B.Better Academy, Franchisee & Store
+// Details, support allocation, pending-request queue. All reads/writes
+// the same storage keys BOS itself used, so this is the same live data.)
+// ==================================================================
+function viewPipeline(){
+  const today = todayISO();
+  // OT_RAW_STORES no longer feeds rendering directly — it's been folded
+  // into extraStores by migrateHardcodedStoresIfNeeded (see near its
+  // declaration) and is only kept around as that migration's seed data.
+
+  document.getElementById('app').innerHTML = `
+    <div class="page-header">
+      <div><div class="page-title">New Cafes</div><div class="page-subtitle">CPA milestones, training progress, new store pipeline</div></div>
+    </div>
+    <div class="grid-5" id="otlKpis" style="margin-bottom:20px;"></div>
+    <div class="grid-2-1">
+      <div class="card">
+        <details>
+          <summary class="section-title section-title-toggle">Next 12 Openings</summary>
+          <div id="otlUpcoming"></div>
+        </details>
+      </div>
+      <div class="card">
+        <details>
+          <summary class="section-title section-title-toggle">CPA Milestones Due (30 Days)</summary>
+          <div id="otlAlerts"></div>
+        </details>
+      </div>
+    </div>
+    <div class="section-divider"></div>
+    <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;">
+      <div>
+        <div class="section-title" style="margin-bottom:2px;">🎓 New Café B.Better Training Status</div>
+        <div style="font-size:11px;color:var(--grey-500);">Upload the Beeline Groups Report (.xlsx) to update onboarding &amp; completion status per café below.</div>
+      </div>
+      <div>
+        <input type="file" id="ncBBetterInput" accept=".xlsx,.xls" style="display:none;">
+        <button class="btn btn-outline" id="ncBBetterBtn">Upload B.Better Report</button>
+      </div>
+    </div>
+    <div class="section-divider"></div>
+    <div class="card">
+      <div class="segmented" id="otlSubTab" style="margin-bottom:14px;">
+        <button class="segmented-btn active" data-sub="active">Active</button>
+        <button class="segmented-btn" data-sub="archive">Archive (opened &gt;4 weeks ago)</button>
+        <button class="segmented-btn" data-sub="pending">Pending Requests<span id="otlPendingBadge"></span></button>
+      </div>
+      <div class="filter-row" id="otlFilterRow">
+        <input type="text" id="otlSearch" placeholder="Search store...">
+        <select id="otlRegion"></select>
+      </div>
+      <div id="otlStoreList" style="margin-top:12px;"></div>
+      <div id="otlPendingList" style="margin-top:12px;display:none;"></div>
+    </div>
+    <div class="section-divider"></div>
+    <div class="card" id="otlAddCard">
+      <div class="section-title">Add a New Café</div>
+      <div class="form-row">
+        <div><label class="field-label">Store Name</label><input type="text" id="otlName" placeholder="e.g. Cavendish Full Store"></div>
+        <div><label class="field-label">Opening Date</label><input type="date" id="otlOpenDate"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="field-label">FSM</label><input type="text" id="otlFsm" placeholder="e.g. Liam"></div>
+        <div><label class="field-label">Notes</label><input type="text" id="otlNotes" placeholder="Optional"></div>
+      </div>
+      <div style="margin-top:10px;">
+        <label class="field-label">Support Team Allocation</label>
+        <div id="otlSupportChips" style="margin-top:6px;"></div>
+      </div>
+      <button class="btn btn-gold" id="otlAdd" style="margin-top:10px;">Add Store &amp; Generate CPA Timeline</button>
+      <div id="otlAddedList" style="margin-top:16px;"></div>
+    </div>
+  `;
+
+  // extraStores is global now (see near OT_TRAINING_DATA) — shared with
+  // the Home tab's pipeline KPIs, not redeclared here.
+  let expanded = null;
+  let expandedMilestones = new Set(); // "storeName::milestoneKey" — which CPA milestone rows are expanded
+  let detailSubTab = {}; // { storeName: 'cpa'|'training'|'bbetter'|'details' } — which sub-dash tab is showing for an expanded café
+  let subTab = 'active';
+  let cpaConfirmations = {};
+  let cafeSubmissions = []; // pending New Café requests awaiting Tarryn/Franlo approval
+  let storeDetails = {}; // { storeName: { address, description, location, size, seats, turnover, ... } }
+  let supportAllocations = {}; // { storeName: ["Support Member", ...] }
+  let newStoreSupport = []; // pending selection for the "Add a New Café" form
+  let trainingCalendars = {}; // { storeName: { weekLabels: ["Week 1",...], staff: [{position,name,startDateOverride,weeks:[...]}], positionRequirements: {position: count} } }
+  let newCafeBBetter = {}; // { storeName: { avgCompletion, onboardedMembers, onboardedPct, uploadedAt } } — from Beeline Groups Report upload
+  // Seed data pulled from the "New Store Dates" workbook (13 July 2026) for
+  // stores that hadn't opened yet at that point and had real staff names
+  // filled in on their own tab (positions-only templates with no names were
+  // excluded — nothing useful to seed there). Only used as a first-run
+  // default per store — once real edits are saved via the UI or a CSV
+  // upload, the saved data in trainingCalendars takes over completely.
+  const TRAINING_CALENDAR_SEED = {
+    "Woodmead XS": {
+      "weekLabels": [
+        "Week 1:22-28 June",
+        "Week 2:29-5 July",
+        "Week 3:6-12 July",
+        "Week 4:13-15 July"
+      ],
+      "staff": [
+        {
+          "position": "Team Leader",
+          "name": "Ricky",
+          "startDate": "2026-06-22",
+          "weeks": [
+            "Open - Kitchen/POS/Admin",
+            "Close - Bar",
+            "Close - Kitchen/POS/Admin",
+            "Open - Kitchen/POS/Admin"
+          ]
+        },
+        {
+          "position": "Supervisor",
+          "name": "Nosipho",
+          "startDate": "2026-06-22",
+          "weeks": [
+            "Close - Bar",
+            "Open - Kitchen/POS/Admin",
+            "Close - Bar",
+            "Close - Kitchen/POS/Admin"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Rose",
+          "startDate": "2026-06-22",
+          "weeks": [
+            "Open - Kitchen/POS",
+            "Close - Bar",
+            "Close- Kitchen/POS",
+            "Open - Bar"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Austin",
+          "startDate": "2026-06-22",
+          "weeks": [
+            "Close - Kitchen/POS",
+            "Open - Bar",
+            "Open - Kitchen/POS",
+            "Close - Bar"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Yohane",
+          "startDate": "2026-06-22",
+          "weeks": [
+            "Open - Bar",
+            "Close- Kitchen/POS",
+            "Open - Bar",
+            "Open - Kitchen/POS"
+          ]
+        }
+      ]
+    },
+    "Jetty Quarter XS": {
+      "weekLabels": [
+        "Week 1: 29-4 July",
+        "Week 2: 6-11 July",
+        "Week 3: 13-18 July",
+        "Week 4: 20-25 July",
+        "Week 5: 27 - 1 August",
+        "Week 6: 3 - 8 August"
+      ],
+      "staff": [
+        {
+          "position": "Team Leader",
+          "name": "Rayyan",
+          "startDate": "2026-06-29",
+          "weeks": [
+            "Open - Kitchen/Bar/POS",
+            "Close - Kitchen/Bar/POS",
+            "Open - Kitchen/Bar/POS",
+            "Open - All Departments",
+            "Close - All Departments",
+            "Open - All Departments"
+          ]
+        },
+        {
+          "position": "Supervisor",
+          "name": "Sisanda Monco",
+          "startDate": "2026-07-13",
+          "weeks": [
+            "Close - Bar/POS/Kitchen",
+            "Open - Bar/POS/Kitchen",
+            "Close - Bar/POS/Kitchen",
+            "Open - Bar/POS/Kitchen",
+            "Open - All Departments",
+            "Close - All Departments"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Kyle Marshall",
+          "startDate": "2026-07-13",
+          "weeks": [
+            "x",
+            "x",
+            "Open - Bar/POS/Kitchen",
+            "Close - Bar/POS/Kitchen",
+            "Open - Bar/POS/Kitchen",
+            "Close - Bar/POS/Kitchen"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Zanab Davids",
+          "startDate": "2026-07-13",
+          "weeks": [
+            "x",
+            "x",
+            "Close - Kitchen/Bar/POS",
+            "Close - Kitchen/Bar/POS",
+            "Open - Kitchen/Bar/POS",
+            "Open - Kitchen/Bar/POS"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Nolukholo Sdawo",
+          "startDate": "2026-07-13",
+          "weeks": [
+            "x",
+            "x",
+            "Open - POS/Kitchen/Bar",
+            "Close- POS/Kitchen/Bar",
+            "Open - POS/Kitchen/Bar",
+            "Close- POS/Kitchen/Bar"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Ethan Weilbach",
+          "startDate": "2026-07-13",
+          "weeks": [
+            "x",
+            "x",
+            "Close- POS/Kitchen/Bar",
+            "Open - POS/Kitchen/Bar",
+            "Close- POS/Kitchen/Bar",
+            "Open - POS/Kitchen/Bar"
+          ]
+        }
+      ]
+    },
+    "Alzu Petroport N4 Pod": {
+      "weekLabels": [
+        "Week 1: 25-31 May",
+        "Week 2: 1-7 June",
+        "Week 3: 8-14 June"
+      ],
+      "staff": [
+        {
+          "position": "Team Leader",
+          "name": "Mone Wauts",
+          "startDate": "2026-05-25",
+          "weeks": [
+            "Open - Kitchen/Bar/POS/Admin",
+            "Close - Kitchen/Bar/POS/Admin",
+            "Open - All departments"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Phindile Mokoena",
+          "startDate": "2026-05-25",
+          "weeks": [
+            "Open - Kitchen/Bar/POS/Admin",
+            "Close - Kitchen/Bar/POS/Admin",
+            "Close - All departments"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Thabiso Nkabinde",
+          "startDate": "2026-05-25",
+          "weeks": [
+            "Close - Bar/POS/Kitchen",
+            "Open - Bar/POS/Kitchen",
+            "Open - Bar/POS/Kitchen"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Sanele Ngcamphalala",
+          "startDate": "2026-05-25",
+          "weeks": [
+            "Close - Kitchen/Bar/POS",
+            "Open - Kitchen/Bar/POS",
+            "Close - Kitchen/Bar/POS"
+          ]
+        },
+        {
+          "position": "All Rounder",
+          "name": "Nokuthula Twala",
+          "startDate": "2026-05-25",
+          "weeks": [
+            "Close - POS/Kitchen/Bar",
+            "Open- POS/Kitchen/Bar",
+            "Open - POS/Kitchen/Bar"
+          ]
+        }
+      ]
+    }
+  };
+  function escTC(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+  async function loadTrainingCalendars(){
+    try {
+      const r = await apiGet('/api/storage/training-calendar-v1');
+      trainingCalendars = JSON.parse(r.value || '{}');
+    } catch(e) { trainingCalendars = {}; }
+  }
+  async function saveTrainingCalendars(){
+    try {
+      await fetch('/api/storage/training-calendar-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(trainingCalendars) })
+      });
+    } catch(e) { toast('Could not save training calendar — check connection'); }
+  }
+  const TRAINING_WEEK_LABELS = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'];
+  function normalizeTrainingWeeks(weeks){
+    const arr = Array.isArray(weeks) ? weeks.slice(0, 4) : [];
+    while (arr.length < 4) arr.push('');
+    return arr;
+  }
+  // Training Start Date (Week 1) is uniform across every role: the café's
+  // own Opening Date minus 5 weeks — this is also the exact CPA "Training
+  // Commences" milestone, so the 4-week calendar runs training-start →
+  // handover (1 week prior to opening). A trainee's own start date can be
+  // manually overridden (e.g. someone starting later than the café norm)
+  // via `startDateOverride` on their row, which takes priority when set.
+  function computeTrainingStartDate(openDateIso, startOverride){
+    if (startOverride) {
+      const d = new Date(startOverride + 'T00:00:00');
+      if (!isNaN(d.getTime())) return d;
+    }
+    if (!openDateIso) return null;
+    const d = new Date(openDateIso + 'T00:00:00');
+    if (isNaN(d.getTime())) return null;
+    d.setDate(d.getDate() - 35);
+    return d;
+  }
+  function fmtDayMonth(date){
+    if (!date || isNaN(date.getTime())) return '';
+    const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+    return date.getDate() + ' ' + months[date.getMonth()];
+  }
+  function isoDate(date){
+    if (!date || isNaN(date.getTime())) return '';
+    return date.toISOString().slice(0,10);
+  }
+  // How far a trainee has progressed through the 4-week training calendar,
+  // based on their (possibly overridden) start date vs today. Whole weeks
+  // elapsed count as "completed" — someone in their 3rd week has completed
+  // 2 of 4 weeks (50%), matching how the recruitment/training split is
+  // meant to read together (e.g. "60% of required staff have completed
+  // 50% of training").
+  function trainingWeekProgress(startDate){
+    if (!startDate || isNaN(startDate.getTime())) return { currentWeek: 0, completedWeeks: 0, pct: 0 };
+    const diffDays = Math.floor((new Date(today) - startDate) / 86400000);
+    if (diffDays < 0) return { currentWeek: 0, completedWeeks: 0, pct: 0 };
+    const completedWeeks = Math.min(Math.floor(diffDays / 7), 4);
+    const currentWeek = Math.min(completedWeeks + 1, 4);
+    return { currentWeek, completedWeeks, pct: (completedWeeks / 4) * 100 };
+  }
+  // Recruitment tracking: every training-calendar row with a position typed
+  // in is a "slot" for that role — a blank Name next to it is a vacancy.
+  // Recruitment % = named rows / total rows with a position set.
+  function recruitmentStats(cal){
+    const relevant = cal.staff.filter(p => (p.position||'').trim());
+    if (!relevant.length) return null;
+    const totalRequired = relevant.length;
+    const totalFilled = relevant.filter(p => (p.name||'').trim()).length;
+    return { totalRequired, totalFilled, pct: (totalFilled/totalRequired)*100 };
+  }
+  function trainingProgressStats(cal, openDate){
+    const filled = cal.staff.filter(p => (p.name||'').trim());
+    if (!filled.length) return { pct: 0, avgWeek: 0 };
+    let pctSum = 0, weekSum = 0;
+    filled.forEach(p => {
+      const startDate = computeTrainingStartDate(openDate, p.startDateOverride);
+      const prog = trainingWeekProgress(startDate);
+      pctSum += prog.pct; weekSum += prog.currentWeek;
+    });
+    return { pct: pctSum / filled.length, avgWeek: weekSum / filled.length };
+  }
+  // Overall café progress meter: recruitment (staff filled vs required) and
+  // training progress (weeks completed vs the 4-week calendar) are tracked
+  // and shown separately, plus a combined figure — e.g. 60% of required
+  // staff recruited, currently 50% through training, for an overall 30%.
+  function computeCafeProgress(cal, openDate){
+    const rec = recruitmentStats(cal);
+    const trn = trainingProgressStats(cal, openDate);
+    const recruitmentPct = rec ? rec.pct : null;
+    const trainingPct = trn.pct;
+    const overallPct = (recruitmentPct !== null) ? (recruitmentPct/100) * (trainingPct/100) * 100 : null;
+    return {
+      recruitmentPct, trainingPct, overallPct,
+      totalRequired: rec ? rec.totalRequired : 0,
+      totalFilled: rec ? rec.totalFilled : 0,
+      avgWeek: trn.avgWeek,
+    };
+  }
+
+  function getTrainingCalendar(storeName){
+    if (!trainingCalendars[storeName]) {
+      const seed = TRAINING_CALENDAR_SEED[storeName];
+      trainingCalendars[storeName] = seed
+        ? { weekLabels: [...TRAINING_WEEK_LABELS], staff: seed.staff.map(p => ({ position: p.position, name: p.name, store: p.store || '', weeks: normalizeTrainingWeeks(p.weeks), startDateOverride: '' })) }
+        : { weekLabels: [...TRAINING_WEEK_LABELS], staff: [] };
+    }
+    const cal = trainingCalendars[storeName];
+    if (!Array.isArray(cal.weekLabels) || cal.weekLabels.length !== 4) cal.weekLabels = [...TRAINING_WEEK_LABELS];
+    if (!Array.isArray(cal.staff)) cal.staff = [];
+    cal.staff.forEach(p => {
+      if (!Array.isArray(p.weeks) || p.weeks.length !== 4) p.weeks = normalizeTrainingWeeks(p.weeks);
+      if (p.store == null) p.store = '';
+      if (p.startDateOverride == null) p.startDateOverride = '';
+    });
+    return cal;
+  }
+  function addTrainingStaff(storeName){
+    const cal = getTrainingCalendar(storeName);
+    cal.staff.push({ position:'', name:'', store:'', weeks: ['','','',''], startDateOverride: '' });
+    renderStoreList();
+    saveTrainingCalendars();
+  }
+  function removeTrainingStaff(storeName, idx){
+    const cal = getTrainingCalendar(storeName);
+    cal.staff.splice(idx, 1);
+    renderStoreList();
+    saveTrainingCalendars();
+  }
+  function setTrainingField(storeName, idx, field, value){
+    const cal = getTrainingCalendar(storeName);
+    if (!cal.staff[idx]) return;
+    cal.staff[idx][field] = value;
+    renderStoreList();
+    saveTrainingCalendars();
+  }
+  function setTrainingWeekField(storeName, idx, weekIdx, value){
+    const cal = getTrainingCalendar(storeName);
+    if (!cal.staff[idx]) return;
+    if (!Array.isArray(cal.staff[idx].weeks)) cal.staff[idx].weeks = [];
+    cal.staff[idx].weeks[weekIdx] = value;
+    saveTrainingCalendars();
+  }
+
+  // Small dependency-free CSV parser (handles quoted fields with embedded
+  // commas) — avoids pulling in an external library for this one form.
+  // Auto-detects comma vs semicolon (Excel in many non-US locales exports
+  // semicolon-delimited CSVs), and normalizes line endings so a lone \r
+  // (old Mac-style) doesn't merge every row into one.
+  function detectCsvDelimiter(text) {
+    const firstLine = (text.split(/\r\n|\r|\n/)[0]) || '';
+    const commas = (firstLine.match(/,/g) || []).length;
+    const semis = (firstLine.match(/;/g) || []).length;
+    return semis > commas ? ';' : ',';
+  }
+  function parseCsvText(text, delimiter){
+    delimiter = delimiter || ',';
+    // Excel commonly saves UTF-8 CSVs with a leading BOM — left in place,
+    // it silently attaches itself to the first header cell ("\uFEFFPosition"),
+    // which then fails to match "position" and breaks the whole import.
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++){
+      const c = text[i];
+      if (inQuotes) {
+        if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else { inQuotes = false; } }
+        else field += c;
+      } else {
+        if (c === '"') inQuotes = true;
+        else if (c === delimiter) { row.push(field); field = ''; }
+        else if (c === '\n') { row.push(field); rows.push(row); row = []; field = ''; }
+        else field += c;
+      }
+    }
+    if (field.length || row.length) { row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(f => f.trim() !== ''));
+  }
+
+  // Expected CSV format: header row of Position, Name, Store, Wk 1, Wk 2,
+  // Wk 3, Wk 4 (only the first 4 columns starting with "week"/"wk" are used
+  // — Start Date isn't part of the CSV since it's calculated automatically
+  // from the café's Open Date and the role's standard lead time).
+  function importTrainingCsv(storeName, file){
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const rawText = String(reader.result);
+        const delimiter = detectCsvDelimiter(rawText);
+        const rows = parseCsvText(rawText, delimiter);
+        if (rows.length < 2) { toast('CSV looks empty — needs a header row plus at least one staff row'); return; }
+        const header = rows[0].map(h => h.trim().toLowerCase());
+        // Tolerant of common real-world header variants — "Positions",
+        // "Postion", "Postions" (a typo that's shown up in an actual
+        // template used here) — anything starting with "pos" matches.
+        const posIdx = header.findIndex(h => h.startsWith('pos'));
+        const nameIdx = header.findIndex(h => h === 'name');
+        const storeIdx = header.findIndex(h => h === 'store');
+        const weekCols = header.map((h,i) => ({h,i})).filter(({h}) => h.startsWith('week') || h.startsWith('wk')).slice(0, 4);
+        if (posIdx === -1 || nameIdx === -1) {
+          const found = rows[0].map(h => h.trim()).filter(Boolean).join(', ') || '(no headers detected)';
+          toast(`CSV needs "Position" and "Name" column headers. Found instead: ${found}`);
+          return;
+        }
+        const staff = rows.slice(1).map(r => ({
+          position: (r[posIdx]||'').trim(),
+          name: (r[nameIdx]||'').trim(),
+          store: storeIdx > -1 ? (r[storeIdx]||'').trim() : '',
+          weeks: normalizeTrainingWeeks(weekCols.map(({i}) => (r[i]||'').trim())),
+        })).filter(p => p.position || p.name);
+        trainingCalendars[storeName] = { weekLabels: [...TRAINING_WEEK_LABELS], staff };
+        renderStoreList();
+        await saveTrainingCalendars();
+        toast(`Imported ${staff.length} training staff for ${storeName}`);
+      } catch(e) { toast('Could not parse that CSV — check the format and try again. (' + e.message + ')'); }
+    };
+    reader.readAsText(file);
+  }
+
+  async function loadNewCafeBBetter(){
+    try {
+      const r = await apiGet('/api/storage/newcafe-bbetter-v1');
+      newCafeBBetter = JSON.parse(r.value || '{}');
+    } catch(e) { newCafeBBetter = {}; }
+  }
+  async function saveNewCafeBBetter(){
+    try {
+      await fetch('/api/storage/newcafe-bbetter-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(newCafeBBetter) })
+      });
+    } catch(e) { toast('Could not save B.Better data — check connection'); }
+  }
+  // Case/punctuation-insensitive lookup — the Beeline Groups Report names
+  // don't always match the café's exact record name (e.g. "Clara-Anna" vs
+  // "Clara Anna").
+  function newCafeBBetterFor(storeName){
+    if (newCafeBBetter[storeName]) return newCafeBBetter[storeName];
+    const norm = (s) => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    const target = norm(storeName);
+    const matchKey = Object.keys(newCafeBBetter).find(k => norm(k) === target);
+    return matchKey ? newCafeBBetter[matchKey] : null;
+  }
+  // Expects the Beeline "Groups Report" .xlsx export as-is: Name, Average
+  // Completion (%), Onboarded Members, Onboarded (%).
+  function importBBetterWorkbook(file){
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        if (!window.XLSX) { toast('Excel reader failed to load — refresh the page and try again'); return; }
+        const wb = XLSX.read(new Uint8Array(reader.result), { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        let count = 0;
+        rows.forEach(r => {
+          const name = String(r['Name'] || '').trim();
+          if (!name) return;
+          newCafeBBetter[name] = {
+            avgCompletion: Number(r['Average Completion (%)']) || 0,
+            onboardedMembers: Number(r['Onboarded Members']) || 0,
+            onboardedPct: Number(r['Onboarded (%)']) || 0,
+            uploadedAt: today,
+          };
+          count++;
+        });
+        if (!count) { toast('No rows found — expected a "Name" column from the Beeline Groups Report'); return; }
+        await saveNewCafeBBetter();
+        renderStoreList();
+        toast(`Imported B.Better status for ${count} group(s)`);
+      } catch(e) { toast('Could not read that file — expected the Beeline Groups Report .xlsx export. (' + e.message + ')'); }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function isArchived(s){
+    if (!s.openDate) return false;
+    const daysSinceOpen = Math.floor((new Date(today) - new Date(s.openDate)) / 86400000);
+    return daysSinceOpen > 28;
+  }
+
+  // cpaConfirmations[store][milestoneKey] used to be a plain boolean. It's
+  // now an object { confirmed, comment, fileUrl, fileName, title, description }
+  // so each milestone can carry a custom title/description, a note, and an
+  // attachment — getMilestoneMeta reads either shape so older saved data
+  // (plain booleans) still displays fine.
+  // A couple of milestones ship with a default description (from
+  // CPA_Timeline_V1.xlsx column B) — editable per café, same as everything
+  // else here, this is just the starting text.
+  const MILESTONE_DEFAULT_DESCRIPTIONS = {
+    welcomeMail: 'Franchisee meetings set and calendar invites sent for the journey period.',
+  };
+  function getMilestoneMeta(storeName, key){
+    const raw = (cpaConfirmations[storeName] || {})[key];
+    const defaults = { confirmed:false, comment:'', fileUrl:'', fileName:'', title:'', description: MILESTONE_DEFAULT_DESCRIPTIONS[key] || '' };
+    if (raw && typeof raw === 'object') return Object.assign({}, defaults, raw);
+    return Object.assign({}, defaults, { confirmed: !!raw });
+  }
+  async function loadCpaConfirmations(){
+    try {
+      const r = await apiGet('/api/storage/cpa-confirmations-v1');
+      cpaConfirmations = JSON.parse(r.value || '{}');
+    } catch(e) { cpaConfirmations = {}; }
+  }
+
+  async function saveCpaConfirmations(){
+    try {
+      await fetch('/api/storage/cpa-confirmations-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(cpaConfirmations) })
+      });
+    } catch(e) { toast('Could not save confirmation — check connection'); }
+  }
+
+  async function toggleCpaConfirm(storeName, milestoneKey){
+    const meta = getMilestoneMeta(storeName, milestoneKey);
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [milestoneKey]: Object.assign({}, meta, { confirmed: !meta.confirmed }) });
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    renderStoreList();
+    await saveCpaConfirmations();
+  }
+  async function setCpaMilestoneComment(storeName, key, comment){
+    const meta = getMilestoneMeta(storeName, key);
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [key]: Object.assign({}, meta, { comment }) });
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    await saveCpaConfirmations();
+  }
+  async function setCpaMilestoneTitle(storeName, key, title){
+    const meta = getMilestoneMeta(storeName, key);
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [key]: Object.assign({}, meta, { title }) });
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    renderStoreList();
+    await saveCpaConfirmations();
+  }
+  async function setCpaMilestoneDescription(storeName, key, description){
+    const meta = getMilestoneMeta(storeName, key);
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [key]: Object.assign({}, meta, { description }) });
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    await saveCpaConfirmations();
+  }
+  async function uploadCpaMilestoneFile(storeName, key, file){
+    const reader = new FileReader();
+    reader.onload = async () => {
+      try {
+        const res = await fetch('/api/upload-file', {
+          method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+          body: JSON.stringify({ dataUrl: String(reader.result), subfolder: 'cpa-milestones' })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        const meta = getMilestoneMeta(storeName, key);
+        const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [key]: Object.assign({}, meta, { fileUrl: data.url, fileName: file.name }) });
+        cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+        renderStoreList();
+        await saveCpaConfirmations();
+        toast('File attached');
+      } catch(e) { toast(e.message || 'Could not upload that file'); }
+    };
+    reader.readAsDataURL(file);
+  }
+  async function removeCpaMilestoneFile(storeName, key){
+    const meta = getMilestoneMeta(storeName, key);
+    const storeConf = Object.assign({}, cpaConfirmations[storeName] || {}, { [key]: Object.assign({}, meta, { fileUrl:'', fileName:'' }) });
+    cpaConfirmations = Object.assign({}, cpaConfirmations, { [storeName]: storeConf });
+    renderStoreList();
+    await saveCpaConfirmations();
+  }
+  // Manual override of a CPA milestone date — only works for cafés added
+  // through New Cafés (extraStores carry an id); the original hardcoded
+  // pipeline entries aren't editable through the UI.
+  async function setCpaOverride(storeName, key, value){
+    const store = extraStores.find(s => s.name === storeName);
+    if (!store) { toast('This café isn\'t editable here'); return; }
+    if (!store.cpaOverrides) store.cpaOverrides = {};
+    if (value) store.cpaOverrides[key] = value; else delete store.cpaOverrides[key];
+    await saveExtraStores();
+    renderStoreList();
+  }
+
+  async function loadSupportAllocations(){
+    try {
+      const r = await apiGet('/api/storage/support-allocations-v1');
+      supportAllocations = JSON.parse(r.value || '{}');
+    } catch(e) { supportAllocations = {}; }
+  }
+
+  async function saveSupportAllocations(){
+    try {
+      await fetch('/api/storage/support-allocations-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(supportAllocations) })
+      });
+    } catch(e) { toast('Could not save support allocation — check connection'); }
+  }
+
+  async function loadCafeSubmissions(){
+    try {
+      const r = await apiGet('/api/storage/cafe-submissions-v1');
+      cafeSubmissions = JSON.parse(r.value || '[]');
+    } catch(e) { cafeSubmissions = []; }
+  }
+  async function saveCafeSubmissions(){
+    try {
+      await fetch('/api/storage/cafe-submissions-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(cafeSubmissions) })
+      });
+    } catch(e) { toast('Could not save the pending requests queue — check connection'); }
+  }
+  async function loadStoreDetails(){
+    try {
+      const r = await apiGet('/api/storage/cafe-store-details-v1');
+      storeDetails = JSON.parse(r.value || '{}');
+    } catch(e) { storeDetails = {}; }
+  }
+  async function saveStoreDetails(){
+    try {
+      await fetch('/api/storage/cafe-store-details-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: JSON.stringify(storeDetails) })
+      });
+    } catch(e) { toast('Could not save store details — check connection'); }
+  }
+  const STORE_DETAILS_MASTER_SEED = {
+    "Cavendish": {
+      "location": "Regional Centre",
+      "seats": "61 internal, 13 external",
+      "turnover": "R825,000",
+      "address": "Shop G36M, Cavendish Square Shopping Centre, Dreyer Street, Claremont, Cape Town, 7708",
+      "invoicingDetails": "Amahsi Holdings (Pty) Ltd t/a Bootlegger Cavendish; Company reg. 2025/437761/07, VAT TBC",
+      "representative": "Abduraghman Allie (AB)",
+      "representativeEmail": "a.allie@amahsiholdings.co.za",
+      "representativeContactNumber": "0711128522/ +97471027268",
+      "fsmEmail": "charlene@bootlegger.co.za",
+      "pm": "Kean Dry",
+      "landlordContact": "Tania Van Tonder",
+      "landlordEmail": "TVanTonder@oldmutualproperty.com",
+      "landlordContactNumber": "083 462 8614"
+    },
+    "Douglasdale Village": {
+      "location": "Convenience Centre",
+      "seats": "56 (Inside)",
+      "turnover": "R650 000 (ex VAT)",
+      "address": "Shop 19, Douglasdale Village Shopping Centre, Cnr. Douglas Dr. & Leslie Avenue, Douglasdale, JHB 2191",
+      "invoicingDetails": "LZ Retail Two (Pty) Ltd t/a Bootlegger Douglasdale Village,  Company Reg: 2025/709868/07 VAT: N/A",
+      "representative": "Ryno Terblanche & Lebo Mutloane",
+      "representativeEmail": "ryno@luzuko.com / lebo@luzuko.com",
+      "representativeContactNumber": "0826501365",
+      "landlordContact": "Dorpstraat - Vanessa Loots",
+      "landlordEmail": "Vanessa@propactive.net",
+      "landlordContactNumber": "082 887 7307"
+    },
+    "Haasendal Gables": {
+      "location": "Convenience Centre",
+      "seats": "65 (Inside) 28 (Outside)",
+      "turnover": "R650 000 (ex VAT)",
+      "address": "Shops 19 & 20 Haasendal Gables, 2 Haasendal Boulevard, corner Saxdowns and Bottelary Roads, Kuils Rivier 7580",
+      "invoicingDetails": "NNG Cafe Bootleggers Haasendal (Pty) Ltd ; Company reg. 2026/273934/07 ; VAT: TBC",
+      "representative": "Alicia Macicek",
+      "representativeEmail": "alicia.macicek@novanexusgroup.co.za / christian.macicek@novanexusgroup.co.za",
+      "representativeContactNumber": "Alicia 079 545 5593, Christian 076 780 0888",
+      "landlordContact": "Wikus Snygans",
+      "landlordEmail": "wikus.snygans@striveprop.co.za",
+      "landlordContactNumber": "082 614 0170"
+    },
+    "Jetty Quarter XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "12 (Inside)",
+      "turnover": "R290 000 (ex VAT)",
+      "address": "Shop 2, Jetty Quarter, 23 Lower Long Street, Cape Town CBD",
+      "invoicingDetails": "Amahsi Holdings (Pty) Ltd t/a Bootlegger Jetty Quarter XS; Company reg. 2025/437761/07, VAT TBC",
+      "representative": "Abduraghman Allie",
+      "representativeEmail": "a.allie@amahsiholdings.co.za",
+      "representativeContactNumber": "0711128522 / +97471027268",
+      "pm": "Kean Dry",
+      "landlordContact": "23 Lower Long (Pty) Ltd- Michael Dickinson",
+      "landlordEmail": "michael@divercity.co.za",
+      "landlordContactNumber": "072 606 3131"
+    },
+    "Paarden Eiland": {
+      "location": "High Street 7 Day Trade",
+      "seats": "68 (Inside)",
+      "turnover": "R580 000 (ex VAT)",
+      "address": "26 Marine Dr, Paarden Eiland, Cape Town, 7405",
+      "invoicingDetails": "Red Marlin Trading 444 (Pty) Ltd T/A Paarden Eiland co reg 2020/126694/07 vat 4890260468",
+      "representative": "Rahul Marajh",
+      "representativeEmail": "rahulmarajhshashi@gmail.com",
+      "representativeContactNumber": "083 571 6658",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "0736746481",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "064 687 4223",
+      "landlordContact": "Yolandi Billing - Spear Reit",
+      "landlordEmail": "yolandi@spearprop.co.za",
+      "landlordContactNumber": "078 862 5693"
+    },
+    "Paarl Mall": {
+      "location": "Regional Centre",
+      "seats": "46 internal + 56 external",
+      "turnover": "R700 000 (ex VAT)",
+      "address": "Shop 64 Paarl Mall, Cecilia Street, Paarl",
+      "invoicingDetails": "Agulhasbnb (Pty) Ltd reg no. 2022/511480/07 vat no. 4430306251",
+      "representative": "Conrad Barnard",
+      "representativeEmail": "conrad@snappi-group.com",
+      "representativeContactNumber": "082 417 7667",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "0736746481",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "064 687 4223",
+      "landlordContact": "Growthpoint - Roslynn Children",
+      "landlordEmail": "RChildren@growthpoint.co.za",
+      "landlordContactNumber": "082 922 8419"
+    },
+    "Parkhurst": {
+      "location": "High Street 7 Day Trade",
+      "seats": "53 internal, 17 external",
+      "turnover": "R600,000 (ex VAT)",
+      "address": "20 4th Avenue, Parkhurst, Randburg, 2193",
+      "invoicingDetails": "VOII (PTY) LTD T/A Bootlegger Parkhurst, Company Reg: 2021/984464/07, VAT: 4890306600",
+      "representative": "Pranill Ramchander",
+      "representativeEmail": "pranill.ramchander@angloamerican.com",
+      "representativeContactNumber": "082 330 4053",
+      "pm": "Drue Thuysman",
+      "pmEmail": "drue@parametric-pm.com",
+      "pmContactNumber": "0848331876",
+      "landlordContact": "Pranill Ramchander",
+      "landlordEmail": "pranill.ramchander@angloamerican.com",
+      "landlordContactNumber": "082 330 4053"
+    },
+    "Alzu Petroport N4 Pod": {
+      "location": "High Street 7 Day Trade",
+      "seats": "8 internal, 20 external",
+      "turnover": "R450,000",
+      "address": "N4 Petroport, Middelburg, Mpumalanga 1055",
+      "invoicingDetails": "Coffee QSR (Pty) Ltd t/a Bootlegger Alzu Petroport XS, 2022/536328/07, vat 4010324475",
+      "representative": "Robert Du Toit",
+      "representativeEmail": "robert@alzu.co.za",
+      "representativeContactNumber": "082 388 3332",
+      "fsmEmail": "washington@bootlegger.co.za",
+      "pm": "Drue Thuysman",
+      "pmEmail": "drue@parametric-pm.com",
+      "pmContactNumber": "084 833 1876",
+      "landlordContact": "Tiaan Struwig",
+      "landlordEmail": "Tiaan@alzu.co.za",
+      "landlordContactNumber": "075 214 0443"
+    },
+    "Alzu Rayton Pod": {
+      "location": "High Street 7 Day Trade",
+      "seats": "28 outside seating",
+      "turnover": "R225,000",
+      "address": "Alzu (Jan Ellis Centre), Corner R515 & R104, Rayton, Gauteng 1001",
+      "invoicingDetails": "Coffee QSR (Pty) Ltd t/a Bootlegger Alzu Rayton XS, 2022/536328/07, vat 4010324475",
+      "representative": "Robert Du Toit",
+      "representativeEmail": "robert@alzu.co.za",
+      "representativeContactNumber": "082 388 3332",
+      "fsmEmail": "washington@bootlegger.co.za",
+      "fsmContactNumber": "071 790 8064",
+      "pm": "Drue Thuysman",
+      "pmEmail": "drue@parametric-pm.com",
+      "pmContactNumber": "084 833 1876",
+      "landlordContact": "Tiaan Struwig",
+      "landlordEmail": "Tiaan@alzu.co.za",
+      "landlordContactNumber": "075 214 0443"
+    },
+    "Sandton Gate": {
+      "location": "Neighbourhood Centre",
+      "seats": "80 (Inside) 0 (outside)",
+      "turnover": "R775 000 (ex VAT)",
+      "address": "UR 23, Sandton Gate Central, Erf 184, Glenadrienne, Sandton",
+      "invoicingDetails": "To The Max Holdings (Pty) Ltd t/a Bootlegger Sandton Gate, Co Reg: 2023/668199/07, VAT no. 9629821191",
+      "representative": "Lashlen Ramasrai",
+      "representativeEmail": "ramasrai.lashlen@gmail.com",
+      "representativeContactNumber": "076 507 2148",
+      "fsmEmail": "nicolene@bootlegger.co.za",
+      "fsmContactNumber": "0732526148",
+      "pm": "Kean Dry",
+      "pmContactNumber": "kean@bootlegger.co.za"
+    },
+    "Sandkraal XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "10 (outside)",
+      "turnover": "R220 000 (ex VAT)",
+      "address": "4 Sandkraal Road, George Industria, George, 6536",
+      "invoicingDetails": "Buchu Property Fuel (Pty) Ltd t/a Bootlegger Sandkraal XS\nCompany reg. 2022/571555/07\nVAT no. 4570315780",
+      "representative": "Mark Hinks",
+      "representativeEmail": "mark.hinks@mweb.co.za",
+      "representativeContactNumber": "828963601",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "073 674 6481",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "0646874223"
+    },
+    "Springbok XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "12 (Inside) 16 (outside)",
+      "turnover": "R260 000 (ex VAT)",
+      "address": "17 Koperberg Street, Springbok, Northern Cape 8240",
+      "invoicingDetails": "Platinum 4 Bean (Pty) Ltd  t/a Bootlegger Springbok XS, Company Reg. 2026/253837/07; Vat no TBC",
+      "representative": "Altus Mostert - Landlord & Franchisee",
+      "representativeEmail": "info@platinumcomputers.co.za",
+      "representativeContactNumber": "832832700",
+      "pm": "Kean Dry",
+      "landlordContact": "Altus Mostert - Landlord & Franchisee",
+      "landlordEmail": "info@platinumcomputers.co.za",
+      "landlordContactNumber": "083 283 2700"
+    },
+    "Sunridge Spar XS": {
+      "location": "Neighbourhood Centre",
+      "seats": "n/a",
+      "turnover": "R209,000",
+      "address": "Shop 2 Sunridge Village Shopping Centre on Kragga Kamma Road, Sunridge Park, Gqeberha",
+      "invoicingDetails": "Bel Pro Retail (Pty) Ltd vat no. 4690265139",
+      "representative": "Ruan Bower",
+      "representativeEmail": "Ruan@retail.spar.co.za",
+      "representativeContactNumber": "082 330 6707",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "pm": "Kean Dry",
+      "landlordContact": "Ruan Bower",
+      "landlordEmail": "Ruan@retail.spar.co.za",
+      "landlordContactNumber": "082 330 6707"
+    },
+    "Total Diep River": {
+      "location": "High Street 7 Day Trade",
+      "seats": "N/A",
+      "turnover": "R186,000",
+      "address": "55 Main Rd, Diep River, Cape Town, 7800",
+      "invoicingDetails": "Afiri Enterprizes (Pty) Ltd t/a Total Diep River XS 2014/145294/07; vat 4020269991",
+      "representative": "Irshaad Moosa",
+      "representativeEmail": "irshaadmoosa@gmail.com",
+      "representativeContactNumber": "083 685 6560",
+      "fsmEmail": "brent@bootlegger.co.za",
+      "fsmContactNumber": "071 051 0579",
+      "pm": "Kean Dry",
+      "landlordContact": "Irshaad Moosa",
+      "landlordEmail": "Contactor onsite: Joseph - FK Architects - 081 479 8628 - joseph@fkarchitects.co.za"
+    },
+    "Mafikeng XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "n/a",
+      "turnover": "R186,000",
+      "address": "Shippard Street, Nelson Mandela Dr, Mahikeng, 2745",
+      "invoicingDetails": "F and R Service Centre t/a Bootlegger Mafikeng XS vat 4860159815",
+      "representative": "Shiraz Omar",
+      "representativeEmail": "shirazomar786@gmail.com",
+      "representativeContactNumber": "083 441 7714",
+      "fsmEmail": "washington@bootlegger.co.za",
+      "pm": "TE - Ricci",
+      "landlordContact": "Shiraz or Zain Smith",
+      "landlordEmail": "shirazomar786@gmail.com",
+      "landlordContactNumber": "083 441 7714 - Shiraz, 076 125 0189 - Zain"
+    },
+    "Three Rivers": {
+      "location": "Convenience Centre",
+      "seats": "40 (inside) 20 (outside)",
+      "turnover": "R625 000 (ex VAT)",
+      "address": "Shop 01, corner General Hertzog & Ring Roads, Three Rivers, Vereeniging",
+      "invoicingDetails": "PB Drivethru (Pty) Ltd t/a Bootlegger Three Rivers; Co. Reg 2025/760833/07; VAT TBC",
+      "representative": "Mubeen Khan",
+      "representativeEmail": "mubeenkhan786@icloud.com",
+      "representativeContactNumber": "079 515 0077",
+      "fsmEmail": "sipho@bootlegger.co.za",
+      "fsmContactNumber": "0634005630",
+      "pm": "Drue Thuysman",
+      "pmEmail": "drue@parametric-pm.com",
+      "pmContactNumber": "0848331876",
+      "landlordContact": "Mubeen Khan",
+      "landlordEmail": "mubeenkhan786@icloud.com",
+      "landlordContactNumber": "079 515 0077"
+    },
+    "Wale Street XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "N/A",
+      "turnover": "R223,000",
+      "address": "66 Wale Street, Cape Town CBD",
+      "invoicingDetails": "TBA",
+      "representative": "Abdool Kalla and daughter Atiyah Kalla",
+      "representativeEmail": "Abdool - aprimespot@gmail.com Atiyah - atiyahkalla@gmail.com",
+      "representativeContactNumber": "Abdool - 076 512 9956, Atiyah - 076 016 2311",
+      "fsmEmail": "brent@bootlegger.co.za",
+      "fsmContactNumber": "071 051 0579",
+      "pm": "Kean Dry",
+      "landlordContact": "As above, frachisee is the landlord"
+    },
+    "Walmer Park": {
+      "location": "Regional Centre",
+      "seats": "64 (Inside)",
+      "turnover": "R650 000 (ex VAT)",
+      "address": "Shop 121 Walmer Park Shopping Centre, 14th & 16th Ave, Main Road, Walmer, Port Elizabeth 6070",
+      "invoicingDetails": "AMP Hospitality (PTY) Ltd t/a Bootlegger Walmer Park; Company Reg. 2026/338769/07; VAT: TBC",
+      "representative": "Darren Mungur",
+      "representativeEmail": "darren@soulgood.co.za",
+      "representativeContactNumber": "826326563",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "073 674 6481",
+      "pm": "Drue Thuysman",
+      "pmEmail": "drue@parametric-pm.com",
+      "pmContactNumber": "0848331876",
+      "landlordContact": "Leonie Scheepers",
+      "landlordEmail": "LScheepers@growthpoint.co.za",
+      "landlordContactNumber": "083 304 2677"
+    },
+    "Woodmead XS": {
+      "location": "High Street 5 Day Trade",
+      "seats": "18 (Inside) 16 (external)",
+      "turnover": "R315 000 (ex VAT)",
+      "address": "Block 01 Ground Floor, Woodmead Office Park, Woodlands Drive, Woodmead, Gauteng",
+      "invoicingDetails": "Lindoflux (Pty) Ltd t/a Bootlegger Woodmead XS, Company Reg: 2025/223568/07 VAT: TBC",
+      "representative": "Shabnam Petersen",
+      "representativeEmail": "Shabnam@saatplay.com",
+      "representativeContactNumber": "0824472743",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "064 687 4223",
+      "landlordContact": "Shabnam Petersen",
+      "landlordEmail": "Shabnam@saatplay.com",
+      "landlordContactNumber": "0824472743"
+    },
+    "York Street Boulevard": {
+      "location": "Convenience Centre",
+      "seats": "58 (Inside) 30 (Outside)",
+      "turnover": "R600 000 (ex VAT)",
+      "address": "Shop 13, York Street Boulevard, Cnr. York Street & Plattner Boulevard, George, 6529",
+      "invoicingDetails": "Bothas Coffee (Pty) Ltd t/a Bootlegger York Street, Company Reg: 2025/723351/07 VAT: 4350323020",
+      "representative": "Luzaan & Faan Botha",
+      "representativeEmail": "bootlegger.hbos@gmail.com / faanbotha19@icloud.com",
+      "representativeContactNumber": "0823878469",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "0736746481",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "0646874223",
+      "landlordContact": "Stephan Gericke",
+      "landlordEmail": "Stephan@aria.co.za",
+      "landlordContactNumber": "083 795 4156"
+    },
+    "Delta Central XS": {
+      "location": "High Street 7 Day Trade",
+      "seats": "84 (Inside)",
+      "turnover": "R340 000 (ex VAT)",
+      "address": "Unit 3, 74 Hillcrest Anvenue, Blairgowrie, Johannesburg, 2193",
+      "invoicingDetails": "Be Juicy Café (Pty) Ltd t/a Bootlegger Delta Central XS, Company Reg. 2025/576012/07, VAT: TBC",
+      "representative": "Bhavesh Parbhoo / Ushay Parbhoo",
+      "representativeEmail": "bhavesh.parbhoo@gmail.com / ushay.parbhoo21@gmail.com",
+      "representativeContactNumber": "0824486813 / 0844143101",
+      "fsmEmail": "nicolene@bootlegger.co.za",
+      "fsmContactNumber": "0732526148"
+    },
+    "Hyde Park Corner": {
+      "location": "Neighbourhood Centre",
+      "seats": "57 (Inside) 60 (Outside)",
+      "turnover": "R750 000 (ex VAT)",
+      "address": "Shop MM24 Hyde Park Corner, Cnr Jan Smuts Avenue and Winnie Mandela Drive, Hyde Park Corner, Johannesburg",
+      "invoicingDetails": "Momo Hyde Park (Pty) Ltd t/a Bootlegger Hyde Park Corner, Company Reg. 2025/475719/07, VAT: TBC",
+      "representative": "Fayyaz Moosa",
+      "representativeEmail": "fayyaz@affaholdings.com",
+      "representativeContactNumber": "0837865548",
+      "fsmEmail": "nicolene@bootlegger.co.za",
+      "fsmContactNumber": "0732526148",
+      "pm": "Craig Palm",
+      "pmEmail": "craig@bootlegger.co.za",
+      "pmContactNumber": "0604906663"
+    },
+    "Thabazimbi Pod": {
+      "seats": "8 external",
+      "turnover": "R225,000",
+      "address": "TotalEnergies Thabazimbi, R510, Thabazimbi, Limpopo 0387",
+      "invoicingDetails": "Thaba Coffee (Pty) Ltd T/A Bootlegger Thabazimbi XS, Company Reg. 2011/109730/07 VAT 4400261915",
+      "representative": "Jacques Blaauw",
+      "representativeContactNumber": "083 303 9230",
+      "fsmEmail": "sipho@bootlegger.co.za",
+      "fsmContactNumber": "0634005630",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "0646874223"
+    },
+    "Welgelee Plein XS": {
+      "location": "Neighbourhood Centre",
+      "seats": "18 (Inside) 19 (outside)",
+      "turnover": "R320 000(ex VAT)",
+      "address": "Shop 02 Welgelee Plein, cnr Champagne and Piet Retief Roads, Wellington",
+      "invoicingDetails": "Lotriet Investments (Pty) Ltd T/A Bootlegger Welgelee Plein XS, Company Reg: 2023/608635/07 VAT: TBC",
+      "representative": "Corne Lotriet",
+      "representativeEmail": "corne.lotriet@gmail.com",
+      "representativeContactNumber": "082 786 3096",
+      "fsmEmail": "liam@bootlegger.co.za",
+      "fsmContactNumber": "0736746481",
+      "pm": "Kean Dry",
+      "pmEmail": "kean@bootlegger.co.za",
+      "pmContactNumber": "0646874223",
+      "landlordContact": "Lynn Stow - Shoprite",
+      "landlordEmail": "mlstow@shoprite.co.za",
+      "landlordContactNumber": "082 357 9030"
+    }
+  };
+
+  // One-time, additive-only enrichment: fills in blank Franchisee & Store
+  // Details fields from the MASTER Store Info Sheet workbook (14 July
+  // 2026) for cafés already being tracked. Never touches Opening Date or
+  // Handover Date — the workbook's dates disagreed with what's already
+  // tracked for most stores and there's no reliable way to tell which
+  // source is more current, so those stay exactly as they are; Franlo/
+  // Tarryn can adjust them by hand using the editable field already in
+  // place. Also never overwrites a field someone has already filled in.
+  async function migrateStoreDetailsFromMasterSheetIfNeeded(){
+    try {
+      const flag = await apiGet('/api/storage/store-details-master-migrated-v1');
+      if (flag && flag.value === 'true') return;
+    } catch(e) { /* flag not set yet — proceed */ }
+    let changed = false;
+    Object.entries(STORE_DETAILS_MASTER_SEED).forEach(([name, fields]) => {
+      if (!storeDetails[name]) storeDetails[name] = {};
+      Object.entries(fields).forEach(([k, v]) => {
+        if (!storeDetails[name][k]) { storeDetails[name][k] = v; changed = true; }
+      });
+    });
+    if (changed) await saveStoreDetails();
+    try {
+      await fetch('/api/storage/store-details-master-migrated-v1', {
+        method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()),
+        body: JSON.stringify({ value: 'true' })
+      });
+    } catch(e) { /* safe to retry next load — additive/idempotent */ }
+  }
+
+  function setStoreDetailField(storeName, field, value){
+    if (!storeDetails[storeName]) storeDetails[storeName] = {};
+    storeDetails[storeName][field] = value;
+    saveStoreDetails();
+  }
+
+  // Editing a café's Open Date here directly changes the same value that
+  // drives calcCPA() — every milestone in the CPA Timeline and the
+  // Post-Support Schedule recomputes from it on the next render. Only
+  // works for extraStores (manually added or approved from a submission);
+  // the original hardcoded pipeline entries don't carry an id and aren't
+  // editable through the UI.
+  async function setStoreOpenDate(storeName, value){
+    const store = extraStores.find(s => s.name === storeName);
+    if (!store) return;
+    store.openDate = value;
+    await saveExtraStores();
+    renderStoreList();
+  }
+
+  // Café Created Date drives the Franchisee Check-in cadence and the Account
+  // Application milestone (calcCPA) — many existing/migrated cafés never had
+  // a real creation date recorded, so it defaults to today (or the record's
+  // own id/submission timestamp) until set here manually.
+  async function setStoreCreatedDate(storeName, value){
+    const store = extraStores.find(s => s.name === storeName);
+    if (!store) return;
+    store.createdDate = value;
+    await saveExtraStores();
+    renderStoreList();
+  }
+
+  function setPendingField(id, field, value){
+    const sub = cafeSubmissions.find(s => s.id === id);
+    if (!sub) return;
+    sub[field] = value;
+  }
+
+  // Turns an approved pending request into a real tracked café: adds it to
+  // extraStores (so it gets a CPA timeline immediately, using the submitted
+  // Handover Date if one was given), files everything else — franchisee,
+  // landlord, and store details — under storeDetails for the new
+  // "🏢 Franchisee & Store Details" section, then drops it from the queue.
+  async function approveCafeSubmission(id){
+    const sub = cafeSubmissions.find(s => s.id === id);
+    if (!sub) return;
+    if (!sub.storeName || !sub.storeName.trim()) { toast('Store Name is required before approving'); return; }
+    if (!sub.openDate) { toast('Store Opening Date is required before approving'); return; }
+    const name = sub.storeName.trim();
+    extraStores.push({
+      id: Date.now(),
+      name,
+      type: sub.type || 'Full Store',
+      region: sub.region || '',
+      openDate: sub.openDate,
+      createdDate: sub.submittedAt ? new Date(sub.submittedAt).toISOString().slice(0,10) : todayISO(),
+      fsm: sub.fsm || '',
+      notes: '',
+    });
+    await saveExtraStores();
+    storeDetails[name] = {
+      location: sub.location || '',
+      seats: sub.seats || '',
+      turnover: sub.turnover || '',
+      address: sub.address || '',
+      invoicingDetails: sub.invoicingDetails || '',
+      representative: sub.representative || '',
+      representativeEmail: sub.representativeEmail || '',
+      representativeContactNumber: sub.representativeContactNumber || '',
+      fsmEmail: sub.fsmEmail || '',
+      fsmContactNumber: sub.fsmContactNumber || '',
+      pm: sub.pm || '',
+      pmEmail: sub.pmEmail || '',
+      pmContactNumber: sub.pmContactNumber || '',
+      landlordContact: sub.landlordContact || '',
+      landlordEmail: sub.landlordEmail || '',
+      landlordContactNumber: sub.landlordContactNumber || '',
+    };
+    await saveStoreDetails();
+    cafeSubmissions = cafeSubmissions.filter(s => s.id !== id);
+    await saveCafeSubmissions();
+    toast(`${name} approved and added to New Cafés`);
+    subTab = 'active';
+    document.querySelectorAll('#otlSubTab .segmented-btn').forEach(b => b.classList.toggle('active', b.dataset.sub === 'active'));
+    document.getElementById('otlFilterRow').style.display = '';
+    document.getElementById('otlStoreList').style.display = '';
+    document.getElementById('otlPendingList').style.display = 'none';
+    renderAll();
+  }
+  function rejectCafeSubmission(id){
+    if (!confirm('Reject this submission? It will be removed from the queue permanently.')) return;
+    cafeSubmissions = cafeSubmissions.filter(s => s.id !== id);
+    saveCafeSubmissions();
+    renderPendingList();
+  }
+
+  function updatePendingBadge(){
+    const badge = document.getElementById('otlPendingBadge');
+    if (!badge) return;
+    badge.textContent = cafeSubmissions.length ? ` (${cafeSubmissions.length})` : '';
+  }
+
+  function pendingFieldHtml(sub, field, label, type){
+    type = type || 'text';
+    return `<div>
+      <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">${label}</label>
+      <input type="${type}" class="pendingField" data-id="${sub.id}" data-field="${field}" value="${escTC(sub[field]||'')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">
+    </div>`;
+  }
+
+  function renderPendingList(){
+    const el = document.getElementById('otlPendingList');
+    updatePendingBadge();
+    if (!cafeSubmissions.length) {
+      el.innerHTML = '<div class="empty-state">No pending café requests right now.</div>';
+      return;
+    }
+    el.innerHTML = cafeSubmissions.map(sub => `
+      <div class="card" style="margin-bottom:12px;border-top:3px solid var(--gold);">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+          <b style="font-size:14px;">${escTC(sub.storeName || '(no store name)')}</b>
+          <span style="font-size:10px;color:var(--grey-500);">Submitted by ${escTC(sub.submittedBy||'—')} · ${sub.submittedAt ? new Date(sub.submittedAt).toLocaleString() : '—'}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+          ${pendingFieldHtml(sub,'storeName','Store Name')}
+          ${pendingFieldHtml(sub,'region','Region')}
+          ${pendingFieldHtml(sub,'type','Store Type')}
+          ${pendingFieldHtml(sub,'openDate','Store Opening Date','date')}
+          ${pendingFieldHtml(sub,'location','Location')}
+          ${pendingFieldHtml(sub,'seats','Seat No.')}
+          ${pendingFieldHtml(sub,'turnover','Anticipated Turnover')}
+          ${pendingFieldHtml(sub,'address','Store Address')}
+          ${pendingFieldHtml(sub,'invoicingDetails','Franchisee Invoicing Details')}
+          ${pendingFieldHtml(sub,'representative','Representative')}
+          ${pendingFieldHtml(sub,'representativeEmail','Representative Email')}
+          ${pendingFieldHtml(sub,'representativeContactNumber','Representative Contact No.')}
+          ${pendingFieldHtml(sub,'fsm','FSM')}
+          ${pendingFieldHtml(sub,'fsmEmail','FSM Email')}
+          ${pendingFieldHtml(sub,'fsmContactNumber','FSM Contact No.')}
+          ${pendingFieldHtml(sub,'pm','Project Manager')}
+          ${pendingFieldHtml(sub,'pmEmail','PM Email')}
+          ${pendingFieldHtml(sub,'pmContactNumber','PM Contact No.')}
+          ${pendingFieldHtml(sub,'landlordContact','Landlord Contact')}
+          ${pendingFieldHtml(sub,'landlordEmail','Landlord Email')}
+          ${pendingFieldHtml(sub,'landlordContactNumber','Landlord Contact No.')}
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px;">
+          <button type="button" class="btn btn-gold pendingApproveBtn" data-id="${sub.id}">Approve &amp; Create Café</button>
+          <button type="button" class="btn btn-outline pendingRejectBtn" data-id="${sub.id}" style="color:var(--red);border-color:var(--red);">Reject</button>
+        </div>
+      </div>
+    `).join('');
+    document.querySelectorAll('.pendingField').forEach(f => {
+      f.addEventListener('change', () => setPendingField(f.dataset.id, f.dataset.field, f.value));
+    });
+    document.querySelectorAll('.pendingApproveBtn').forEach(btn => btn.addEventListener('click', () => approveCafeSubmission(btn.dataset.id)));
+    document.querySelectorAll('.pendingRejectBtn').forEach(btn => btn.addEventListener('click', () => rejectCafeSubmission(btn.dataset.id)));
+  }
+
+  async function toggleSupportAllocation(storeName, member){
+    const current = supportAllocations[storeName] || [];
+    const updated = current.includes(member) ? current.filter(m => m !== member) : [...current, member];
+    supportAllocations = Object.assign({}, supportAllocations, { [storeName]: updated });
+    renderStoreList();
+    await saveSupportAllocations();
+  }
+
+  function renderNewStoreSupportChips(){
+    const el = document.getElementById('otlSupportChips');
+    if (!el) return;
+    el.innerHTML = OT_PEOPLE_LIST.map(member => {
+      const assigned = newStoreSupport.includes(member);
+      return `<button type="button" class="otlNewSupportChip" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
+    }).join('');
+    document.querySelectorAll('.otlNewSupportChip').forEach(btn => btn.addEventListener('click', () => {
+      const m = btn.dataset.member;
+      newStoreSupport = newStoreSupport.includes(m) ? newStoreSupport.filter(x => x !== m) : [...newStoreSupport, m];
+      renderNewStoreSupportChips();
+    }));
+  }
+
+  function allStores(){
+    return extraStores.map(s => {
+      const cal = getTrainingCalendar(s.name);
+      return {
+        ...s,
+        cpa: calcCPA(s),
+        training: computeCafeProgress(cal, s.openDate),
+      };
+    });
+  }
+
+  function renderAll(){
+    const stores = allStores().filter(s => !isArchived(s));
+    const regions = ['All', ...Array.from(new Set(stores.map(s=>s.region))).sort()];
+    const regionSel = document.getElementById('otlRegion');
+    if (regionSel.options.length === 0) regionSel.innerHTML = regions.map(r=>`<option>${r}</option>`).join('');
+
+    const upcoming90 = stores.filter(s => s.openDate && (new Date(s.openDate)-new Date(today))/86400000 <= 90 && (new Date(s.openDate)-new Date(today))/86400000 >= 0).length;
+    const thisMonth = stores.filter(s => s.openDate && s.openDate.slice(0,7) === today.slice(0,7)).length;
+    const overallAvgVals = stores.map(s => s.training && s.training.overallPct).filter(v => v !== null && v !== undefined);
+    const overallAvg = overallAvgVals.length ? overallAvgVals.reduce((a,b)=>a+b,0)/overallAvgVals.length : 0;
+    const cpaAlerts = [];
+    stores.forEach(s => {
+      if (!s.cpa) return;
+      s.cpa.milestones.forEach(({label, date}) => {
+        const diff = Math.ceil((new Date(date)-new Date(today))/86400000);
+        if (diff >= 0 && diff <= 30) cpaAlerts.push({label, date, store:s.name, daysLeft:diff});
+      });
+    });
+    cpaAlerts.sort((a,b)=>a.daysLeft-b.daysLeft);
+
+    document.getElementById('otlKpis').innerHTML = [
+      ['Total Stores', stores.length], ['Opening ≤90 Days', upcoming90],
+      ['CPA Alerts (30d)', cpaAlerts.length], ['Avg Training %', Math.round(overallAvg)+'%'], ['This Month', thisMonth]
+    ].map(([l,v]) => `<div><div class="card-label">${l}</div><div class="card-value">${v}</div></div>`).join('');
+
+    document.getElementById('otlUpcoming').innerHTML = stores
+      .filter(s=>s.openDate && s.openDate >= today).sort((a,b)=>a.openDate.localeCompare(b.openDate)).slice(0,12)
+      .map(s => {
+        const days = Math.ceil((new Date(s.openDate)-new Date(today))/86400000);
+        return `<div style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--grey-200);">
+          <div><div style="font-size:13px;font-weight:600;">${s.name}</div><div style="font-size:11px;color:var(--grey-500);">${s.type} · ${s.region} · FSM: ${s.fsm||'—'}</div></div>
+          <div style="text-align:right;"><div style="font-size:12px;font-weight:700;color:${days<=14?'var(--amber)':'var(--green)'}">${days===0?'Today!':days+'d'}</div></div>
+        </div>`;
+      }).join('') || '<div class="empty-state">No upcoming openings.</div>';
+
+    document.getElementById('otlAlerts').innerHTML = cpaAlerts.slice(0,15).map(a => `
+      <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--grey-200);">
+        <div><div style="font-size:12px;font-weight:600;">${a.store}</div><div style="font-size:11px;color:var(--grey-500);">${a.label}</div></div>
+        <span class="badge ${a.daysLeft<=7?'red':'amber'}">${a.daysLeft===0?'Today':a.daysLeft+'d'}</span>
+      </div>`).join('') || '<div class="empty-state">No CPA milestones in the next 30 days.</div>';
+
+    renderStoreList();
+
+    if (isEditor()) {
+      document.getElementById('otlAddedList').innerHTML = extraStores.length ? extraStores.map(s => `
+        <div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--grey-200);">
+          <div><b>${s.name}</b> — ${s.openDate||'TBC'}</div>
+          <button class="btn btn-outline otlRemove" data-id="${s.id}">Remove</button>
+        </div>`).join('') : '';
+      document.querySelectorAll('.otlRemove').forEach(btn => btn.addEventListener('click', async () => {
+        extraStores = extraStores.filter(s => String(s.id) !== btn.dataset.id);
+        await saveExtraStores(); renderAll();
+      }));
+    } else {
+      document.getElementById('otlAddCard').style.display = 'none';
+    }
+  }
+
+  function renderStoreList(){
+    const search = document.getElementById('otlSearch').value.toLowerCase();
+    const region = document.getElementById('otlRegion').value;
+    let rows = allStores()
+      .filter(s => subTab === 'archive' ? isArchived(s) : !isArchived(s))
+      .filter(s => (!search || s.name.toLowerCase().includes(search)) && (!region || region==='All' || s.region===region));
+    rows.sort((a,b) => (a.openDate||'9999').localeCompare(b.openDate||'9999'));
+
+    document.getElementById('otlStoreList').innerHTML = rows.map(s => {
+      const isExp = expanded === s.name;
+      const days = s.openDate ? Math.ceil((new Date(s.openDate)-new Date(today))/86400000) : null;
+      const status = days===null?'TBD':days<0?'Opened':days===0?'Today!':days+'d';
+      let detail = '';
+      if (isExp) {
+        const milestoneList = s.cpa ? s.cpa.milestones.map(m => ({
+          key: m.key,
+          label: m.label,
+          date: m.date,
+          isCheckin: /^franchiseeMeeting\d+$/.test(m.key),
+          overridable: m.key !== 'openDate', // Opening Date is edited via the Store Opening Date field itself, not overridden separately here
+        })) : [];
+        const cpaRows = milestoneList.length ? milestoneList.map(({key, label, date, isCheckin, overridable}) => {
+          const meta = getMilestoneMeta(s.name, key);
+          const mkey = s.name + '::' + key;
+          const isRowExpanded = expandedMilestones.has(mkey);
+          const overrideValue = (s.cpaOverrides && s.cpaOverrides[key]) || '';
+          const displayTitle = meta.title || label;
+          const flags = (meta.fileUrl ? ' 📎' : '') + (meta.comment ? ' 💬' : '') + (meta.description ? ' 📝' : '');
+          const expandedPanel = isRowExpanded ? `
+            <div style="padding:8px 10px 10px 26px;background:var(--grey-100);border-radius:0 0 4px 4px;">
+              <div style="margin-bottom:6px;">
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Title</label>
+                <input type="text" class="cpaTitleField" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(displayTitle)}" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;box-sizing:border-box;font-weight:600;">
+              </div>
+              <div style="margin-bottom:6px;">
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Description</label>
+                <textarea class="cpaDescField" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Brief description of this action..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.description||'')}</textarea>
+              </div>
+              ${overridable ? `<div style="margin-bottom:6px;">
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Manual Date Override</label>
+                <input type="date" class="cpaDateOverride" data-store="${escTC(s.name)}" data-key="${key}" value="${escTC(overrideValue)}" style="font-size:11px;padding:3px 5px;border:1px solid var(--grey-200);border-radius:2px;">
+              </div>` : ''}
+              <div style="margin-bottom:6px;">
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Comment</label>
+                <textarea class="cpaComment" data-store="${escTC(s.name)}" data-key="${key}" rows="2" placeholder="Notes..." style="width:100%;font-size:11px;border:1px solid var(--grey-200);border-radius:3px;padding:4px 6px;box-sizing:border-box;font-family:inherit;">${escTC(meta.comment||'')}</textarea>
+              </div>
+              <div>
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Attachment</label>
+                ${meta.fileUrl
+                  ? `<a href="${meta.fileUrl}" target="_blank" style="font-size:11px;">📎 ${escTC(meta.fileName||'View file')}</a> <button type="button" class="cpaFileRemove" data-store="${escTC(s.name)}" data-key="${key}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;">Remove</button>`
+                  : `<input type="file" class="cpaFileInput" data-store="${escTC(s.name)}" data-key="${key}" style="font-size:11px;">`}
+              </div>
+            </div>` : '';
+          return `<div style="border-bottom:1px solid var(--grey-200);">
+            <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;${isCheckin ? 'background:#e6f6f6;border-radius:3px;' : ''}">
+              <button type="button" class="cpaMilestoneToggle" data-mkey="${mkey}" title="Show title, description, notes &amp; attachment" style="border:none;background:none;cursor:pointer;font-size:9px;color:var(--grey-500);padding:0 2px;width:14px;flex-shrink:0;">${isRowExpanded ? '▾' : '▸'}</button>
+              <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${escTC(displayTitle)}${flags}</span>
+              <b style="white-space:nowrap;">${date || '—'}</b>
+              <input type="checkbox" class="cpaConfirmCheck" data-store="${escTC(s.name)}" data-key="${key}" ${meta.confirmed ? 'checked' : ''} title="Confirm next phase started successfully" style="cursor:pointer;width:14px;height:14px;flex-shrink:0;">
+            </div>
+            ${expandedPanel}
+          </div>`;
+        }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>`
+          : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
+        const postSupport = s.cpa ? `<div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:10px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>` : '';
+        const t = s.training;
+        const bar = (pct, color) => `<div style="background:var(--grey-200);height:6px;border-radius:4px;"><div style="width:${Math.max(0,Math.min(100,pct||0))}%;background:${color};height:100%;border-radius:4px;"></div></div>`;
+        const progressMeter = `
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Recruitment</span><b>${t.recruitmentPct===null?'—':Math.round(t.recruitmentPct)+'%'}</b></div>
+            ${bar(t.recruitmentPct, 'var(--gold)')}
+            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.recruitmentPct===null ? 'Add position rows in the Training Calendar below to track recruitment' : `${t.totalFilled} of ${t.totalRequired} positions filled`}</div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Training Progress</span><b>${Math.round(t.trainingPct)}%</b></div>
+            ${bar(t.trainingPct, 'var(--gold)')}
+            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.avgWeek ? `Avg. week ${Math.max(1,Math.round(t.avgWeek))} of 4` : 'No trainees started yet'}</div>
+          </div>
+          <div>
+            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Overall</span><b>${t.overallPct===null?'—':Math.round(t.overallPct)+'%'}</b></div>
+            ${bar(t.overallPct, 'var(--green)')}
+          </div>`;
+        const ncBB = newCafeBBetterFor(s.name);
+        const bbetterSection = ncBB ? `
+          <div style="margin-bottom:10px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Completion</span><b>${Math.round(ncBB.avgCompletion)}%</b></div>
+            ${bar(ncBB.avgCompletion, ncBB.avgCompletion>=85?'var(--green)':ncBB.avgCompletion>=60?'var(--gold)':'var(--red)')}
+            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">Avg. course completion · Source: Beeline Groups Report${ncBB.uploadedAt?' · '+fmtShortDate(ncBB.uploadedAt):''}</div>
+          </div>
+          <div style="border-top:1px solid var(--grey-200);padding-top:8px;">
+            <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Onboarding</span><b>${Math.round(ncBB.onboardedPct)}%</b></div>
+            ${bar(ncBB.onboardedPct, 'var(--gold)')}
+            <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${ncBB.onboardedMembers} member(s) onboarded</div>
+          </div>`
+          : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data loaded for this store.<br>Upload a Groups Report above to populate this section.</div>`;
+        const activeSub = detailSubTab[s.name] || 'cpa';
+        const subTabBtn = (key, label) => `<button type="button" class="detailSubTabBtn" data-store="${escTC(s.name)}" data-sub="${key}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${activeSub===key?'var(--gold)':'transparent'};background:none;color:${activeSub===key?'#000':'var(--grey-500)'};">${label}</button>`;
+        const subDashNav = `<div style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:16px;overflow-x:auto;">
+          ${subTabBtn('cpa','📅 CPA Timeline')}
+          ${subTabBtn('training','🎓 Training &amp; Recruitment')}
+          ${subTabBtn('bbetter','🏅 B.Better Academy')}
+          ${subTabBtn('details','🏢 Franchisee &amp; Store Details')}
+        </div>`;
+        const cpaSectionHtml = `<div>
+          ${cpaRows}
+          ${postSupport}
+        </div>`;
+        const trainingSectionHtml = `<div>
+          <div class="section-title">📊 Training Progress</div>
+          ${progressMeter}
+          <div style="margin-top:20px;">
+            <div class="section-title">🤝 Support Team Allocation</div>
+            <div>${OT_PEOPLE_LIST.map(member => {
+              const assigned = (supportAllocations[s.name] || []).includes(member);
+              return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
+            }).join('')}</div>
+            <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>
+          </div>
+          <div style="margin-top:20px;">
+            <div class="section-title">🎓 Training Calendar</div>
+            <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
+            ${(() => {
+              const cal = getTrainingCalendar(s.name);
+              const colCount = 4 + cal.weekLabels.length + 1;
+              const rows = cal.staff.map((p, pi) => {
+                const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
+                const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
+                return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
+                ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
+                <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
+              </tr>`;
+              }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
+              return `
+              <div style="overflow-x:auto;">
+                <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
+                  <thead><tr>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
+                    <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
+                    ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
+                    <th style="border-bottom:1px solid var(--grey-200);"></th>
+                  </tr></thead>
+                  <tbody>${rows}</tbody>
+                </table>
+              </div>
+              <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+                <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
+                <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
+                <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4. Start Date defaults to this café's Training Start Date (Opening Date − 5 weeks) for everyone — edit an individual row's Start Date to override it.</span>
+              </div>`;
+            })()}
+          </div>
+        </div>`;
+        const bbetterSectionHtml = `<div><div class="section-title">🏅 B.Better Academy</div>${bbetterSection}</div>`;
+        const detailsSectionHtml = `<div><div class="section-title">🏢 Franchisee &amp; Store Details</div>
+          ${(() => {
+            const det = storeDetails[s.name] || {};
+            const field = (key, label, type) => `<div>
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">${label}</label>
+              <input type="${type||'text'}" class="sdField" data-store="${escTC(s.name)}" data-field="${key}" value="${escTC(det[key]||'')}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">
+            </div>`;
+            // Representative / FSM / Project Manager / Landlord Contact each
+            // get their own Name / Email / Contact No. group. FSM's name is
+            // the store's own FSM field (already tracked elsewhere in the
+            // app for roster matching), shown read-only here — only its
+            // email/contact are store-detail fields; the other three are
+            // fully editable since there's no equivalent field for them.
+            const contactGroup = (label, nameField, nameValue, emailField, phoneField) => `
+              <div style="border:1px solid var(--grey-200);border-radius:3px;padding:8px 10px;">
+                <div style="font-size:9.5px;font-weight:800;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.05em;margin-bottom:6px;">${label}</div>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;">
+                  ${nameField ? field(nameField, 'Name') : `<div><label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Name</label><div style="padding:5px 0;font-size:11.5px;">${escTC(nameValue || '—')}</div></div>`}
+                  ${field(emailField, 'Email')}
+                  ${field(phoneField, 'Contact No.')}
+                </div>
+              </div>`;
+            const isEditableStore = s.id !== undefined; // extraStores (added manually or via approval) carry an id; the original hardcoded pipeline stores don't
+            const openDateField = `<div>
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Store Opening Date</label>
+              <input type="date" ${isEditableStore ? `class="odField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.openDate||'')}" title="${isEditableStore ? 'Drives the CPA Timeline dates and the Post-Support Schedule' : 'This café is part of the original pipeline data — its date lives in the app source, not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
+            </div>`;
+            const createdDateField = `<div>
+              <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Café Created Date</label>
+              <input type="date" ${isEditableStore ? `class="cdField" data-store="${escTC(s.name)}"` : 'disabled'} value="${escTC(s.createdDate || (s.cpa && s.cpa.createdDate) || '')}" title="${isEditableStore ? 'Auto-set to the day this café was added or its submission form was uploaded. Cafés predating that (no recorded date) default to a calculated point well before Handover — this field is only for a manual override if you know the actual real-world date.' : 'This café is part of the original pipeline data — not editable here'}" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;${isEditableStore?'':'background:var(--grey-100);color:var(--grey-500);'}">
+            </div>`;
+            return `
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
+              ${openDateField}
+              ${createdDateField}
+              ${field('location','Location')}
+              ${field('seats','Seat No.')}
+              ${field('turnover','Anticipated Turnover')}
+              ${field('address','Store Address')}
+              ${field('invoicingDetails','Franchisee Invoicing Details')}
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;">
+              ${contactGroup('Representative', 'representative', null, 'representativeEmail', 'representativeContactNumber')}
+              ${contactGroup('FSM', null, s.fsm, 'fsmEmail', 'fsmContactNumber')}
+              ${contactGroup('Project Manager', 'pm', null, 'pmEmail', 'pmContactNumber')}
+              ${contactGroup('Landlord Contact', 'landlordContact', null, 'landlordEmail', 'landlordContactNumber')}
+            </div>`;
+          })()}
+        </div>`;
+        const sectionByTab = { cpa: cpaSectionHtml, training: trainingSectionHtml, bbetter: bbetterSectionHtml, details: detailsSectionHtml };
+        detail = `<div style="border-top:1px solid var(--grey-200);padding:16px;">
+          ${subDashNav}
+          ${sectionByTab[activeSub] || cpaSectionHtml}
+        </div>`;
+      }
+      const assignedSupport = supportAllocations[s.name] || [];
+      return `<div class="card" style="margin-bottom:8px;padding:0;">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;" data-toggle="${s.name}">
+          <div style="flex:1;"><b>${s.name}</b><div style="font-size:11px;color:var(--grey-500);">${s.type} · ${s.region} · FSM: ${s.fsm||'—'} · Support: ${assignedSupport.length ? assignedSupport.join(', ') : '—'}</div></div>
+          <div style="font-size:12px;font-weight:700;">${status}</div>
+          <div style="font-size:11px;color:var(--grey-500);">${s.openDate||'Date TBC'}</div>
+          <button class="btn btn-outline btn-mini" data-open-checklists="${s.id}" style="white-space:nowrap;">Checklists →</button>
+        </div>
+        ${detail}
+      </div>`;
+    }).join('') || (subTab==='archive' ? '<div class="empty-state">No archived cafés yet — stores move here 4 weeks after opening.</div>' : '<div class="empty-state">No stores match your filters.</div>');
+
+    document.querySelectorAll('[data-open-checklists]').forEach(el => el.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      ACTIVE_CAFE_ID = el.dataset.openChecklists;
+      ACTIVE_VIEW = 'readiness';
+      await loadCafeChecklists();
+      render();
+    }));
+    document.querySelectorAll('[data-toggle]').forEach(el => el.addEventListener('click', () => {
+      expanded = expanded === el.dataset.toggle ? null : el.dataset.toggle;
+      renderStoreList();
+    }));
+    document.querySelectorAll('.detailSubTabBtn').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      detailSubTab[el.dataset.store] = el.dataset.sub;
+      renderStoreList();
+    }));
+    document.querySelectorAll('.cpaConfirmCheck').forEach(el => {
+      el.addEventListener('click', (e) => e.stopPropagation());
+      el.addEventListener('change', (e) => {
+        e.stopPropagation();
+        toggleCpaConfirm(el.dataset.store, el.dataset.key);
+      });
+    });
+    document.querySelectorAll('.cpaMilestoneToggle').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const k = el.dataset.mkey;
+      if (expandedMilestones.has(k)) expandedMilestones.delete(k); else expandedMilestones.add(k);
+      renderStoreList();
+    }));
+    document.querySelectorAll('.cpaTitleField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setCpaMilestoneTitle(el.dataset.store, el.dataset.key, el.value));
+    });
+    document.querySelectorAll('.cpaDescField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setCpaMilestoneDescription(el.dataset.store, el.dataset.key, el.value));
+    });
+    document.querySelectorAll('.cpaDateOverride').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setCpaOverride(el.dataset.store, el.dataset.key, el.value));
+    });
+    document.querySelectorAll('.cpaComment').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setCpaMilestoneComment(el.dataset.store, el.dataset.key, el.value));
+    });
+    document.querySelectorAll('.cpaFileInput').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) uploadCpaMilestoneFile(el.dataset.store, el.dataset.key, file);
+      });
+    });
+    document.querySelectorAll('.cpaFileRemove').forEach(el => el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeCpaMilestoneFile(el.dataset.store, el.dataset.key);
+    }));
+    document.querySelectorAll('.supportAllocChip').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleSupportAllocation(el.dataset.store, el.dataset.member);
+      });
+    });
+    document.querySelectorAll('.tcAddStaffBtn').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); addTrainingStaff(el.dataset.store); }));
+    document.querySelectorAll('.tcRemoveBtn').forEach(el => el.addEventListener('click', (e) => { e.stopPropagation(); removeTrainingStaff(el.dataset.store, parseInt(el.dataset.idx, 10)); }));
+    document.querySelectorAll('.tcField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => {
+        const tr = el.closest('tr');
+        setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), el.dataset.field, el.value);
+      });
+    });
+    document.querySelectorAll('.tcStartOverride').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => {
+        const tr = el.closest('tr');
+        setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'startDateOverride', el.value);
+      });
+    });
+    document.querySelectorAll('.tcWeekField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => {
+        const tr = el.closest('tr');
+        setTrainingWeekField(tr.dataset.store, parseInt(tr.dataset.idx, 10), parseInt(el.dataset.week, 10), el.value);
+      });
+    });
+    document.querySelectorAll('.tcCsvInput').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => {
+        const file = el.files[0];
+        if (file) importTrainingCsv(el.dataset.store, file);
+      });
+    });
+    document.querySelectorAll('.sdField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setStoreDetailField(el.dataset.store, el.dataset.field, el.value));
+    });
+    document.querySelectorAll('.odField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setStoreOpenDate(el.dataset.store, el.value));
+    });
+    document.querySelectorAll('.cdField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setStoreCreatedDate(el.dataset.store, el.value));
+    });
+  }
+
+  document.getElementById('otlSearch').addEventListener('input', renderStoreList);
+  document.getElementById('otlRegion').addEventListener('change', renderStoreList);
+  document.querySelectorAll('#otlSubTab .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
+    subTab = btn.dataset.sub;
+    document.querySelectorAll('#otlSubTab .segmented-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const isPending = subTab === 'pending';
+    document.getElementById('otlFilterRow').style.display = isPending ? 'none' : '';
+    document.getElementById('otlStoreList').style.display = isPending ? 'none' : '';
+    document.getElementById('otlPendingList').style.display = isPending ? '' : 'none';
+    if (isPending) renderPendingList(); else renderStoreList();
+  }));
+  document.getElementById('otlAdd').addEventListener('click', async () => {
+    const name = document.getElementById('otlName').value.trim();
+    const openDate = document.getElementById('otlOpenDate').value;
+    if (!name || !openDate) { toast('Store name and open date are required'); return; }
+    extraStores.push({ id: Date.now(), name, type:'Full Store', region:'WC', openDate, createdDate: todayISO(), fsm: document.getElementById('otlFsm').value, notes: document.getElementById('otlNotes').value });
+    await saveExtraStores();
+    if (newStoreSupport.length) {
+      supportAllocations = Object.assign({}, supportAllocations, { [name]: [...newStoreSupport] });
+      await saveSupportAllocations();
+    }
+    document.getElementById('otlName').value = ''; document.getElementById('otlOpenDate').value = '';
+    document.getElementById('otlFsm').value = ''; document.getElementById('otlNotes').value = '';
+    newStoreSupport = [];
+    renderNewStoreSupportChips();
+    toast('Store added');
+    renderAll();
+  });
+
+  document.getElementById('ncBBetterBtn').addEventListener('click', () => document.getElementById('ncBBetterInput').click());
+  document.getElementById('ncBBetterInput').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) importBBetterWorkbook(file);
+    e.target.value = '';
+  });
+
+  loadCpaConfirmations().then(renderStoreList);
+  loadSupportAllocations().then(renderStoreList);
+  loadTrainingCalendars().then(renderStoreList);
+  loadNewCafeBBetter().then(renderStoreList);
+  loadStoreDetails().then(() => migrateStoreDetailsFromMasterSheetIfNeeded().then(renderStoreList));
+  loadCafeSubmissions().then(updatePendingBadge);
+  renderNewStoreSupportChips();
+  loadExtraStores().then(renderAll);
+}
+
+// ==================================================================
+// GENERIC CHECKLIST TABLE RENDERERS
+// ==================================================================
+function inputHtml(col, path, val){
+  const v = val == null ? '' : val;
+  if (col.type === 'checkbox') {
+    return `<input type="checkbox" data-path="${path}" data-kind="checkbox" ${v ? 'checked' : ''}>`;
+  }
+  if (col.type === 'select') {
+    const opts = (col.options||[]).map(o => `<option value="${escapeHtml(o)}" ${v===o?'selected':''}>${escapeHtml(o)}</option>`).join('');
+    return `<select data-path="${path}" data-kind="select"><option value="">—</option>${opts}</select>`;
+  }
+  if (col.type === 'number') {
+    return `<input type="number" data-path="${path}" data-kind="number" value="${escapeHtml(v)}">`;
+  }
+  if (col.type === 'date') {
+    return `<input type="date" data-path="${path}" data-kind="text" value="${escapeHtml(v)}">`;
+  }
+  return `<input type="text" data-path="${path}" data-kind="text" value="${escapeHtml(v)}">`;
+}
+
+// Fixed-item section: pre-defined rows (task/owner or role), keyed by index.
+function renderFixedSection(section, statePath, stateRoot){
+  const rowsState = deepGet(stateRoot, statePath + '.rows') || {};
+  const rows = section.fixed_items.map((item, i) => {
+    const row = rowsState[i] || {};
+    const labelCell = item.editable_label
+      ? `<input type="text" data-path="${statePath}.rows.${i}.label" data-kind="text" value="${escapeHtml(row.label)}" placeholder="Name">`
+      : `${escapeHtml(item.label)}`;
+    const metaCell = item.meta ? `<span class="meta-badge">${escapeHtml(item.meta)}</span>` : '';
+    const cols = section.columns.map(c => `<td>${inputHtml(c, statePath + '.rows.' + i + '.' + c.key, row[c.key])}</td>`).join('');
+    return `<tr><td style="width:34px;color:var(--grey-500);">${i+1}</td><td>${labelCell}</td><td>${metaCell}</td>${cols}</tr>`;
+  }).join('');
+  const headCols = section.columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
+  return `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th style="width:34px;">#</th><th>${escapeHtml(section.label_col_name)}</th><th>Role</th>${headCols}</tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
+}
+
+// Dynamic section: user-typed label rows, extensible.
+function renderDynamicSection(section, statePath, stateRoot){
+  let rows = deepGet(stateRoot, statePath + '.rows');
+  if (!Array.isArray(rows)) { rows = []; deepSet(stateRoot, statePath + '.rows', rows); }
+  while (rows.length < section.blank_rows) rows.push({});
+  const bodyRows = rows.map((row, i) => {
+    const cols = section.columns.map(c => `<td>${inputHtml(c, statePath + '.rows.' + i + '.' + c.key, row[c.key])}</td>`).join('');
+    return `<tr><td style="width:34px;color:var(--grey-500);">${i+1}</td><td><input type="text" data-path="${statePath}.rows.${i}.label" data-kind="text" value="${escapeHtml(row.label)}" placeholder="${escapeHtml(section.label_col_name)}"></td>${cols}</tr>`;
+  }).join('');
+  const headCols = section.columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
+  return `${section.note ? `<div class="note-text">${escapeHtml(section.note)}</div>` : ''}
+    <div class="table-wrap"><table class="data-table">
+    <thead><tr><th style="width:34px;">#</th><th>${escapeHtml(section.label_col_name)}</th>${headCols}</tr></thead>
+    <tbody data-dynrows="${statePath}">${bodyRows}</tbody></table></div>
+    <button class="btn btn-outline btn-mini" data-addrow="${statePath}" style="margin-top:8px;">+ Add Row</button>`;
+}
+
+function renderSignoffSection(section, statePath, stateRoot){
+  const state = deepGet(stateRoot, statePath) || {};
+  const fields = section.fields.map(f => {
+    const path = statePath + '.' + f.key;
+    return `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, path, state[f.key])}</div>`;
+  }).join('');
+  return `<div class="form-grid two">${fields}</div>`;
+}
+
+function renderSectionBlock(section, statePath, stateRoot){
+  let body = '';
+  if (section.kind === 'fixed') body = renderFixedSection(section, statePath, stateRoot);
+  else if (section.kind === 'dynamic') body = renderDynamicSection(section, statePath, stateRoot);
+  else if (section.kind === 'signoff') body = renderSignoffSection(section, statePath, stateRoot);
+  return `<div class="section-title" style="margin-top:22px;">${escapeHtml(section.title)}</div>${body}`;
+}
+
+// Delegated input handler shared by both checklist views.
+function wireGenericInputs(container, stateRoot, saveKind){
+  container.addEventListener('input', (e) => {
+    const el = e.target;
+    if (!el.dataset || !el.dataset.path) return;
+    if (el.dataset.kind === 'checkbox') return; // handled by 'change'
+    let val = el.value;
+    if (el.dataset.kind === 'number') val = val === '' ? null : Number(val);
+    deepSet(stateRoot, el.dataset.path, val);
+    scheduleSave(saveKind);
+  });
+  container.addEventListener('change', (e) => {
+    const el = e.target;
+    if (!el.dataset || !el.dataset.path) return;
+    if (el.dataset.kind === 'checkbox') { deepSet(stateRoot, el.dataset.path, el.checked); scheduleSave(saveKind); }
+    else if (el.dataset.kind === 'select') { deepSet(stateRoot, el.dataset.path, el.value); scheduleSave(saveKind); }
+  });
+  container.querySelectorAll('[data-addrow]').forEach(btn => btn.addEventListener('click', () => {
+    const path = btn.dataset.addrow;
+    const rows = deepGet(stateRoot, path + '.rows') || [];
+    rows.push({});
+    deepSet(stateRoot, path + '.rows', rows);
+    render();
+  }));
+}
+
+// ==================================================================
+// PROJECT READINESS VIEW
+// ==================================================================
+async function loadCafeChecklists(){
+  const rKey = 'newcafe-readiness-' + ACTIVE_CAFE_ID;
+  const tKey = 'newcafe-training7day-' + ACTIVE_CAFE_ID;
+  try { const r = await window.storage.get(rKey); READINESS_STATE = r && r.value ? JSON.parse(r.value) : {items:{}, subComments:{}, signoff:{}}; }
+  catch(e){ READINESS_STATE = {items:{}, subComments:{}, signoff:{}}; }
+  try { const r = await window.storage.get(tKey); TRAINING_STATE = r && r.value ? JSON.parse(r.value) : {days:{}}; }
+  catch(e){ TRAINING_STATE = {days:{}}; }
+}
+
+function readinessProgress(){
+  let total = 0, done = 0;
+  READINESS_CONFIG.phases.forEach((p, pi) => p.subsections.forEach((s, si) => {
+    if (s.group_only) return;
+    (s.items||[]).forEach((it, ii) => {
+      total++;
+      const key = pi + '_' + si + '_' + ii;
+      const v = (READINESS_STATE.items||{})[key];
+      if (v && v.status && v.status !== 'Pending') done++;
+    });
+  }));
+  return { total, done, pct: total ? Math.round((done/total)*100) : 0 };
+}
+function refreshReadinessProgressBadge(){
+  const badge = document.getElementById('readinessProgressBadge');
+  const fill = document.getElementById('readinessProgressFill');
+  if (!badge || !fill) return;
+  const prog = readinessProgress();
+  badge.textContent = prog.done + ' / ' + prog.total + ' complete';
+  fill.style.width = prog.pct + '%';
+}
+
+function viewReadiness(){
+  const app = document.getElementById('app');
+  const c = activeCafe();
+  if (!c) { app.innerHTML = activeCafeBanner() + `<div class="empty-state">Select a café from the Pipeline tab first.</div>`; return; }
+  const prog = readinessProgress();
+  let body = `
+    ${activeCafeBanner()}
+    <div class="page-header">
+      <div><div class="page-title">Project Readiness Checklist</div><div class="page-subtitle">${escapeHtml(c.name)} — phase-by-phase opening readiness</div></div>
+      <div class="period-badge" id="readinessProgressBadge">${prog.done} / ${prog.total} complete</div>
+    </div>
+    <div class="progress-track" style="margin-bottom:24px;"><div class="progress-fill" id="readinessProgressFill" style="width:${prog.pct}%;"></div></div>
+  `;
+
+  READINESS_CONFIG.phases.forEach((phase, pi) => {
+    body += `<div class="section-divider">${escapeHtml(phase.title)}</div>`;
+    phase.subsections.forEach((sub, si) => {
+      if (sub.group_only) { body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`; return; }
+      if (sub.title) body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`;
+      const rows = sub.items.map((it, ii) => {
+        const key = pi + '_' + si + '_' + ii;
+        const rowState = (READINESS_STATE.items||{})[key] || {};
+        const cols = READINESS_CONFIG.item_columns.map(col => `<td>${inputHtml(col, 'items.' + key + '.' + col.key, rowState[col.key])}</td>`).join('');
+        return `<tr><td style="width:34px;color:var(--grey-500);">${ii+1}</td><td>${escapeHtml(it.label)}</td>${cols}</tr>`;
+      }).join('');
+      const headCols = READINESS_CONFIG.item_columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
+      body += `<div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item / Task / Service</th>${headCols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+      if (sub.has_comments) {
+        const cKey = pi + '_' + si;
+        const cVal = (READINESS_STATE.subComments||{})[cKey] || '';
+        body += `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
+      }
+    });
+  });
+
+  body += `<div class="section-divider">Sign-Off</div><div class="card">${
+    (() => {
+      const fields = READINESS_CONFIG.signoff_fields.map(f => {
+        const v = (READINESS_STATE.signoff||{})[f.key];
+        return `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, 'signoff.' + f.key, v)}</div>`;
+      }).join('');
+      return `<div class="form-grid two">${fields}</div>`;
+    })()
+  }</div>`;
+
+  app.innerHTML = body;
+  wireCafeBanner();
+  // textarea 'input' events aren't caught by the generic delegated listener's value read for textarea (works fine, textarea has .value too)
+  wireGenericInputs(app, READINESS_STATE, 'readiness');
+  app.addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.path && e.target.dataset.path.startsWith('items.')) refreshReadinessProgressBadge(); });
+  app.addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.path && e.target.dataset.path.startsWith('items.')) refreshReadinessProgressBadge(); });
+}
+
+// ==================================================================
+// 7-DAY TRAINING VIEW
+// ==================================================================
+function dayCompletionDot(dnum){
+  const day = TRAINING_STATE.days && TRAINING_STATE.days[dnum];
+  if (!day) return '';
+  const signoff = day.sections && day.sections['d'+dnum+'_signoff'];
+  if (signoff && signoff.overall_status === 'Pass') return 'done';
+  if (signoff && signoff.overall_status === 'Needs Follow-up') return 'partial';
+  return '';
+}
+
+function viewTraining(){
+  const app = document.getElementById('app');
+  const c = activeCafe();
+  if (!c) { app.innerHTML = activeCafeBanner() + `<div class="empty-state">Select a café from the Pipeline tab first.</div>`; return; }
+
+  const dayTabs = Object.keys(TRAINING7DAY_CONFIG.days).map(dnum => {
+    const dot = dayCompletionDot(dnum);
+    return `<button class="day-tab ${String(ACTIVE_DAY)===dnum?'active':''}" data-day="${dnum}"><span class="dot ${dot}"></span>Day ${dnum}</button>`;
+  }).join('');
+
+  const day = TRAINING7DAY_CONFIG.days[String(ACTIVE_DAY)];
+  const dayStatePath = 'days.' + ACTIVE_DAY;
+  if (!deepGet(TRAINING_STATE, dayStatePath)) deepSet(TRAINING_STATE, dayStatePath, { header:{}, sections:{} });
+
+  let sectionsHtml = '';
+  day.sections.forEach(section => {
+    const statePath = dayStatePath + '.sections.' + section.id;
+    if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, section.kind === 'dynamic' ? {rows:[]} : (section.kind==='signoff' ? {} : {rows:{}}));
+    sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
+  });
+
+  const headerState = deepGet(TRAINING_STATE, dayStatePath + '.header') || {};
+  const headerFields = day.header_fields.map(f => `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, dayStatePath + '.header.' + f.key, headerState[f.key])}</div>`).join('');
+
+  app.innerHTML = `
+    ${activeCafeBanner()}
+    <div class="page-header">
+      <div><div class="page-title">7-Day On-Site Training</div><div class="page-subtitle">${escapeHtml(c.name)} — Day ${ACTIVE_DAY}: ${escapeHtml(day.title)}</div></div>
+      <div class="period-badge">Day ${ACTIVE_DAY} of 7</div>
+    </div>
+    <div class="day-tabs">${dayTabs}</div>
+    <div class="form-grid two" style="margin-bottom:16px;">${headerFields}</div>
+    <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(day.focus)}</div>
+    ${sectionsHtml}
+  `;
+  wireCafeBanner();
+  app.querySelectorAll('.day-tab').forEach(btn => btn.addEventListener('click', () => {
+    ACTIVE_DAY = Number(btn.dataset.day);
+    render();
+  }));
+  wireGenericInputs(app, TRAINING_STATE, 'training');
+}
+
+// ==================================================================
+// RENDER DISPATCH
+// ==================================================================
+function render(){
+  renderNavTabs();
+  if (ACTIVE_VIEW === 'pipeline') viewPipeline();
+  else if (ACTIVE_VIEW === 'readiness') viewReadiness();
+  else if (ACTIVE_VIEW === 'training') viewTraining();
+}
+
+// ==================================================================
+// INIT
+// ==================================================================
+async function startApp(){
+  await loadExtraStores();
+  render();
+}
+
+checkBosSession().then(me => {
+  if (!me) {
+    document.getElementById('gateMsg').textContent = 'Sign in on the main BOS Dashboard first — this page shares that login.';
+    document.getElementById('gateLink').style.display = 'block';
+    return;
+  }
+  document.getElementById('bosGate').style.display = 'none';
+  document.getElementById('topNav').style.display = 'flex';
+  document.getElementById('app').style.display = 'block';
+  window.__ME = me;
+  startApp();
+});
+</script>
+</body>
+</html>
