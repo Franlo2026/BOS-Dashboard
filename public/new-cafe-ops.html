@@ -130,6 +130,16 @@ label.field-label { display:block; font-size:9px; font-weight:700; text-transfor
   table.data-table { font-size:11px; }
   .data-table thead th, .data-table tbody td { padding:6px 5px; }
 }
+.print-only { display:none; }
+@media print {
+  nav.topnav, #bosGate, .no-print { display:none !important; }
+  .print-only { display:block !important; }
+  body { background:#fff; }
+  .container { padding:0; max-width:100%; }
+  .card { border:1px solid #ccc; }
+  .table-wrap { overflow-x:visible; }
+  table.data-table { font-size:10px; }
+}
 </style>
 </head>
 <body>
@@ -1899,7 +1909,7 @@ function viewPipeline(){
         </div>
         <input type="text" class="cpaCustomComment" data-store="${escTC(s.name)}" data-idx="${ci}" value="${escTC(c.comment)}" placeholder="Comment..." style="width:100%;margin-top:4px;font-size:11px;padding:4px 6px;border:1px solid var(--grey-200);box-sizing:border-box;">
       </div>`).join('') : '';
-    const addCustomForm = `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+    const addCustomForm = `<div class="no-print" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <input type="text" class="cpaCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom milestone / action..." style="flex:1;min-width:180px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
       <input type="date" class="cpaCustomDateInput" data-store="${escTC(s.name)}" style="font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
       <button type="button" class="btn btn-outline btn-mini cpaCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
@@ -1975,7 +1985,7 @@ function viewPipeline(){
           <tbody>${calRows}</tbody>
         </table>
       </div>
-      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+      <div class="no-print" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
         <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
         <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4.</span>
@@ -1994,7 +2004,7 @@ function viewPipeline(){
         </div>
         <input type="text" class="trainRecCustomComment" data-store="${escTC(s.name)}" data-idx="${ci}" value="${escTC(c.comment)}" placeholder="Comment..." style="width:100%;margin-top:4px;font-size:11px;padding:4px 6px;border:1px solid var(--grey-200);box-sizing:border-box;">
       </div>`).join('');
-    const addCustomForm = `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+    const addCustomForm = `<div class="no-print" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <input type="text" class="trainRecCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom training/recruitment action..." style="flex:1;min-width:180px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
       <input type="date" class="trainRecCustomDateInput" data-store="${escTC(s.name)}" style="font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
       <button type="button" class="btn btn-outline btn-mini trainRecCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
@@ -2052,9 +2062,9 @@ function viewPipeline(){
         <input type="text" class="detailsCustomValue" data-store="${escTC(s.name)}" data-idx="${ci}" value="${escTC(c.value||'')}" style="flex:1;font-size:11.5px;padding:5px 7px;border:1px solid var(--grey-200);">
         <button type="button" class="detailsCustomRemove" data-store="${escTC(s.name)}" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button>
       </div>`).join('');
-    const addCustomForm = `<div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+    const addCustomForm = `<div class="no-print" style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <input type="text" class="detailsCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom field name..." style="flex:1;min-width:160px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
-      <button type="button" class="btn btn-outline btn-mini detailsCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
+      <button type="button" class="btn btn-outline btn-mini no-print detailsCustomAddBtn" data-store="${escTC(s.name)}">+ Add Manual Entry</button>
     </div>`;
     const trackedKeys = ['location','seats','turnover','address','invoicingDetails','representative','representativeEmail','representativeContactNumber','fsmEmail','fsmContactNumber','pm','pmEmail','pmContactNumber','landlordContact','landlordEmail','landlordContactNumber'];
     let filled = trackedKeys.filter(k => det[k] && String(det[k]).trim()).length;
@@ -2115,7 +2125,7 @@ function viewPipeline(){
       <td><button type="button" class="readinessCustomRemove" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
     body += `<div class="section-divider">Manual Entries</div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Comment</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
-      <button class="btn btn-outline btn-mini readinessCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>`;
+      <button class="btn btn-outline btn-mini no-print readinessCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>`;
     body += `<div class="section-divider">Sign-Off</div><div class="card">${
       (() => {
         const fields = READINESS_CONFIG.signoff_fields.map(f => {
@@ -2177,7 +2187,7 @@ function viewPipeline(){
       ${sectionsHtml}
       <div class="section-divider">Manual Entries (café-wide)</div>
       <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
-      <button class="btn btn-outline btn-mini training7dayCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>
+      <button class="btn btn-outline btn-mini no-print training7dayCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>
     `;
     return { html, pct: prog.pct };
   }
@@ -2311,19 +2321,59 @@ function viewPipeline(){
       <button type="button" class="detailSubTabBtn" data-sub="${sec.id}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${PROFILE_SECTION===sec.id?'var(--gold)':'transparent'};background:none;color:${PROFILE_SECTION===sec.id?'#000':'var(--grey-500)'};white-space:nowrap;">${sec.label} <span style="color:${rag(pctFor[sec.id])};font-weight:800;">${pctFor[sec.id]}%</span></button>`).join('');
 
     app.innerHTML = `
-      <div class="page-header">
+      <div class="page-header no-print">
         <div><div class="page-title">${escapeHtml(s.name)}</div><div class="page-subtitle">${escapeHtml(s.type||'')} · ${escapeHtml(s.region||'')} · FSM: ${escapeHtml(s.fsm||'—')} · Opening ${escapeHtml(s.openDate||'TBC')}</div></div>
         <div style="text-align:right;">
           <div style="font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey-500);">Overall Readiness</div>
           <div style="font-size:28px;font-weight:800;color:${rag(overall)};">${overall}%</div>
         </div>
       </div>
-      <div style="margin-bottom:16px;"><a href="#" id="profileBackLink" style="font-size:11px;color:var(--grey-700);">← Back to Pipeline</a></div>
-      <div style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:20px;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;">${subNav}</div>
+      <div class="print-only" style="margin-bottom:16px;">
+        <div style="font-size:16px;font-weight:700;">${escapeHtml(s.name)} — ${escapeHtml(PROFILE_SECTIONS.find(x=>x.id===PROFILE_SECTION).label.replace(/^[^\w]+/,''))}</div>
+        <div style="font-size:11px;color:#555;">${escapeHtml(s.type||'')} · ${escapeHtml(s.region||'')} · FSM: ${escapeHtml(s.fsm||'—')} · Opening ${escapeHtml(s.openDate||'TBC')} · Printed ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</div>
+      </div>
+      <div class="no-print" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <a href="#" id="profileBackLink" style="font-size:11px;color:var(--grey-700);">← Back to Pipeline</a>
+        <button type="button" class="btn btn-outline btn-mini" id="profilePdfBtn">📄 Download ${escapeHtml(PROFILE_SECTIONS.find(x=>x.id===PROFILE_SECTION).label.replace(/^[^\w]+/,''))} PDF</button>
+      </div>
+      <div class="no-print" style="display:flex;gap:2px;border-bottom:1px solid var(--grey-200);margin-bottom:20px;overflow-x:auto;-webkit-overflow-scrolling:touch;max-width:100%;">${subNav}</div>
+      <div class="print-only" id="printAllDaysContainer"></div>
       <div id="profileSectionContent">${sectionData[PROFILE_SECTION].html}</div>
     `;
 
     document.getElementById('profileBackLink').addEventListener('click', (e) => { e.preventDefault(); PROFILE_CAFE_ID = null; render(); });
+    document.getElementById('profilePdfBtn').addEventListener('click', () => {
+      if (PROFILE_SECTION !== 'training7day') { window.print(); return; }
+      // 7-Day Training is tabbed by day on screen — a PDF of "this subsection"
+      // should cover all 7 days, not just whichever one happens to be open.
+      const savedDay = ACTIVE_DAY;
+      let allDaysHtml = '';
+      Object.keys(TRAINING7DAY_CONFIG.days).forEach(dnum => {
+        const d = TRAINING7DAY_CONFIG.days[dnum];
+        const dayStatePath = 'days.' + dnum;
+        if (!deepGet(TRAINING_STATE, dayStatePath)) deepSet(TRAINING_STATE, dayStatePath, { header:{}, sections:{} });
+        let sectionsHtml = '';
+        d.sections.forEach(section => {
+          const statePath = dayStatePath + '.sections.' + section.id;
+          if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, section.kind === 'dynamic' ? {rows:[]} : (section.kind==='signoff' ? {} : {rows:{}}));
+          sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
+        });
+        allDaysHtml += `<div style="page-break-before:${dnum==='1'?'avoid':'always'};">
+          <div class="section-divider">Day ${dnum}: ${escapeHtml(d.title)}</div>
+          <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(d.focus)}</div>
+          ${sectionsHtml}
+        </div>`;
+      });
+      const printContainer = document.getElementById('printAllDaysContainer');
+      printContainer.innerHTML = allDaysHtml;
+      document.getElementById('profileSectionContent').classList.add('no-print');
+      window.print();
+      setTimeout(() => {
+        printContainer.innerHTML = '';
+        document.getElementById('profileSectionContent').classList.remove('no-print');
+        ACTIVE_DAY = savedDay;
+      }, 500);
+    });
     document.querySelectorAll('.detailSubTabBtn').forEach(el => el.addEventListener('click', () => {
       PROFILE_SECTION = el.dataset.sub;
       renderProfile();
@@ -2594,8 +2644,8 @@ function renderDynamicSection(section, statePath, stateRoot){
   const bodyRows = rows.map((row, i) => {
     const cols = section.columns.map(c => `<td>${inputHtml(c, statePath + '.rows.' + i + '.' + c.key, row[c.key])}</td>`).join('');
     const photoCell = section.photo ? `<td>${row.photoUrl
-      ? `<a href="${row.photoUrl}" target="_blank">📷 ${escapeHtml(row.photoName||'Photo')}</a> <button type="button" class="dynRowPhotoRemove" data-path="${statePath}.rows.${i}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;">Remove</button>`
-      : `<div style="display:flex;gap:4px;flex-wrap:wrap;">
+      ? `<a href="${row.photoUrl}" target="_blank">📷 ${escapeHtml(row.photoName||'Photo')}</a> <button type="button" class="dynRowPhotoRemove no-print" data-path="${statePath}.rows.${i}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:11px;">Remove</button>`
+      : `<div class="no-print" style="display:flex;gap:4px;flex-wrap:wrap;">
           <label class="btn btn-outline btn-mini" style="padding:4px 8px;font-size:9.5px;cursor:pointer;">📷 Take Photo<input type="file" accept="image/*" capture="environment" class="dynRowPhotoInput" data-path="${statePath}.rows.${i}" style="display:none;"></label>
           <label class="btn btn-outline btn-mini" style="padding:4px 8px;font-size:9.5px;cursor:pointer;">🖼️ Upload<input type="file" accept="image/*" class="dynRowPhotoInput" data-path="${statePath}.rows.${i}" style="display:none;"></label>
         </div>`}</td>` : '';
@@ -2608,7 +2658,7 @@ function renderDynamicSection(section, statePath, stateRoot){
     <div class="table-wrap"><table class="data-table">
     <thead><tr><th style="width:34px;">#</th><th>${escapeHtml(section.label_col_name)}</th>${headCols}${photoHead}</tr></thead>
     <tbody data-dynrows="${statePath}">${bodyRows}</tbody></table></div>
-    <button class="btn btn-outline btn-mini" data-addrow="${statePath}" style="margin-top:8px;">+ Add Row</button>`;
+    <button class="btn btn-outline btn-mini no-print" data-addrow="${statePath}" style="margin-top:8px;">+ Add Row</button>`;
 }
 
 function renderSignoffSection(section, statePath, stateRoot){
