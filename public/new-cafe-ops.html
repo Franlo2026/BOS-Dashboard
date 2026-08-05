@@ -767,16 +767,16 @@ function viewPipeline(){
   }
   const TRAINING_WEEK_LABELS = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5 (Handover)'];
   const TRAINING_WEEK_COUNT = TRAINING_WEEK_LABELS.length;
-  // GM, Manager, Team Leader, All Rounders, Kitchen Supervisor and Barista
-  // must complete 4 weeks to be considered fully trained. Kitchen Assistants
-  // and Waitrons only require 2 — measuring them against a 4-week scale
-  // would unfairly cap them at 50% once they've completed everything
-  // required of their own role. Week 5 (Handover) is tracked separately in
-  // the calendar and isn't counted toward this completion percentage.
+  // Training now runs a full 5-week period (Wk1-4 + Handover Week). GM,
+  // Manager, Team Leader, All Rounders, Kitchen Supervisor and Barista must
+  // complete all 5 weeks to be considered fully trained. Kitchen Assistants
+  // and Waitrons only require 3 — measuring them against the full 5-week
+  // scale would unfairly cap them below 100% once they've completed
+  // everything required of their own role.
   function requiredWeeksForPosition(position){
     const p = (position||'').toLowerCase();
-    if (p.includes('kitchen assist') || p.includes('waitron') || p.includes('waiter')) return 2;
-    return 4; // GM, Manager, Team Leader, All Rounder, Kitchen Supervisor, Barista, and anything unrecognised default to 4
+    if (p.includes('kitchen assist') || p.includes('waitron') || p.includes('waiter')) return 3;
+    return 5; // GM, Manager, Team Leader, All Rounder, Kitchen Supervisor, Barista, and anything unrecognised default to the full 5 weeks
   }
   function normalizeTrainingWeeks(weeks){
     const arr = Array.isArray(weeks) ? weeks.slice(0, TRAINING_WEEK_COUNT) : [];
@@ -2041,7 +2041,7 @@ function viewPipeline(){
     </tr>`;
     }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
     const calendarHtml = `
-      <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. GM/Manager/Team Leader/All Rounder/Kitchen Supervisor/Barista require 4 weeks; Kitchen Assistants/Waitrons require 2. Week 5 is Handover Week, tracked separately.</div>
+      <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. Training runs a full 5-week period (Wk 5 = Handover Week). GM/Manager/Team Leader/All Rounder/Kitchen Supervisor/Barista must complete all 5 weeks; Kitchen Assistants/Waitrons require 3.</div>
       <div style="overflow-x:auto;">
         <table class="training-calendar-table" style="width:100%;border-collapse:collapse;font-size:11px;min-width:720px;">
           <thead><tr>
@@ -2413,14 +2413,13 @@ function viewPipeline(){
     const isActiveProfileCafe = String(s.id) === String(PROFILE_CAFE_ID);
     const cpa = cpaSectionContent(s);
     const trainingRec = trainingRecSectionContent(s);
-    const details = detailsSectionContent(s);
     const readinessPct = (isActiveProfileCafe && READINESS_STATE) ? readinessProgress().pct : (CAFE_READINESS_CACHE[s.id] != null ? CAFE_READINESS_CACHE[s.id] : null);
     const trainingPct = (isActiveProfileCafe && TRAINING_STATE) ? training7dayProgress().pct : (CAFE_TRAINING7_CACHE[s.id] != null ? CAFE_TRAINING7_CACHE[s.id] : null);
     const parts = [cpa.pct, trainingRec.pct];
     if (readinessPct !== null) parts.push(readinessPct);
     if (trainingPct !== null) parts.push(trainingPct);
     const overall = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length) : 0;
-    return { cpaPct: cpa.pct, trainingRecPct: trainingRec.pct, detailsPct: details.pct, readinessPct, trainingPct, overall, cpaOverdueCount: cpa.overdueCount };
+    return { cpaPct: cpa.pct, trainingRecPct: trainingRec.pct, readinessPct, trainingPct, overall, cpaOverdueCount: cpa.overdueCount };
   }
 
   function renderStoreList(){
@@ -2453,7 +2452,6 @@ function viewPipeline(){
           </div>
           ${miniBar('📅 CPA Timeline' + (snap.cpaOverdueCount ? ` <span class="badge red">⚠ ${snap.cpaOverdueCount} overdue</span>` : ''), snap.cpaPct, 'cpa')}
           ${miniBar('🎓 Training & Recruitment', snap.trainingRecPct, 'trainingrec')}
-          ${miniBar('🏢 Franchisee & Store Details', snap.detailsPct, 'details')}
           ${miniBar('✅ Project Readiness', snap.readinessPct, 'readiness')}
           ${miniBar('🎯 7-Day Training', snap.trainingPct, 'training7day')}
           <div style="font-size:10px;color:var(--grey-500);margin-top:10px;">Click any row above, or "Opening Status →", to open the full profile.</div>
