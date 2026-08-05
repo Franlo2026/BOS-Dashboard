@@ -14,6 +14,7 @@ const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { Pool } = require('pg');
 
 const app = express();
@@ -215,6 +216,20 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/me', authRequired, (req, res) => {
   res.json({ username: req.user.username, role: req.user.role, displayName: req.user.displayName });
+});
+
+// Marketing Tracker SSO handoff — issues a short-lived signed link (60s
+// validity) that the Marketing Tracker's own backend verifies against the
+// same shared secret before logging the browser in there. The Marketing
+// Tracker's real password never appears in this app or any file a browser
+// downloads — only requires a valid BOS session to obtain the link.
+app.get('/api/marketing-tracker-link', authRequired, (req, res) => {
+  const secret = process.env.MARKETING_TRACKER_SSO_SECRET;
+  if (!secret) return res.status(503).json({ error: 'Marketing Tracker link is not configured yet — set MARKETING_TRACKER_SSO_SECRET on this app and BOS_SSO_SECRET on the Marketing Tracker (same value on both).' });
+  const ts = Date.now().toString();
+  const sig = crypto.createHmac('sha256', secret).update(`bos-entry:${ts}`).digest('hex');
+  const base = process.env.MARKETING_TRACKER_URL || 'https://marketing-brief-tracker-production.up.railway.app';
+  res.json({ url: `${base}/api/auth/bos-entry?ts=${ts}&sig=${sig}` });
 });
 
 app.post('/api/change-password', authRequired, async (req, res) => {
