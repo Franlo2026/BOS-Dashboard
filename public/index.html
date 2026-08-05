@@ -968,6 +968,7 @@ const TABS = [
   { id:'cafeoverview2', label:'Cafe Overview' },
   { id:'cafestatus2', label:'Cafe Status' },
   { id:'scheduler', label:'Team Scheduler', href:'/scheduler.html' },
+  { id:'marketingtracker', label:'Marketing Tracker', ssoLink:true },
   { id:'admin', label:'Admin', adminOnly:true }
 ];
 let ACTIVE_TAB = 'home';
@@ -991,6 +992,15 @@ function renderNav(){
     if (btn.dataset.tab === 'home') { ACTIVE_TAB = 'home'; render(); return; }
     const tab = tabs.find(t => t.id === btn.dataset.tab);
     if (tab && tab.href) { window.location.href = tab.href; return; }
+    if (tab && tab.ssoLink) {
+      try {
+        const res = await fetch('/api/marketing-tracker-link', { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Request failed: ' + res.status));
+        window.location.href = data.url;
+      } catch (e) { toast(e.message || 'Could not open Marketing Tracker'); }
+      return;
+    }
     ACTIVE_TAB = btn.dataset.tab;
     try { await refreshState(); } catch(e){ if (e.message !== 'unauthorized') toast('Could not reach server — showing last known data'); }
     render();
