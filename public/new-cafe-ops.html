@@ -80,6 +80,7 @@ table.data-table { width:100%; border-collapse:collapse; font-size:12px; }
 .day-tab .dot { display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:5px; background:var(--grey-300); vertical-align:middle; }
 .day-tab .dot.done { background:var(--green); }
 .day-tab .dot.partial { background:var(--amber); }
+.day-tab .dot.overdue { background:var(--red); }
 .cafe-list { display:flex; flex-direction:column; gap:0; }
 .cafe-row { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--grey-200); cursor:pointer; }
 .cafe-row:last-child { border-bottom:none; }
@@ -139,6 +140,9 @@ label.field-label { display:block; font-size:9px; font-weight:700; text-transfor
   .card { border:1px solid #ccc; }
   .table-wrap { overflow-x:visible; }
   table.data-table { font-size:10px; }
+  .training-calendar-table { min-width:0 !important; width:100% !important; table-layout:fixed; font-size:7.5px !important; }
+  .training-calendar-table th, .training-calendar-table td { padding:2px 3px !important; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .training-calendar-table input, .training-calendar-table select { font-size:7.5px !important; width:100% !important; padding:0 !important; border:none !important; }
 }
 </style>
 </head>
@@ -242,6 +246,10 @@ let PROFILE_SECTION = 'cpa'; // 'cpa' | 'trainingrec' | 'details' | 'readiness' 
 // at least once, since loading every café's checklists up front for the
 // whole list would mean dozens of extra API calls.
 const CAFE_READINESS_CACHE = {};
+// Tracks open/closed state of readiness phase/sub-section <details> elements
+// by their render-order index, so a full re-render (needed whenever a status
+// changes, to recompute percentages) doesn't collapse sections the user had open.
+const READINESS_DETAILS_OPEN = {};
 const CAFE_TRAINING7_CACHE = {};
 const PROFILE_SECTIONS = [
   { id:'cpa', label:'📅 CPA Timeline' },
@@ -757,10 +765,22 @@ function viewPipeline(){
       });
     } catch(e) { toast('Could not save training calendar — check connection'); }
   }
-  const TRAINING_WEEK_LABELS = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4'];
+  const TRAINING_WEEK_LABELS = ['Wk 1', 'Wk 2', 'Wk 3', 'Wk 4', 'Wk 5 (Handover)'];
+  const TRAINING_WEEK_COUNT = TRAINING_WEEK_LABELS.length;
+  // GM, Manager, Team Leader, All Rounders, Kitchen Supervisor and Barista
+  // must complete 4 weeks to be considered fully trained. Kitchen Assistants
+  // and Waitrons only require 2 — measuring them against a 4-week scale
+  // would unfairly cap them at 50% once they've completed everything
+  // required of their own role. Week 5 (Handover) is tracked separately in
+  // the calendar and isn't counted toward this completion percentage.
+  function requiredWeeksForPosition(position){
+    const p = (position||'').toLowerCase();
+    if (p.includes('kitchen assist') || p.includes('waitron') || p.includes('waiter')) return 2;
+    return 4; // GM, Manager, Team Leader, All Rounder, Kitchen Supervisor, Barista, and anything unrecognised default to 4
+  }
   function normalizeTrainingWeeks(weeks){
-    const arr = Array.isArray(weeks) ? weeks.slice(0, 4) : [];
-    while (arr.length < 4) arr.push('');
+    const arr = Array.isArray(weeks) ? weeks.slice(0, TRAINING_WEEK_COUNT) : [];
+    while (arr.length < TRAINING_WEEK_COUNT) arr.push('');
     return arr;
   }
   // Training Start Date (Week 1) is uniform across every role: the café's
@@ -795,13 +815,13 @@ function viewPipeline(){
   // 2 of 4 weeks (50%), matching how the recruitment/training split is
   // meant to read together (e.g. "60% of required staff have completed
   // 50% of training").
-  function trainingWeekProgress(startDate){
+  function trainingWeekProgress(startDate, requiredWeeks){
     if (!startDate || isNaN(startDate.getTime())) return { currentWeek: 0, completedWeeks: 0, pct: 0 };
     const diffDays = Math.floor((new Date(today) - startDate) / 86400000);
     if (diffDays < 0) return { currentWeek: 0, completedWeeks: 0, pct: 0 };
-    const completedWeeks = Math.min(Math.floor(diffDays / 7), 4);
-    const currentWeek = Math.min(completedWeeks + 1, 4);
-    return { currentWeek, completedWeeks, pct: (completedWeeks / 4) * 100 };
+    const completedWeeks = Math.min(Math.floor(diffDays / 7), requiredWeeks);
+    const currentWeek = Math.min(completedWeeks + 1, requiredWeeks);
+    return { currentWeek, completedWeeks, pct: Math.min((completedWeeks / requiredWeeks) * 100, 100) };
   }
   // Recruitment tracking: every training-calendar row with a position typed
   // in is a "slot" for that role — a blank Name next to it is a vacancy.
@@ -819,7 +839,8 @@ function viewPipeline(){
     let pctSum = 0, weekSum = 0;
     filled.forEach(p => {
       const startDate = computeTrainingStartDate(openDate, p.startDateOverride);
-      const prog = trainingWeekProgress(startDate);
+      const requiredWeeks = requiredWeeksForPosition(p.position);
+      const prog = trainingWeekProgress(startDate, requiredWeeks);
       pctSum += prog.pct; weekSum += prog.currentWeek;
     });
     return { pct: pctSum / filled.length, avgWeek: weekSum / filled.length };
@@ -846,22 +867,23 @@ function viewPipeline(){
     if (!trainingCalendars[storeName]) {
       const seed = TRAINING_CALENDAR_SEED[storeName];
       trainingCalendars[storeName] = seed
-        ? { weekLabels: [...TRAINING_WEEK_LABELS], staff: seed.staff.map(p => ({ position: p.position, name: p.name, store: p.store || '', weeks: normalizeTrainingWeeks(p.weeks), startDateOverride: '' })) }
+        ? { weekLabels: [...TRAINING_WEEK_LABELS], staff: seed.staff.map(p => ({ position: p.position, name: p.name, store: p.store || '', weeks: normalizeTrainingWeeks(p.weeks), startDateOverride: '', staffStatus: 'New' })) }
         : { weekLabels: [...TRAINING_WEEK_LABELS], staff: [] };
     }
     const cal = trainingCalendars[storeName];
-    if (!Array.isArray(cal.weekLabels) || cal.weekLabels.length !== 4) cal.weekLabels = [...TRAINING_WEEK_LABELS];
+    if (!Array.isArray(cal.weekLabels) || cal.weekLabels.length !== TRAINING_WEEK_COUNT) cal.weekLabels = [...TRAINING_WEEK_LABELS];
     if (!Array.isArray(cal.staff)) cal.staff = [];
     cal.staff.forEach(p => {
-      if (!Array.isArray(p.weeks) || p.weeks.length !== 4) p.weeks = normalizeTrainingWeeks(p.weeks);
+      if (!Array.isArray(p.weeks) || p.weeks.length !== TRAINING_WEEK_COUNT) p.weeks = normalizeTrainingWeeks(p.weeks);
       if (p.store == null) p.store = '';
       if (p.startDateOverride == null) p.startDateOverride = '';
+      if (p.staffStatus == null) p.staffStatus = 'New';
     });
     return cal;
   }
   function addTrainingStaff(storeName){
     const cal = getTrainingCalendar(storeName);
-    cal.staff.push({ position:'', name:'', store:'', weeks: ['','','',''], startDateOverride: '' });
+    cal.staff.push({ position:'', name:'', store:'', weeks: normalizeTrainingWeeks([]), startDateOverride: '', staffStatus: 'New' });
     renderStoreList();
     saveTrainingCalendars();
   }
@@ -941,7 +963,7 @@ function viewPipeline(){
         const posIdx = header.findIndex(h => h.startsWith('pos'));
         const nameIdx = header.findIndex(h => h === 'name');
         const storeIdx = header.findIndex(h => h === 'store');
-        const weekCols = header.map((h,i) => ({h,i})).filter(({h}) => h.startsWith('week') || h.startsWith('wk')).slice(0, 4);
+        const weekCols = header.map((h,i) => ({h,i})).filter(({h}) => h.startsWith('week') || h.startsWith('wk')).slice(0, TRAINING_WEEK_COUNT);
         if (posIdx === -1 || nameIdx === -1) {
           const found = rows[0].map(h => h.trim()).filter(Boolean).join(', ') || '(no headers detected)';
           toast(`CSV needs "Position" and "Name" column headers. Found instead: ${found}`);
@@ -952,6 +974,7 @@ function viewPipeline(){
           name: (r[nameIdx]||'').trim(),
           store: storeIdx > -1 ? (r[storeIdx]||'').trim() : '',
           weeks: normalizeTrainingWeeks(weekCols.map(({i}) => (r[i]||'').trim())),
+          staffStatus: 'New',
         })).filter(p => p.position || p.name);
         trainingCalendars[storeName] = { weekLabels: [...TRAINING_WEEK_LABELS], staff };
         renderStoreList();
@@ -1888,27 +1911,32 @@ function viewPipeline(){
               : `<input type="file" class="cpaFileInput" data-store="${escTC(s.name)}" data-key="${key}" style="font-size:11px;">`}
           </div>
         </div>` : '';
+      const isOverdue = !meta.confirmed && date && date < today;
+      const rowBg = isOverdue ? 'background:var(--red-bg);border-radius:3px;' : (isCheckin ? 'background:#e6f6f6;border-radius:3px;' : '');
       return `<div style="border-bottom:1px solid var(--grey-200);">
-        <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;${isCheckin ? 'background:#e6f6f6;border-radius:3px;' : ''}">
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:4px 6px;${rowBg}">
           <button type="button" class="cpaMilestoneToggle" data-mkey="${mkey}" title="Show title, description, notes &amp; attachment" style="border:none;background:none;cursor:pointer;font-size:9px;color:var(--grey-500);padding:0 2px;width:14px;flex-shrink:0;">${isRowExpanded ? '▾' : '▸'}</button>
-          <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${escTC(displayTitle)}${flags}</span>
-          <b style="white-space:nowrap;">${date || '—'}</b>
+          <span style="flex:1;${isCheckin ? 'font-style:italic;' : ''}">${escTC(displayTitle)}${flags}${isOverdue ? ' <span class="badge red" style="margin-left:4px;">⚠ Overdue</span>' : ''}</span>
+          <b style="white-space:nowrap;color:${isOverdue ? 'var(--red)' : 'inherit'};">${date || '—'}</b>
           <input type="checkbox" class="cpaConfirmCheck" data-store="${escTC(s.name)}" data-key="${key}" ${meta.confirmed ? 'checked' : ''} title="Confirm next phase started successfully" style="cursor:pointer;width:14px;height:14px;flex-shrink:0;">
         </div>
         ${expandedPanel}
       </div>`;
-    }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment</div>`
+    }).join('') + `<div style="font-size:10px;color:var(--grey-500);margin-top:6px;">☑ Confirms the next phase started successfully · ▸ adds a note, date override, or attachment · <span class="badge red" style="vertical-align:middle;">⚠ Overdue</span> = unconfirmed and past its date</div>`
       : '<div class="empty-state">Set an opening date to generate CPA milestones.</div>';
-    const customRows = customList.length ? customList.map((c, ci) => `
-      <div style="border-bottom:1px solid var(--grey-200);padding:6px 6px;">
+    const customRows = customList.length ? customList.map((c, ci) => {
+      const isOverdue = !c.confirmed && c.date && c.date < today;
+      return `
+      <div style="border-bottom:1px solid var(--grey-200);padding:6px 6px;${isOverdue?'background:var(--red-bg);border-radius:3px;':''}">
         <div style="display:flex;align-items:center;gap:6px;font-size:12px;">
-          <span style="flex:1;font-style:italic;">${escTC(c.label)} <span style="font-size:9px;color:var(--grey-500);">(manual entry)</span></span>
-          <b style="white-space:nowrap;">${escTC(c.date||'—')}</b>
+          <span style="flex:1;font-style:italic;">${escTC(c.label)} <span style="font-size:9px;color:var(--grey-500);">(manual entry)</span>${isOverdue ? ' <span class="badge red" style="margin-left:4px;">⚠ Overdue</span>' : ''}</span>
+          <b style="white-space:nowrap;color:${isOverdue ? 'var(--red)' : 'inherit'};">${escTC(c.date||'—')}</b>
           <input type="checkbox" class="cpaCustomConfirmCheck" data-store="${escTC(s.name)}" data-idx="${ci}" ${c.confirmed ? 'checked' : ''} title="Confirm this action is complete">
           <button type="button" class="cpaCustomRemove" data-store="${escTC(s.name)}" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button>
         </div>
         <input type="text" class="cpaCustomComment" data-store="${escTC(s.name)}" data-idx="${ci}" value="${escTC(c.comment)}" placeholder="Comment..." style="width:100%;margin-top:4px;font-size:11px;padding:4px 6px;border:1px solid var(--grey-200);box-sizing:border-box;">
-      </div>`).join('') : '';
+      </div>`;
+    }).join('') : '';
     const addCustomForm = `<div class="no-print" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--grey-300);display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
       <input type="text" class="cpaCustomLabelInput" data-store="${escTC(s.name)}" placeholder="Custom milestone / action..." style="flex:1;min-width:180px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
       <input type="date" class="cpaCustomDateInput" data-store="${escTC(s.name)}" style="font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
@@ -1916,12 +1944,20 @@ function viewPipeline(){
     </div>`;
     const postSupport = s.cpa ? `<div style="font-size:10px;color:var(--grey-500);font-style:italic;margin-top:10px;">Auto-archives: ${fmtShortDate(s.cpa.archiveDate)}</div>` : '';
     const total = milestoneList.length + customList.length;
-    let done = 0;
-    milestoneList.forEach(m => { if (getMilestoneMeta(s.name, m.key).confirmed) done++; });
-    customList.forEach(c => { if (c.confirmed) done++; });
+    let done = 0, overdueCount = 0;
+    milestoneList.forEach(m => {
+      const meta = getMilestoneMeta(s.name, m.key);
+      if (meta.confirmed) done++;
+      else if (m.date && m.date < today) overdueCount++;
+    });
+    customList.forEach(c => {
+      if (c.confirmed) done++;
+      else if (c.date && c.date < today) overdueCount++;
+    });
     const pct = total ? Math.round((done/total)*100) : 0;
-    const html = `<div class="section-title">📅 CPA Timeline</div><div>${cpaRows}${customRows}${addCustomForm}${postSupport}</div>`;
-    return { html, pct };
+    const overdueBanner = overdueCount ? `<div class="badge red" style="margin-bottom:12px;font-size:10.5px;">⚠ ${overdueCount} action${overdueCount>1?'s':''} overdue</div>` : '';
+    const html = `<div class="section-title">📅 CPA Timeline</div>${overdueBanner}<div>${cpaRows}<div class="no-print">${customRows}${addCustomForm}</div>${postSupport}</div>`;
+    return { html, pct, overdueCount };
   }
 
   function trainingRecSectionContent(s){
@@ -1951,36 +1987,72 @@ function viewPipeline(){
         <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${ncBB.onboardedMembers} member(s) onboarded</div>
       </div>`
       : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data found for this store in Admin → Data Uploads → B.Better Training.<br>Upload a Groups Report there (or via the button above, as a fallback) to populate this section.</div>`;
-    const supportChipsHtml = `<div>${OT_PEOPLE_LIST.map(member => {
-      const assigned = (supportAllocations[s.name] || []).includes(member);
-      return `<button type="button" class="supportAllocChip" data-store="${s.name}" data-member="${member}" style="cursor:pointer;font-size:11px;padding:5px 10px;border-radius:14px;margin:3px 4px 3px 0;border:1px solid ${assigned?'var(--gold)':'var(--grey-200)'};background:${assigned?'var(--gold)':'#fff'};color:${assigned?'#000':'var(--grey-700)'};font-weight:${assigned?'700':'500'};">${member}</button>`;
-    }).join('')}</div>
-    <div style="font-size:10px;color:var(--grey-500);margin-top:6px;">Tap a name to allocate or remove them from this café's opening support team.</div>`;
+    const selectedSupport = supportAllocations[s.name] || [];
+    const unselectedSupport = OT_PEOPLE_LIST.filter(m => !selectedSupport.includes(m));
+    const supportChipsHtml = `<div id="supportSelectedList">
+      ${selectedSupport.length ? selectedSupport.map(member => `<span class="badge gold" style="margin:3px 4px 3px 0;display:inline-flex;align-items:center;gap:6px;">${escTC(member)} <button type="button" class="supportRemoveBtn no-print" data-store="${escTC(s.name)}" data-member="${escTC(member)}" style="border:none;background:none;color:inherit;cursor:pointer;font-size:12px;line-height:1;">×</button></span>`).join('') : '<span style="color:var(--grey-500);font-size:11px;">No support team members selected yet.</span>'}
+    </div>
+    <select class="supportAddSelect no-print" data-store="${escTC(s.name)}" style="margin-top:8px;font-size:11.5px;padding:6px 8px;border:1px solid var(--grey-300);">
+      <option value="">+ Add support team member...</option>
+      ${unselectedSupport.map(m => `<option value="${escTC(m)}">${escTC(m)}</option>`).join('')}
+    </select>
+    <div class="note-text" style="margin-top:6px;">Only names selected here appear on this café's dashboard row and PDF exports.</div>`;
     const cal = getTrainingCalendar(s.name);
     if (!Array.isArray(cal.customItems)) cal.customItems = [];
-    const colCount = 4 + cal.weekLabels.length + 1;
+    const colCount = 6 + cal.weekLabels.length;
+    // A trainee is "overdue" once their due date has passed but the notes
+    // cell for their final required week is still blank — i.e. nothing was
+    // ever recorded to confirm that week actually happened. (The time-
+    // elapsed % above always reaches 100% by the due date regardless, so
+    // that alone can't signal an unactioned week.)
+    function isTraineeOverdue(p){
+      if (!(p.name||'').trim()) return false;
+      const requiredWeeks = requiredWeeksForPosition(p.position);
+      const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
+      if (!startDate) return false;
+      const dueDate = isoDate(new Date(startDate.getTime() + requiredWeeks*7*86400000));
+      if (!dueDate || dueDate >= today) return false;
+      const lastWeekCell = (p.weeks||[])[requiredWeeks-1];
+      return !lastWeekCell || !String(lastWeekCell).trim();
+    }
+    let trainingOverdueCount = 0;
+    cal.staff.forEach(p => { if (isTraineeOverdue(p)) trainingOverdueCount++; });
     const calRows = cal.staff.map((p, pi) => {
       const startValue = p.startDateOverride || isoDate(computeTrainingStartDate(s.openDate, null));
-      return `<tr data-store="${escTC(s.name)}" data-idx="${pi}">
+      const requiredWeeks = requiredWeeksForPosition(p.position);
+      const startDate = computeTrainingStartDate(s.openDate, p.startDateOverride);
+      const prog = trainingWeekProgress(startDate, requiredWeeks);
+      const dueDate = startDate ? isoDate(new Date(startDate.getTime() + requiredWeeks*7*86400000)) : '';
+      const isOverdue = isTraineeOverdue(p);
+      return `<tr data-store="${escTC(s.name)}" data-idx="${pi}"${isOverdue ? ' style="background:var(--red-bg);"' : ''}>
       <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="position" value="${escTC(p.position)}" placeholder="Position" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
-      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;"></td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);font-size:9px;color:var(--grey-500);white-space:nowrap;">${requiredWeeks} wks req.</td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="name" value="${escTC(p.name)}" placeholder="Name" style="width:120px;border:none;font-size:11px;background:transparent;">${isOverdue ? ' <span class="badge red">⚠ Overdue</span>' : ''}</td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);">
+        <select class="tcStaffStatus" data-field="staffStatus" style="font-size:11px;border:1px solid var(--grey-300);padding:2px 4px;">
+          <option value="New" ${p.staffStatus!=='Current'?'selected':''}>New</option>
+          <option value="Current" ${p.staffStatus==='Current'?'selected':''}>Current</option>
+        </select>
+      </td>
       <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input type="date" class="tcStartOverride" data-field="startDateOverride" value="${escTC(startValue)}" title="Defaults to this café's Training Start Date (Opening Date − 5 weeks) — override here for a trainee starting on a different date." style="font-size:11px;border:none;background:transparent;width:120px;"></td>
       <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcField" data-field="store" value="${escTC(p.store)}" placeholder="Store" style="width:100px;border:none;font-size:11px;background:transparent;"></td>
       ${cal.weekLabels.map((wl, wi) => `<td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><input class="tcWeekField" data-week="${wi}" value="${escTC((p.weeks||[])[wi]||'')}" placeholder="—" style="width:100px;border:none;font-size:11px;background:transparent;"></td>`).join('')}
-      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
+      <td style="padding:4px 6px;border-bottom:1px solid var(--grey-100);" class="no-print"><button type="button" class="tcRemoveBtn" data-store="${escTC(s.name)}" data-idx="${pi}" title="Remove" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;">×</button></td>
     </tr>`;
     }).join('') || `<tr><td colspan="${colCount}" style="padding:8px 6px;color:var(--grey-500);font-size:11px;">No training staff added yet — add one manually or upload a CSV.</td></tr>`;
     const calendarHtml = `
-      <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. The Recruitment meter counts filled vs. blank rows per role.</div>
+      <div style="font-size:10.5px;color:var(--grey-500);margin-bottom:10px;">Add a row per position needed — a blank Name is an open vacancy. GM/Manager/Team Leader/All Rounder/Kitchen Supervisor/Barista require 4 weeks; Kitchen Assistants/Waitrons require 2. Week 5 is Handover Week, tracked separately.</div>
       <div style="overflow-x:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:11px;min-width:560px;">
+        <table class="training-calendar-table" style="width:100%;border-collapse:collapse;font-size:11px;min-width:720px;">
           <thead><tr>
             <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Position</th>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Req.</th>
             <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Name</th>
+            <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Status</th>
             <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Start Date</th>
             <th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;">Store</th>
             ${cal.weekLabels.map(wl => `<th style="text-align:left;padding:4px 6px;border-bottom:1px solid var(--grey-200);color:var(--grey-500);font-weight:700;white-space:nowrap;">${escTC(wl)}</th>`).join('')}
-            <th style="border-bottom:1px solid var(--grey-200);"></th>
+            <th style="border-bottom:1px solid var(--grey-200);" class="no-print"></th>
           </tr></thead>
           <tbody>${calRows}</tbody>
         </table>
@@ -1988,7 +2060,7 @@ function viewPipeline(){
       <div class="no-print" style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
         <button type="button" class="btn btn-outline tcAddStaffBtn" data-store="${escTC(s.name)}" style="font-size:11px;padding:5px 10px;">+ Add Staff Member</button>
         <label class="btn btn-outline" style="font-size:11px;padding:5px 10px;cursor:pointer;">Upload CSV<input type="file" accept=".csv" class="tcCsvInput" data-store="${escTC(s.name)}" style="display:none;"></label>
-        <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4.</span>
+        <span style="font-size:10px;color:var(--grey-500);">CSV columns: Position, Name, Store, Wk 1, Wk 2, Wk 3, Wk 4, Wk 5.</span>
       </div>`;
     const customRows = cal.customItems.map((c, ci) => `
       <div style="border-bottom:1px solid var(--grey-200);padding:6px 6px;">
@@ -2017,18 +2089,20 @@ function viewPipeline(){
     cal.customItems.forEach(c => { if (c.status && c.status !== 'Pending') doneCustom++; });
     if (cal.customItems.length) subScores.push((doneCustom/cal.customItems.length)*100);
     const pct = subScores.length ? Math.round(subScores.reduce((a,b)=>a+b,0)/subScores.length) : 0;
+    const trainOverdueBanner = trainingOverdueCount ? `<div class="badge red" style="margin-bottom:12px;font-size:10.5px;">⚠ ${trainingOverdueCount} trainee${trainingOverdueCount>1?'s':''} overdue (required weeks not complete)</div>` : '';
     const html = `
       <div class="section-title">🎓 Training & Recruitment</div>
+      ${trainOverdueBanner}
       ${progressMeter}
       <div style="margin-top:20px;"><div class="section-title">🏅 B.Better Academy</div>${bbetterHtml}</div>
       <div style="margin-top:20px;"><div class="section-title">🤝 Support Team Allocation</div>${supportChipsHtml}</div>
       <div style="margin-top:20px;"><div class="section-title">📅 Training Calendar</div>${calendarHtml}</div>
-      <div style="margin-top:20px;">
+      <div class="no-print" style="margin-top:20px;">
         <div class="section-title">📝 Manual Entries</div>
         ${customRows || '<div class="empty-state" style="padding:10px;font-size:11px;">No manual entries yet.</div>'}
         ${addCustomForm}
       </div>`;
-    return { html, pct };
+    return { html, pct, overdueCount: trainingOverdueCount };
   }
 
   function detailsSectionContent(s){
@@ -2084,47 +2158,114 @@ function viewPipeline(){
         ${contactGroup('Project Manager', 'pm', null, 'pmEmail', 'pmContactNumber')}
         ${contactGroup('Landlord Contact', 'landlordContact', null, 'landlordEmail', 'landlordContactNumber')}
       </div>
-      <div class="section-title">📝 Manual Entries</div>
-      ${customRows || '<div class="empty-state" style="padding:10px;font-size:11px;">No manual entries yet.</div>'}
-      ${addCustomForm}`;
+      <div class="no-print">
+        <div class="section-title">📝 Manual Entries</div>
+        ${customRows || '<div class="empty-state" style="padding:10px;font-size:11px;">No manual entries yet.</div>'}
+        ${addCustomForm}
+      </div>`;
     return { html, pct };
+  }
+
+  function readinessPhaseDueDate(phaseTitle, s){
+    const t = phaseTitle.toUpperCase();
+    const handover = s.cpa ? s.cpa.handoverDate : null;
+    const open = s.openDate || null;
+    const sub = (dateStr, days) => { if (!dateStr) return null; const d = new Date(dateStr + 'T00:00:00'); d.setDate(d.getDate() - days); return d.toISOString().slice(0,10); };
+    if (t.includes('2 WEEKS BEFORE HANDOVER')) return sub(handover, 14);
+    if (t.includes('1 WEEK BEFORE OPENING')) return sub(open, 7);
+    if (t.includes('2 DAYS BEFORE OPENING')) return sub(open, 2);
+    if (t.includes('DAY OF OPENING')) return open;
+    return null;
+  }
+
+  function readinessSubPct(phaseIdx, subIdx, sub){
+    let total = 0, yes = 0;
+    (sub.items||[]).forEach((it, ii) => {
+      const key = phaseIdx + '_' + subIdx + '_' + ii;
+      const v = (READINESS_STATE.items||{})[key];
+      if (v && v.status === 'N/A') return;
+      total++;
+      if (v && v.status === 'Yes') yes++;
+    });
+    return { total, yes, pct: total ? Math.round((yes/total)*100) : 0 };
   }
 
   function readinessSectionContent(s){
     if (!READINESS_STATE) return { html: '<div class="empty-state">Loading…</div>', pct: 0 };
     if (!Array.isArray(READINESS_STATE.customItems)) READINESS_STATE.customItems = [];
     const prog = readinessProgress();
+    let overallOverdueCount = 0;
     let body = `<div class="section-title" style="margin-bottom:0;">✅ Project Readiness Checklist</div>
-      <div class="progress-track" style="margin:10px 0 20px;"><div class="progress-fill" id="readinessProgressFill" style="width:${prog.pct}%;"></div></div>`;
+      <div style="display:flex;align-items:center;gap:10px;margin:10px 0 20px;">
+        <div class="progress-track" style="flex:1;"><div class="progress-fill" id="readinessProgressFill" style="width:${prog.pct}%;"></div></div>
+        <div style="font-size:16px;font-weight:800;white-space:nowrap;" id="readinessProgressPct">${prog.pct}%</div>
+      </div>
+      <div class="note-text">Based on "Yes" answers only — N/A items are excluded from both the count and the percentage.</div>`;
+
     READINESS_CONFIG.phases.forEach((phase, pi) => {
-      body += `<div class="section-divider">${escapeHtml(phase.title)}</div>`;
+      const dueDate = readinessPhaseDueDate(phase.title, s);
+      let phaseTotal = 0, phaseYes = 0, phaseOverdue = 0;
+      phase.subsections.forEach((sub, si) => {
+        if (sub.group_only) return;
+        const subStat = readinessSubPct(pi, si, sub);
+        phaseTotal += subStat.total; phaseYes += subStat.yes;
+        if (dueDate && dueDate < today) {
+          (sub.items||[]).forEach((it, ii) => {
+            const key = pi + '_' + si + '_' + ii;
+            const v = (READINESS_STATE.items||{})[key];
+            if (!v || !v.status || v.status === 'Pending') phaseOverdue++;
+          });
+        }
+      });
+      overallOverdueCount += phaseOverdue;
+      const phasePct = phaseTotal ? Math.round((phaseYes/phaseTotal)*100) : 0;
+      const phaseOverdueBadge = phaseOverdue ? ` <span class="badge red">⚠ ${phaseOverdue} overdue</span>` : '';
+
+      body += `<details class="readiness-phase" open style="margin-bottom:10px;border:1px solid var(--grey-200);">
+        <summary class="section-title-toggle" style="cursor:pointer;padding:10px 14px;background:var(--grey-100);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;list-style:none;">
+          ${escapeHtml(phase.title)}${dueDate ? ` <span style="color:var(--grey-500);font-weight:400;text-transform:none;">— Due ${escapeHtml(dueDate)}</span>` : ''}
+          <span style="float:right;color:${phasePct>=80?'var(--green)':phasePct>=50?'var(--gold)':'var(--red)'};">${phasePct}%</span>${phaseOverdueBadge}
+        </summary>
+        <div style="padding:12px 14px;">`;
+
       phase.subsections.forEach((sub, si) => {
         if (sub.group_only) { body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`; return; }
-        if (sub.title) body += `<div class="subsection-title">${escapeHtml(sub.title)}</div>`;
+        const subStat = readinessSubPct(pi, si, sub);
+        const subHeader = sub.title
+          ? `<summary class="subsection-title" style="cursor:pointer;list-style:none;display:flex;justify-content:space-between;">${escapeHtml(sub.title)} <span style="color:${subStat.pct>=80?'var(--green)':subStat.pct>=50?'var(--gold)':'var(--red)'};">${subStat.pct}%</span></summary>`
+          : '';
         const rows = sub.items.map((it, ii) => {
           const key = pi + '_' + si + '_' + ii;
           const rowState = (READINESS_STATE.items||{})[key] || {};
+          const isOverdue = dueDate && dueDate < today && (!rowState.status || rowState.status === 'Pending');
           const cols = READINESS_CONFIG.item_columns.map(col => `<td>${inputHtml(col, 'items.' + key + '.' + col.key, rowState[col.key])}</td>`).join('');
-          return `<tr><td style="width:34px;color:var(--grey-500);">${ii+1}</td><td>${escapeHtml(it.label)}</td>${cols}</tr>`;
+          return `<tr${isOverdue ? ` style="background:var(--red-bg);"` : ''}><td style="width:34px;color:var(--grey-500);">${ii+1}</td><td>${escapeHtml(it.label)}${isOverdue ? ' <span class="badge red">⚠ Overdue</span>' : ''}</td>${cols}</tr>`;
         }).join('');
         const headCols = READINESS_CONFIG.item_columns.map(c => `<th>${escapeHtml(c.label)}</th>`).join('');
-        body += `<div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item / Task / Service</th>${headCols}</tr></thead><tbody>${rows}</tbody></table></div>`;
-        if (sub.has_comments) {
+        const table = `<div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item / Task / Service</th>${headCols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+        const commentBox = sub.has_comments ? (() => {
           const cKey = pi + '_' + si;
           const cVal = (READINESS_STATE.subComments||{})[cKey] || '';
-          body += `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
+          return `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
+        })() : '';
+        if (sub.title) {
+          body += `<details class="readiness-subsection" open style="margin-bottom:10px;">${subHeader}<div style="padding-top:8px;">${table}${commentBox}</div></details>`;
+        } else {
+          body += `${table}${commentBox}`;
         }
       });
+      body += `</div></details>`;
     });
+
     const customRows = READINESS_STATE.customItems.map((c, ci) => `
       <tr><td style="width:34px;color:var(--grey-500);">${ci+1}</td>
       <td><input type="text" data-path="customItems.${ci}.label" data-kind="text" value="${escapeHtml(c.label)}" style="font-style:italic;"></td>
       <td><input type="date" data-path="customItems.${ci}.date" data-kind="text" value="${escapeHtml(c.date)}"></td>
       <td><select data-path="customItems.${ci}.status" data-kind="select"><option value="">—</option>${['Pending','Yes','No','N/A'].map(o=>`<option value="${o}" ${c.status===o?'selected':''}>${o}</option>`).join('')}</select></td>
       <td><input type="text" data-path="customItems.${ci}.comment" data-kind="text" value="${escapeHtml(c.comment)}"></td>
-      <td><button type="button" class="readinessCustomRemove" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
-    body += `<div class="section-divider">Manual Entries</div>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Comment</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
+      <td><button type="button" class="readinessCustomRemove no-print" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
+    body += `<div class="section-divider no-print">Manual Entries</div>
+      <div class="table-wrap no-print"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Comment</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
       <button class="btn btn-outline btn-mini no-print readinessCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>`;
     body += `<div class="section-divider">Sign-Off</div><div class="card">${
       (() => {
@@ -2135,7 +2276,39 @@ function viewPipeline(){
         return `<div class="form-grid two">${fields}</div>`;
       })()
     }</div>`;
-    return { html: body, pct: prog.pct };
+    return { html: body, pct: prog.pct, overdueCount: overallOverdueCount };
+  }
+
+  function training7dayDayDueDate(dnum, s){
+    if (!s.cpa || !s.cpa.handoverDate) return null;
+    const handover = new Date(s.cpa.handoverDate + 'T00:00:00');
+    handover.setDate(handover.getDate() - (8 - Number(dnum)));
+    return handover.toISOString().slice(0,10);
+  }
+
+  function dayCompletionPct(dnum){
+    const day = TRAINING7DAY_CONFIG.days[String(dnum)];
+    const dayState = TRAINING_STATE.days && TRAINING_STATE.days[dnum];
+    if (!day || !dayState) return 0;
+    let total = 0, done = 0;
+    day.sections.forEach(section => {
+      if (section.kind === 'signoff') return;
+      const sectionState = dayState.sections && dayState.sections[section.id];
+      if (!sectionState) return;
+      if (section.kind === 'fixed') {
+        const rows = sectionState.rows || {};
+        section.fixed_items.forEach((item, i) => {
+          const row = rows[i] || {};
+          section.columns.forEach(col => { if (col.type === 'checkbox') { total++; if (row[col.key]) done++; } });
+        });
+      } else if (section.kind === 'dynamic') {
+        (sectionState.rows || []).forEach(row => {
+          if (!row.label || !String(row.label).trim()) return;
+          section.columns.forEach(col => { if (col.type === 'checkbox') { total++; if (row[col.key]) done++; } });
+        });
+      }
+    });
+    return total ? Math.round((done/total)*100) : 0;
   }
 
   function training7dayProgress(){
@@ -2145,6 +2318,7 @@ function viewPipeline(){
       const signoff = day && day.sections && day.sections['d'+dnum+'_signoff'];
       if (signoff && signoff.overall_status === 'Pass') doneWeighted += 1;
       else if (signoff && signoff.overall_status === 'Needs Follow-up') doneWeighted += 0.5;
+      else doneWeighted += dayCompletionPct(dnum) / 100;
     });
     const custom = Array.isArray(TRAINING_STATE.customItems) ? TRAINING_STATE.customItems : [];
     total += custom.length;
@@ -2156,9 +2330,12 @@ function viewPipeline(){
     if (!TRAINING_STATE) return { html: '<div class="empty-state">Loading…</div>', pct: 0 };
     if (!Array.isArray(TRAINING_STATE.customItems)) TRAINING_STATE.customItems = [];
     const prog = training7dayProgress();
+    let overdueDayCount = 0;
     const dayTabs = Object.keys(TRAINING7DAY_CONFIG.days).map(dnum => {
-      const dot = dayCompletionDot(dnum);
-      return `<button class="day-tab ${String(ACTIVE_DAY)===dnum?'active':''}" data-day="${dnum}"><span class="dot ${dot}"></span>Day ${dnum}</button>`;
+      const dueDate = training7dayDayDueDate(dnum, s);
+      const dot = dayCompletionDot(dnum, dueDate, today);
+      if (dot === 'overdue') overdueDayCount++;
+      return `<button class="day-tab ${String(ACTIVE_DAY)===dnum?'active':''}" data-day="${dnum}"><span class="dot ${dot}"></span>Day ${dnum} <span style="color:var(--grey-500);font-weight:400;">${dayCompletionPct(dnum)}%</span></button>`;
     }).join('');
     const day = TRAINING7DAY_CONFIG.days[String(ACTIVE_DAY)];
     const dayStatePath = 'days.' + ACTIVE_DAY;
@@ -2169,7 +2346,15 @@ function viewPipeline(){
       if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, section.kind === 'dynamic' ? {rows:[]} : (section.kind==='signoff' ? {} : {rows:{}}));
       sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
     });
+    // Auto-populate this day's Date field from the café's opening/handover
+    // date if it hasn't been manually set yet — same anchor CPA's in-store
+    // training milestones use (Handover minus days remaining).
+    const autoDueDate = training7dayDayDueDate(ACTIVE_DAY, s);
     const headerState = deepGet(TRAINING_STATE, dayStatePath + '.header') || {};
+    if (!headerState.date && autoDueDate) { headerState.date = autoDueDate; deepSet(TRAINING_STATE, dayStatePath + '.header', headerState); }
+    const isDayOverdue = autoDueDate && autoDueDate < today && !(TRAINING_STATE.days[ACTIVE_DAY].sections['d'+ACTIVE_DAY+'_signoff'] && TRAINING_STATE.days[ACTIVE_DAY].sections['d'+ACTIVE_DAY+'_signoff'].overall_status === 'Pass');
+    const dayOverdueBanner = isDayOverdue ? `<div class="badge red" style="margin-bottom:12px;font-size:10.5px;">⚠ Day ${ACTIVE_DAY} overdue — due ${escapeHtml(autoDueDate)}, not yet signed off</div>` : '';
+    const overallOverdueBanner = overdueDayCount ? `<div class="badge red" style="margin-bottom:12px;font-size:10.5px;">⚠ ${overdueDayCount} day${overdueDayCount>1?'s':''} overdue</div>` : '';
     const headerFields = day.header_fields.map(f => `<div class="field"><label>${escapeHtml(f.label)}</label>${inputHtml(f, dayStatePath + '.header.' + f.key, headerState[f.key])}</div>`).join('');
     const customRows = TRAINING_STATE.customItems.map((c, ci) => `
       <tr><td style="width:34px;color:var(--grey-500);">${ci+1}</td>
@@ -2180,32 +2365,44 @@ function viewPipeline(){
       <td><button type="button" class="training7dayCustomRemove" data-idx="${ci}" style="border:none;background:none;color:var(--red);cursor:pointer;font-size:14px;">×</button></td></tr>`).join('');
     const html = `
       <div class="section-title" style="margin-bottom:0;">🎯 7-Day On-Site Training</div>
-      <div class="progress-track" style="margin:10px 0 16px;"><div class="progress-fill" style="width:${prog.pct}%;"></div></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:10px 0 16px;">
+        <div class="progress-track" style="flex:1;"><div class="progress-fill" style="width:${prog.pct}%;"></div></div>
+        <div style="font-size:16px;font-weight:800;white-space:nowrap;">${prog.pct}%</div>
+      </div>
+      ${overallOverdueBanner}
       <div class="day-tabs">${dayTabs}</div>
+      ${dayOverdueBanner}
       <div class="form-grid two" style="margin-bottom:16px;">${headerFields}</div>
-      <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(day.focus)}</div>
+      <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(day.focus)} <span style="float:right;font-weight:700;">Day ${ACTIVE_DAY} completion: ${dayCompletionPct(ACTIVE_DAY)}%</span></div>
       ${sectionsHtml}
-      <div class="section-divider">Manual Entries (café-wide)</div>
-      <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
-      <button class="btn btn-outline btn-mini no-print training7dayCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>
+      <div class="no-print">
+        <div class="section-divider">Manual Entries (café-wide)</div>
+        <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:34px;">#</th><th>Item</th><th>Date</th><th>Status</th><th>Notes</th><th></th></tr></thead><tbody>${customRows || `<tr><td colspan="6" class="empty-state">No manual entries yet.</td></tr>`}</tbody></table></div>
+        <button class="btn btn-outline btn-mini no-print training7dayCustomAddBtn" style="margin-top:8px;">+ Add Manual Entry</button>
+      </div>
     `;
-    return { html, pct: prog.pct };
+    return { html, pct: prog.pct, overdueCount: overdueDayCount };
   }
 
   // ---------- Snapshot (Pipeline list) ----------
   function readinessProgress(){
-    let total = 0, done = 0;
+    let total = 0, yes = 0, naCount = 0;
     READINESS_CONFIG.phases.forEach((p, pi) => p.subsections.forEach((s, si) => {
       if (s.group_only) return;
       (s.items||[]).forEach((it, ii) => {
-        total++;
         const key = pi + '_' + si + '_' + ii;
         const v = (READINESS_STATE.items||{})[key];
-        if (v && v.status && v.status !== 'Pending') done++;
+        if (v && v.status === 'N/A') { naCount++; return; } // excluded entirely, not counted either way
+        total++;
+        if (v && v.status === 'Yes') yes++;
       });
     }));
-    (READINESS_STATE.customItems||[]).forEach(it => { total++; if (it.status && it.status !== 'Pending') done++; });
-    return { total, done, pct: total ? Math.round((done/total)*100) : 0 };
+    (READINESS_STATE.customItems||[]).forEach(it => {
+      if (it.status === 'N/A') { naCount++; return; }
+      total++;
+      if (it.status === 'Yes') yes++;
+    });
+    return { total, done: yes, naCount, pct: total ? Math.round((yes/total)*100) : 0 };
   }
 
   function snapshotForStore(s){
@@ -2219,11 +2416,11 @@ function viewPipeline(){
     const details = detailsSectionContent(s);
     const readinessPct = (isActiveProfileCafe && READINESS_STATE) ? readinessProgress().pct : (CAFE_READINESS_CACHE[s.id] != null ? CAFE_READINESS_CACHE[s.id] : null);
     const trainingPct = (isActiveProfileCafe && TRAINING_STATE) ? training7dayProgress().pct : (CAFE_TRAINING7_CACHE[s.id] != null ? CAFE_TRAINING7_CACHE[s.id] : null);
-    const parts = [cpa.pct, trainingRec.pct, details.pct];
+    const parts = [cpa.pct, trainingRec.pct];
     if (readinessPct !== null) parts.push(readinessPct);
     if (trainingPct !== null) parts.push(trainingPct);
     const overall = parts.length ? Math.round(parts.reduce((a,b)=>a+b,0)/parts.length) : 0;
-    return { cpaPct: cpa.pct, trainingRecPct: trainingRec.pct, detailsPct: details.pct, readinessPct, trainingPct, overall };
+    return { cpaPct: cpa.pct, trainingRecPct: trainingRec.pct, detailsPct: details.pct, readinessPct, trainingPct, overall, cpaOverdueCount: cpa.overdueCount };
   }
 
   function renderStoreList(){
@@ -2254,7 +2451,7 @@ function viewPipeline(){
             <div style="font-size:12px;font-weight:700;">Opening Status Snapshot</div>
             <div style="font-size:20px;font-weight:800;color:${rag(snap.overall)};">${snap.overall}%</div>
           </div>
-          ${miniBar('📅 CPA Timeline', snap.cpaPct, 'cpa')}
+          ${miniBar('📅 CPA Timeline' + (snap.cpaOverdueCount ? ` <span class="badge red">⚠ ${snap.cpaOverdueCount} overdue</span>` : ''), snap.cpaPct, 'cpa')}
           ${miniBar('🎓 Training & Recruitment', snap.trainingRecPct, 'trainingrec')}
           ${miniBar('🏢 Franchisee & Store Details', snap.detailsPct, 'details')}
           ${miniBar('✅ Project Readiness', snap.readinessPct, 'readiness')}
@@ -2263,9 +2460,10 @@ function viewPipeline(){
         </div>`;
       }
       const assignedSupport = supportAllocations[s.name] || [];
+      const rowCpaSnap = cpaSectionContent(s);
       return `<div class="card" style="margin-bottom:8px;padding:0;">
         <div class="pipelineRow" style="display:flex;align-items:center;gap:12px;padding:12px 16px;cursor:pointer;flex-wrap:wrap;" data-toggle="${s.name}">
-          <div style="flex:1;min-width:160px;"><b>${s.name}</b><div style="font-size:11px;color:var(--grey-500);">${s.type} · ${s.region} · FSM: ${s.fsm||'—'} · Support: ${assignedSupport.length ? assignedSupport.join(', ') : '—'}</div></div>
+          <div style="flex:1;min-width:160px;"><b>${s.name}</b>${rowCpaSnap.overdueCount ? ` <span class="badge red">⚠ ${rowCpaSnap.overdueCount} CPA overdue</span>` : ''}<div style="font-size:11px;color:var(--grey-500);">${s.type} · ${s.region} · FSM: ${s.fsm||'—'} · Support: ${assignedSupport.length ? assignedSupport.join(', ') : '—'}</div></div>
           <div style="font-size:12px;font-weight:700;">${status}</div>
           <div style="font-size:11px;color:var(--grey-500);">${s.openDate||'Date TBC'}</div>
           <button class="btn btn-outline btn-mini" data-open-checklists="${s.id}" style="white-space:nowrap;">Opening Status →</button>
@@ -2312,13 +2510,13 @@ function viewPipeline(){
     const training7 = training7daySectionContent(s);
     const sectionData = { cpa, trainingrec: trainingRec, details, readiness, training7day: training7 };
     const pctFor = { cpa: cpa.pct, trainingrec: trainingRec.pct, details: details.pct, readiness: readiness.pct, training7day: training7.pct };
-    const overall = Math.round((cpa.pct + trainingRec.pct + details.pct + readiness.pct + training7.pct) / 5);
+    const overall = Math.round((cpa.pct + trainingRec.pct + readiness.pct + training7.pct) / 4);
     CAFE_READINESS_CACHE[s.id] = readiness.pct;
     CAFE_TRAINING7_CACHE[s.id] = training7.pct;
     const rag = (pct) => pct>=80?'var(--green)':pct>=50?'var(--gold)':'var(--red)';
 
     const subNav = PROFILE_SECTIONS.map(sec => `
-      <button type="button" class="detailSubTabBtn" data-sub="${sec.id}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${PROFILE_SECTION===sec.id?'var(--gold)':'transparent'};background:none;color:${PROFILE_SECTION===sec.id?'#000':'var(--grey-500)'};white-space:nowrap;">${sec.label} <span style="color:${rag(pctFor[sec.id])};font-weight:800;">${pctFor[sec.id]}%</span></button>`).join('');
+      <button type="button" class="detailSubTabBtn" data-sub="${sec.id}" style="cursor:pointer;font-size:11.5px;font-weight:700;padding:8px 14px;border:none;border-bottom:2px solid ${PROFILE_SECTION===sec.id?'var(--gold)':'transparent'};background:none;color:${PROFILE_SECTION===sec.id?'#000':'var(--grey-500)'};white-space:nowrap;">${sec.label} <span style="color:${rag(pctFor[sec.id])};font-weight:800;">${pctFor[sec.id]}%</span>${sec.id==='cpa' && cpa.overdueCount ? ` <span class="badge red" style="margin-left:2px;">⚠${cpa.overdueCount}</span>` : ''}</button>`).join('');
 
     app.innerHTML = `
       <div class="page-header no-print">
@@ -2329,8 +2527,8 @@ function viewPipeline(){
         </div>
       </div>
       <div class="print-only" style="margin-bottom:16px;">
-        <div style="font-size:16px;font-weight:700;">${escapeHtml(s.name)} — ${escapeHtml(PROFILE_SECTIONS.find(x=>x.id===PROFILE_SECTION).label.replace(/^[^\w]+/,''))}</div>
-        <div style="font-size:11px;color:#555;">${escapeHtml(s.type||'')} · ${escapeHtml(s.region||'')} · FSM: ${escapeHtml(s.fsm||'—')} · Opening ${escapeHtml(s.openDate||'TBC')} · Printed ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</div>
+        <div style="font-size:16px;font-weight:700;">${escapeHtml(s.name)} — ${escapeHtml(PROFILE_SECTIONS.find(x=>x.id===PROFILE_SECTION).label.replace(/^[^\w]+/,''))} — ${pctFor[PROFILE_SECTION]}% Complete</div>
+        <div style="font-size:11px;color:#555;">${escapeHtml(s.type||'')} · ${escapeHtml(s.region||'')} · FSM: ${escapeHtml(s.fsm||'—')} · Opening ${escapeHtml(s.openDate||'TBC')} · Overall Opening Status: ${overall}% · Printed ${new Date().toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</div>
       </div>
       <div class="no-print" style="margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
         <a href="#" id="profileBackLink" style="font-size:11px;color:var(--grey-700);">← Back to Pipeline</a>
@@ -2347,7 +2545,8 @@ function viewPipeline(){
       // 7-Day Training is tabbed by day on screen — a PDF of "this subsection"
       // should cover all 7 days, not just whichever one happens to be open.
       const savedDay = ACTIVE_DAY;
-      let allDaysHtml = '';
+      const overallProg = training7dayProgress();
+      let allDaysHtml = `<div style="margin-bottom:16px;"><b>Overall 7-Day Training Completion: ${overallProg.pct}%</b></div>`;
       Object.keys(TRAINING7DAY_CONFIG.days).forEach(dnum => {
         const d = TRAINING7DAY_CONFIG.days[dnum];
         const dayStatePath = 'days.' + dnum;
@@ -2359,7 +2558,7 @@ function viewPipeline(){
           sectionsHtml += renderSectionBlock(section, statePath, TRAINING_STATE);
         });
         allDaysHtml += `<div style="page-break-before:${dnum==='1'?'avoid':'always'};">
-          <div class="section-divider">Day ${dnum}: ${escapeHtml(d.title)}</div>
+          <div class="section-divider">Day ${dnum}: ${escapeHtml(d.title)} — ${dayCompletionPct(dnum)}% Complete</div>
           <div class="day-focus-box"><b>Day Focus:</b> ${escapeHtml(d.focus)}</div>
           ${sectionsHtml}
         </div>`;
@@ -2381,7 +2580,9 @@ function viewPipeline(){
 
     wireLegacyDetailInputs(s.name);
     if (PROFILE_SECTION === 'readiness') {
-      wireGenericInputs(document.getElementById('profileSectionContent'), READINESS_STATE, 'readiness');
+      const container = document.getElementById('profileSectionContent');
+      container.querySelectorAll('details').forEach((el, i) => { el.open = READINESS_DETAILS_OPEN[i] !== false; });
+      wireGenericInputs(container, READINESS_STATE, 'readiness');
       const addBtn = document.querySelector('.readinessCustomAddBtn');
       if (addBtn) addBtn.addEventListener('click', () => {
         READINESS_STATE.customItems = READINESS_STATE.customItems || [];
@@ -2393,11 +2594,20 @@ function viewPipeline(){
         scheduleSave('readiness');
         renderProfile();
       }));
-      document.getElementById('profileSectionContent').addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.path) refreshProfilePct(); });
-      document.getElementById('profileSectionContent').addEventListener('change', (e) => { if (e.target.dataset && e.target.dataset.path) refreshProfilePct(); });
+      container.querySelectorAll('details').forEach((el, i) => el.addEventListener('toggle', () => { READINESS_DETAILS_OPEN[i] = el.open; }));
+      container.addEventListener('input', (e) => { if (e.target.dataset && e.target.dataset.path) refreshProfilePct(); });
+      container.addEventListener('change', (e) => {
+        if (e.target.dataset && e.target.dataset.path && e.target.dataset.path.startsWith('items.')) {
+          // Status changed (Yes/No/N/A/Pending) — percentages and overdue flags
+          // depend on this, so a full recompute is needed. Accordion open/
+          // closed state is preserved via READINESS_DETAILS_OPEN above.
+          setTimeout(renderProfile, 0);
+        }
+      });
     }
     if (PROFILE_SECTION === 'training7day') {
-      wireGenericInputs(document.getElementById('profileSectionContent'), TRAINING_STATE, 'training');
+      const container = document.getElementById('profileSectionContent');
+      wireGenericInputs(container, TRAINING_STATE, 'training');
       document.querySelectorAll('.day-tab').forEach(btn => btn.addEventListener('click', () => { ACTIVE_DAY = Number(btn.dataset.day); renderProfile(); }));
       const addBtn = document.querySelector('.training7dayCustomAddBtn');
       if (addBtn) addBtn.addEventListener('click', () => {
@@ -2410,16 +2620,26 @@ function viewPipeline(){
         scheduleSave('training');
         renderProfile();
       }));
+      container.addEventListener('change', (e) => {
+        if (e.target.dataset && e.target.dataset.kind === 'checkbox') setTimeout(renderProfile, 0);
+        else if (e.target.dataset && e.target.dataset.kind === 'select') setTimeout(renderProfile, 0);
+      });
     }
   }
 
   function refreshProfilePct(){
-    // Lightweight live update of the sub-nav % badges without a full profile re-render (avoids losing input focus)
+    // Lightweight live update of the sub-nav % badge + top progress bar,
+    // for events (typing in a comment/date field) that don't change any
+    // Yes/No/N/A status and so don't need a full re-render.
     const s = allStores().find(x => String(x.id) === String(PROFILE_CAFE_ID));
     if (!s) return;
     const prog = readinessProgress();
     const btns = document.querySelectorAll('.detailSubTabBtn');
     btns.forEach(btn => { if (btn.dataset.sub === 'readiness') { const span = btn.querySelector('span'); if (span) span.textContent = prog.pct + '%'; } });
+    const fill = document.getElementById('readinessProgressFill');
+    const pctEl = document.getElementById('readinessProgressPct');
+    if (fill) fill.style.width = prog.pct + '%';
+    if (pctEl) pctEl.textContent = prog.pct + '%';
   }
 
   // ---------- Shared wiring for CPA / Training&Rec / Details fields ----------
@@ -2469,11 +2689,20 @@ function viewPipeline(){
       saveCpaConfirmations();
       if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
     }));
-    document.querySelectorAll('.supportAllocChip').forEach(el => el.addEventListener('click', () => { toggleSupportAllocation(el.dataset.store, el.dataset.member); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.supportAddSelect').forEach(el => el.addEventListener('change', () => {
+      if (!el.value) return;
+      toggleSupportAllocation(el.dataset.store, el.value);
+      if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
+    }));
+    document.querySelectorAll('.supportRemoveBtn').forEach(el => el.addEventListener('click', () => {
+      toggleSupportAllocation(el.dataset.store, el.dataset.member);
+      if (PROFILE_CAFE_ID) renderProfile(); else renderStoreList();
+    }));
     document.querySelectorAll('.tcAddStaffBtn').forEach(el => el.addEventListener('click', () => { addTrainingStaff(el.dataset.store); if (PROFILE_CAFE_ID) renderProfile(); }));
     document.querySelectorAll('.tcRemoveBtn').forEach(el => el.addEventListener('click', () => { removeTrainingStaff(el.dataset.store, parseInt(el.dataset.idx, 10)); if (PROFILE_CAFE_ID) renderProfile(); }));
-    document.querySelectorAll('.tcField').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), el.dataset.field, el.value); }));
-    document.querySelectorAll('.tcStartOverride').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'startDateOverride', el.value); }));
+    document.querySelectorAll('.tcField').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), el.dataset.field, el.value); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.tcStartOverride').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'startDateOverride', el.value); if (PROFILE_CAFE_ID) renderProfile(); }));
+    document.querySelectorAll('.tcStaffStatus').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingField(tr.dataset.store, parseInt(tr.dataset.idx, 10), 'staffStatus', el.value); }));
     document.querySelectorAll('.tcWeekField').forEach(el => el.addEventListener('change', () => { const tr = el.closest('tr'); setTrainingWeekField(tr.dataset.store, parseInt(tr.dataset.idx, 10), parseInt(el.dataset.week, 10), el.value); }));
     document.querySelectorAll('.tcCsvInput').forEach(el => el.addEventListener('change', () => { const file = el.files[0]; if (file) importTrainingCsv(el.dataset.store, file).then(() => { if (PROFILE_CAFE_ID) renderProfile(); }); }));
     document.querySelectorAll('.trainRecCustomAddBtn').forEach(el => el.addEventListener('click', () => {
@@ -2754,11 +2983,12 @@ async function loadCafeChecklists(){
 // training7daySectionContent etc — see the Profile view. dayCompletionDot
 // stays here since it only touches module-level TRAINING_STATE/TRAINING7DAY_CONFIG.)
 // ==================================================================
-function dayCompletionDot(dnum){
+function dayCompletionDot(dnum, dueDate, todayStr){
   const day = TRAINING_STATE.days && TRAINING_STATE.days[dnum];
-  if (!day) return '';
+  if (!day) return dueDate && dueDate < todayStr ? 'overdue' : '';
   const signoff = day.sections && day.sections['d'+dnum+'_signoff'];
   if (signoff && signoff.overall_status === 'Pass') return 'done';
+  if (dueDate && dueDate < todayStr) return 'overdue';
   if (signoff && signoff.overall_status === 'Needs Follow-up') return 'partial';
   return '';
 }
