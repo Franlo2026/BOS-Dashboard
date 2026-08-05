@@ -1083,7 +1083,7 @@ function ragStatusPill(r){
    VIEW: HOME (landing page — pure navigation, no dashboard content)
    ============================================================ */
 const HOME_GROUPS = [
-  { title: 'Quick Access', ids: ['dashboard','scheduler','logsupport','ops','actions','visitreports','timelines','cafeoverview2','cafestatus2','regionalreport'] },
+  { title: 'Quick Access', ids: ['dashboard','scheduler','logsupport','ops','actions','visitreports','timelines','cafeoverview2','cafestatus2','regionalreport','marketingtracker'] },
   { title: 'More Tools', ids: ['trade','standards','bbetter','ltl','weekly','print'] },
   { title: 'Admin', ids: ['admin'] },
 ];
@@ -1103,6 +1103,7 @@ const HOME_META = {
   cafeoverview2: { icon:'☕', desc:'Cafe Overview — store directory, contacts, hours & franchise info' },
   cafestatus2:   { icon:'📇', desc:'Cafe Status — turnover, COS, Google, CSPI, Flow & training per store' },
   regionalreport:{ icon:'🗺️', desc:'Regional Report — turnover, visits, tasks, B-Better & new cafés by team' },
+  marketingtracker:{ icon:'📣', desc:'Marketing Tracker — job briefs from submission through to completion' },
   scheduler:     { icon:'🗓️', desc:'Team Scheduler — weekly routes & franchisee meetings' },
   admin:         { icon:'🔐', desc:'Admin — manage user accounts and roles' },
 };
@@ -1140,6 +1141,15 @@ function viewHome(){
   document.querySelectorAll('.home-card').forEach(card => card.addEventListener('click', async () => {
     const href = card.dataset.href;
     if (href) { window.location.href = href; return; }
+    if (card.dataset.tab === 'marketingtracker') {
+      try {
+        const res = await fetch('/api/marketing-tracker-link', { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || ('Request failed: ' + res.status));
+        window.location.href = data.url;
+      } catch (e) { toast(e.message || 'Could not open Marketing Tracker'); }
+      return;
+    }
     ACTIVE_TAB = card.dataset.tab;
     try { await refreshState(); } catch(e){ if (e.message !== 'unauthorized') toast('Could not reach server — showing last known data'); }
     render();
