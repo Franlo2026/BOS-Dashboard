@@ -397,6 +397,49 @@ Object.keys(REGION_GROUPS).forEach(key => {
   MANAGER_COMBINED_PLANS[key] = MANAGER_CAFE_PLANS[key].map((names, absDay) => names.concat(FRANCHISEE_PLANS[key][absDay] || []));
 });
 
+// ---------- Support team visit tier ----------
+// A third tier alongside FSM-level (own portfolio, zone/outlying cadence)
+// and manager-level (flat quarterly regional sweep): named support staff
+// who additionally cover their manager's ENTIRE region on their own
+// independent rotation — cadence varies by café rather than being flat,
+// since each region has a "core" area visited monthly and everywhere else
+// quarterly.
+const SUPPORT_MONTHLY_PERIOD = 20;   // ≈ monthly, same value CADENCE.local uses
+const SUPPORT_QUARTERLY_PERIOD = 65; // ≈ quarterly, same value MANAGER_CAFE_PERIOD uses
+const SUPPORT_TEAM_ROSTER = {
+  Tarryn: ['Siphesihle Gwadela', 'Mini Mohale'],
+  Franlo: ['Aphiwe Mqakayi', 'Addright Chigama'],
+};
+// Tarryn's support visits Gauteng cafés monthly (region-wide), everything
+// else in her region quarterly. Franlo's support visits Cape Town-based
+// cafés monthly (by the site's own "city" field — Laguna Mall and Hermanus
+// are already tagged city:"Cape Town" in SITES despite being geographically
+// outlying, so they're correctly swept up here with no special-casing
+// needed), everything else in his region quarterly.
+function isSupportMonthlySite(managerKey, site) {
+  if (managerKey === 'Tarryn') return site.region === 'Gauteng';
+  if (managerKey === 'Franlo') return site.city === 'Cape Town';
+  return false;
+}
+const SUPPORT_TEAM_PLANS = {}; // managerKey -> [{label, sites, subtitle, plan}]
+Object.keys(REGION_GROUPS).forEach(key => {
+  const groupSites = SITES.filter(s => REGION_GROUPS[key].regions.includes(s.region));
+  const monthlyCount = groupSites.filter(s => isSupportMonthlySite(key, s)).length;
+  SUPPORT_TEAM_PLANS[key] = (SUPPORT_TEAM_ROSTER[key] || []).map(personName => {
+    const withMeta = groupSites.map(s => ({
+      id: s.id, name: s.name, zone: s.zone, outlying: false,
+      period: isSupportMonthlySite(key, s) ? SUPPORT_MONTHLY_PERIOD : SUPPORT_QUARTERLY_PERIOD,
+    }));
+    return {
+      label: personName,
+      sites: groupSites,
+      subtitle: `Support — ${monthlyCount} monthly, ${groupSites.length - monthlyCount} quarterly`,
+      plan: buildPlan(withMeta, ROTATION_HORIZON, 2),
+    };
+  });
+});
+const SUPPORT_TEAM_NAMES = new Set(Object.values(SUPPORT_TEAM_ROSTER).flat());
+
 /* ============================================================
    WEEK / DATE HELPERS
    ============================================================ */
@@ -720,7 +763,7 @@ function renderWeeklyTab() {
   const group = REGION_GROUPS[ACTIVE_MANAGER];
   const weekStart = weekStartDate(VIEW_WEEK);
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const roster = ROSTER[ACTIVE_MANAGER];
+  const roster = ROSTER[ACTIVE_MANAGER].concat(SUPPORT_TEAM_PLANS[ACTIVE_MANAGER] || []);
   const franchisePlan = MANAGER_COMBINED_PLANS[ACTIVE_MANAGER];
 
   // KPI computation for this week — includes the manager's own row now too
@@ -797,7 +840,7 @@ function renderWeekGrid(days, roster, franchisePlan, groupSites) {
 
   html += renderPersonRow(ACTIVE_MANAGER, MANAGER_LABEL, 'Regional Manager — quarterly café visits & franchisee check-ins', franchisePlan, managerAddOptions);
   roster.forEach(person => {
-    html += renderPersonRow(ACTIVE_MANAGER, person.label, person.sites.length + ' cafés assigned', person.plan, person.sites.map(s => s.name));
+    html += renderPersonRow(ACTIVE_MANAGER, person.label, person.subtitle || (person.sites.length + ' cafés assigned'), person.plan, person.sites.map(s => s.name));
   });
 
   grid.innerHTML = html;
@@ -807,8 +850,9 @@ function renderWeekGrid(days, roster, franchisePlan, groupSites) {
 
 function renderPersonRow(managerKey, personLabel, subtitle, planArr, addOptions) {
   const isManager = personLabel === MANAGER_LABEL;
+  const isNamedAlready = isManager || SUPPORT_TEAM_NAMES.has(personLabel);
   let html = `<div class="fsm-row-name">
-      <span class="${isManager ? '' : 'fsm-name-edit'}" ${isManager ? '' : `data-editname="${managerKey}|${personLabel}"`}>${displayLabel(managerKey, personLabel)}</span>
+      <span class="${isNamedAlready ? '' : 'fsm-name-edit'}" ${isNamedAlready ? '' : `data-editname="${managerKey}|${personLabel}"`}>${displayLabel(managerKey, personLabel)}</span>
       <div class="sub">${subtitle}</div>
     </div>`;
   for (let i = 0; i < 7; i++) {
