@@ -3297,6 +3297,7 @@ function viewVisitReports(){
       <input type="text" id="vrSearch" placeholder="Search store or FSM...">
       <select id="vrTypeFilter"><option value="">All Types</option><option value="Support Visit">Support Visit</option><option value="Trainer Visit">Trainer Visit</option></select>
     </div>
+    <div id="vrEmptyWrap"></div>
     <div id="vrDupWrap"></div>
     <div id="vrTableWrap"></div>
     <div id="vrPrintArea" style="display:none;"></div>
@@ -3342,6 +3343,16 @@ function viewVisitReports(){
     render();
   }
 
+  // A visit record only counts as a genuine report if someone actually
+  // submitted it through the form — a scheduler confirmation (source tag)
+  // never has fullReport at all, and an abandoned draft that somehow made
+  // it into the visits table would have fullReport but submitted:false.
+  // Filtering on this one flag catches both cases without needing to
+  // special-case "empty" any other way.
+  function hasRealContent(v){
+    return !!(v.fullReport && v.fullReport.submitted);
+  }
+
   // ---------- Duplicate finder (admin only) ----------
   // Same store + date + FSM + type showing up more than once almost always
   // means a double-confirm/double-submit, not two genuinely separate visits
@@ -3349,11 +3360,39 @@ function viewVisitReports(){
   // keeping whichever entry was created last.
   function findDuplicateGroups(){
     const groups = {};
-    STATE.visits.filter(v => v.source !== 'scheduler-confirmation').forEach(v => {
+    STATE.visits.filter(hasRealContent).forEach(v => {
       const k = [v.store, v.date, v.fsm, v.type].join('||');
       (groups[k] = groups[k] || []).push(v);
     });
     return Object.values(groups).filter(g => g.length > 1);
+  }
+  // Anything without real submitted content — old scheduler-confirmation
+  // stubs from before that tag existed, or abandoned drafts that somehow
+  // got POSTed — regardless of whether it happens to be a store/date/fsm
+  // duplicate of anything else.
+  function findEmptyReports(){
+    return STATE.visits.filter(v => !hasRealContent(v));
+  }
+  function renderEmptyReportsFinder(){
+    if (!isAdmin()) { document.getElementById('vrEmptyWrap').innerHTML = ''; return; }
+    const empties = findEmptyReports();
+    if (!empties.length) { document.getElementById('vrEmptyWrap').innerHTML = ''; return; }
+    document.getElementById('vrEmptyWrap').innerHTML = `
+      <div class="card no-print" style="margin-bottom:16px;border-left:3px solid var(--red);">
+        <div class="section-title">🧹 ${empties.length} report(s) with no actual content</div>
+        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Scheduler confirmations or abandoned drafts that never had a real GRIND report submitted against them — safe to remove in bulk.</div>
+        <button class="btn btn-outline" id="vrCleanEmptyBtn" style="color:var(--red);border-color:var(--red);">Delete all ${empties.length} empty report(s)</button>
+      </div>`;
+    document.getElementById('vrCleanEmptyBtn').addEventListener('click', async () => {
+      if (!confirm(`Delete ${empties.length} report(s) with no actual content? This cannot be undone.`)) return;
+      try {
+        for (const v of empties) { await apiDelete('/api/visits/' + v.id); STATE.visits = STATE.visits.filter(r => r.id !== v.id); }
+        toast(`Deleted ${empties.length} empty report(s)`);
+        renderEmptyReportsFinder();
+        renderDuplicateFinder();
+        render();
+      } catch (e) { toast(e.message || 'Could not delete empty reports'); }
+    });
   }
   function renderDuplicateFinder(){
     if (!isAdmin()) { document.getElementById('vrDupWrap').innerHTML = ''; return; }
@@ -3391,7 +3430,7 @@ function viewVisitReports(){
     const search = document.getElementById('vrSearch').value.toLowerCase();
     const typeFilter = document.getElementById('vrTypeFilter').value;
     const rows = [...STATE.visits]
-      .filter(v => v.source !== 'scheduler-confirmation')
+      .filter(hasRealContent)
       .filter(v => (!typeFilter || v.type === typeFilter) && (!search || v.store.toLowerCase().includes(search) || v.fsm.toLowerCase().includes(search)))
       .filter(v => VR_TAB === 'archived' ? isArchived(v) : !isArchived(v))
       .sort((a,b) => b.date.localeCompare(a.date));
@@ -3431,7 +3470,7 @@ function viewVisitReports(){
 
   document.querySelectorAll('.vrTabBtn').forEach(btn => btn.addEventListener('click', () => { VR_TAB = btn.dataset.tab; render(); }));
 
-  loadOverrides().then(() => { renderDuplicateFinder(); render(); });
+  loadOverrides().then(() => { renderEmptyReportsFinder(); renderDuplicateFinder(); render(); });
 
   async function deleteVisitReport(id){
     const v = STATE.visits.find(r => r.id === id);

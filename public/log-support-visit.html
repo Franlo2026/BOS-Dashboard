@@ -480,6 +480,10 @@ async function checkBosSession() {
 }
 
 let FSM_STORES = {};
+let CURRENT_USERNAME = ''; // set once /api/me resolves — needed so each logged-in
+// user's in-progress draft is stored under their own key (see keyForToday);
+// without this, two different people starting a report for the same
+// store+date collide on the same shared storage key.
 const SUPPORT_TEAM_ONLY = ['Tshepo Goqo', 'Siphesihle Gwadela', 'Raabia Isaacs', 'Mini Mohale', 'Aphiwe Mqakayi', 'Johannes Moloto', 'Addright Chigama'];
 // Franlo and Tarryn manage regions rather than having their own store
 // portfolio in fsmStores, so neither showed up in this dropdown at all —
@@ -555,6 +559,7 @@ checkBosSession().then(async me => {
   }
   document.getElementById('bosGate').style.display = 'none';
   document.getElementById('whoBadge').textContent = (me.displayName || me.username) + ' · ' + me.role.toUpperCase();
+  CURRENT_USERNAME = me.username || me.displayName || 'unknown';
   await loadFsmStores();
   document.getElementById('f-fsm').addEventListener('change', persist);
   document.getElementById('f-store').addEventListener('change', handleKeyFieldChange);
@@ -612,7 +617,13 @@ let lastKnownKey = null;
 function keyForToday() {
   const d = state.meta.date || new Date().toISOString().split('T')[0];
   const store = state.meta.store || 'unsaved';
-  return STORAGE_KEY_PREFIX + d + ':' + store;
+  // Per-user scoped — the backing storage table has no per-user namespacing
+  // of its own (it's a flat key/value table), so without the username in
+  // the key, two different people both drafting a report for the same
+  // store on the same date would silently share (and overwrite) one
+  // another's in-progress entries.
+  const who = CURRENT_USERNAME || 'unknown';
+  return STORAGE_KEY_PREFIX + who + ':' + d + ':' + store;
 }
 // Store/Date determine the autosave key. If either changes mid-session —
 // e.g. the FSM picked the wrong café first and corrects it, or comes back
