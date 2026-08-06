@@ -3258,7 +3258,7 @@ Share the app URL with everyone. Each person signs in with their own username/pa
           <tbody>${users.map(u => `
             <tr>
               <td>${u.username}</td>
-              <td><input type="text" class="admDisplayNameField" data-id="${u.id}" value="${escapeHtml(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
+              <td><input type="text" class="admDisplayNameField" data-id="${u.id}" value="${escapeHtmlVR2(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
               <td>
                 <select class="admRoleSel" data-id="${u.id}" ${u.username===USERNAME?'disabled':''}>
                   <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
@@ -3269,7 +3269,7 @@ Share the app URL with everyone. Each person signs in with their own username/pa
               <td>${u.active ? '<span class="badge green">ACTIVE</span>' : '<span class="badge red">DISABLED</span>'}</td>
               <td style="white-space:nowrap;">
                 <button class="btn btn-outline admToggleBtn" data-id="${u.id}" data-active="${u.active}" ${u.username===USERNAME?'disabled':''}>${u.active?'Disable':'Enable'}</button>
-                <button class="btn btn-outline btn-mini admResetPwBtn" data-id="${u.id}" data-username="${escapeHtml(u.username)}">Reset Password</button>
+                <button class="btn btn-outline btn-mini admResetPwBtn" data-id="${u.id}" data-username="${escapeHtmlVR2(u.username)}">Reset Password</button>
               </td>
             </tr>
           `).join('')}</tbody>
