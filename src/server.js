@@ -273,10 +273,11 @@ app.post('/api/admin/users', authRequired, requireAdmin, async (req, res) => {
 
 app.patch('/api/admin/users/:id', authRequired, requireAdmin, async (req, res) => {
   try {
-    const { role, active, password } = req.body;
+    const { role, active, password, display_name } = req.body;
     if (role && !['admin', 'editor', 'viewer'].includes(role)) return res.status(400).json({ error: 'invalid role' });
     if (role) await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, req.params.id]);
     if (active !== undefined) await pool.query('UPDATE users SET active = $1 WHERE id = $2', [active, req.params.id]);
+    if (display_name !== undefined) await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.params.id]);
     if (password) {
       if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       const hash = await bcrypt.hash(password, 10);
