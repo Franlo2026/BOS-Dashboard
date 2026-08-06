@@ -2222,7 +2222,7 @@ function viewPipeline(){
       const phasePct = phaseTotal ? Math.round((phaseYes/phaseTotal)*100) : 0;
       const phaseOverdueBadge = phaseOverdue ? ` <span class="badge red">⚠ ${phaseOverdue} overdue</span>` : '';
 
-      body += `<details class="readiness-phase" open style="margin-bottom:10px;border:1px solid var(--grey-200);">
+      body += `<details class="readiness-phase" style="margin-bottom:10px;border:1px solid var(--grey-200);">
         <summary class="section-title-toggle" style="cursor:pointer;padding:10px 14px;background:var(--grey-100);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;list-style:none;">
           ${escapeHtml(phase.title)}${dueDate ? ` <span style="color:var(--grey-500);font-weight:400;text-transform:none;">— Due ${escapeHtml(dueDate)}</span>` : ''}
           <span style="float:right;color:${phasePct>=80?'var(--green)':phasePct>=50?'var(--gold)':'var(--red)'};">${phasePct}%</span>${phaseOverdueBadge}
@@ -2250,7 +2250,7 @@ function viewPipeline(){
           return `<div class="field" style="margin-top:8px;margin-bottom:14px;"><label>Comments</label><textarea rows="2" data-path="subComments.${cKey}" data-kind="text">${escapeHtml(cVal)}</textarea></div>`;
         })() : '';
         if (sub.title) {
-          body += `<details class="readiness-subsection" open style="margin-bottom:10px;">${subHeader}<div style="padding-top:8px;">${table}${commentBox}</div></details>`;
+          body += `<details class="readiness-subsection" style="margin-bottom:10px;">${subHeader}<div style="padding-top:8px;">${table}${commentBox}</div></details>`;
         } else {
           body += `${table}${commentBox}`;
         }
@@ -2389,11 +2389,12 @@ function viewPipeline(){
       }
       const statePath = dayStatePath + '.sections.' + section.id;
       if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, initSectionState(section));
+          else maybeBackfillPrefilledItems(section, statePath, TRAINING_STATE);
       sectionsHtml += renderSectionBlock(effectiveSection, statePath, TRAINING_STATE);
     });
 
     const outstanding = ACTIVE_DAY > 1 ? outstandingFromPreviousDays(ACTIVE_DAY, s) : [];
-    const outstandingHtml = outstanding.length ? `<details class="t7-section" open style="margin-bottom:14px;border:1px solid var(--red);">
+    const outstandingHtml = outstanding.length ? `<details class="t7-section" style="margin-bottom:14px;border:1px solid var(--red);">
       <summary class="section-title-toggle" style="cursor:pointer;padding:10px 14px;background:var(--red-bg);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;list-style:none;margin:0;color:var(--red);">⚠ Outstanding From Previous Days (${outstanding.length})</summary>
       <div style="padding:12px 14px;">
         <div class="table-wrap"><table class="data-table"><thead><tr><th style="width:50px;">Day</th><th>Item</th><th style="width:70px;">Resolved</th><th>Notes</th></tr></thead><tbody>
@@ -2607,6 +2608,7 @@ function viewPipeline(){
           }
           const statePath = dayStatePath + '.sections.' + section.id;
           if (!deepGet(TRAINING_STATE, statePath)) deepSet(TRAINING_STATE, statePath, initSectionState(section));
+          else maybeBackfillPrefilledItems(section, statePath, TRAINING_STATE);
           sectionsHtml += renderSectionBlock(effectiveSection, statePath, TRAINING_STATE);
         });
         allDaysHtml += `<div style="page-break-before:${dnum==='1'?'avoid':'always'};">
@@ -2633,7 +2635,7 @@ function viewPipeline(){
     wireLegacyDetailInputs(s.name);
     if (PROFILE_SECTION === 'readiness') {
       const container = document.getElementById('profileSectionContent');
-      container.querySelectorAll('details').forEach((el, i) => { el.open = READINESS_DETAILS_OPEN[i] !== false; });
+      container.querySelectorAll('details').forEach((el, i) => { el.open = READINESS_DETAILS_OPEN[i] === true; });
       wireGenericInputs(container, READINESS_STATE, 'readiness');
       const addBtn = document.querySelector('.readinessCustomAddBtn');
       if (addBtn) addBtn.addEventListener('click', () => {
@@ -2659,7 +2661,7 @@ function viewPipeline(){
     }
     if (PROFILE_SECTION === 'training7day') {
       const container = document.getElementById('profileSectionContent');
-      container.querySelectorAll('details').forEach((el, i) => { el.open = T7_DETAILS_OPEN[i] !== false; });
+      container.querySelectorAll('details').forEach((el, i) => { el.open = T7_DETAILS_OPEN[i] === true; });
       wireGenericInputs(container, TRAINING_STATE, 'training');
       document.querySelectorAll('.day-tab').forEach(btn => btn.addEventListener('click', () => { ACTIVE_DAY = Number(btn.dataset.day); renderProfile(); }));
       container.querySelectorAll('details').forEach((el, i) => el.addEventListener('toggle', () => { T7_DETAILS_OPEN[i] = el.open; }));
@@ -2951,12 +2953,39 @@ function initSectionState(section){
   return { rows: {} };
 }
 
+function isRowEffectivelyEmpty(row){
+  if (!row) return true;
+  for (const k in row) {
+    const v = row[k];
+    if (v === null || v === undefined || v === '' || v === false) continue;
+    return false;
+  }
+  return true;
+}
+
+// A café whose checklist was created/saved before menu pre-population
+// existed has a real (not missing) but still-blank rows array saved on the
+// server — the "only init if nothing exists yet" check never re-triggers
+// for those, so the menu items silently never appeared. This backfills any
+// section that's still completely untouched, without disturbing a single
+// row where real data (a check, a note, a custom item) already exists.
+function maybeBackfillPrefilledItems(section, statePath, stateRoot){
+  if (section.kind !== 'dynamic' || !Array.isArray(section.prefilled_items) || !section.prefilled_items.length) return;
+  const state = deepGet(stateRoot, statePath);
+  if (!state || !Array.isArray(state.rows)) return;
+  const allEmpty = state.rows.length === 0 || state.rows.every(isRowEffectivelyEmpty);
+  if (allEmpty) {
+    state.rows = section.prefilled_items.map(label => ({ label }));
+    scheduleSave('training');
+  }
+}
+
 function renderSectionBlock(section, statePath, stateRoot){
   let body = '';
   if (section.kind === 'fixed') body = renderFixedSection(section, statePath, stateRoot);
   else if (section.kind === 'dynamic') body = renderDynamicSection(section, statePath, stateRoot);
   else if (section.kind === 'signoff') body = renderSignoffSection(section, statePath, stateRoot);
-  return `<details class="t7-section" open style="margin-top:14px;border:1px solid var(--grey-200);">
+  return `<details class="t7-section" style="margin-top:14px;border:1px solid var(--grey-200);">
     <summary class="section-title-toggle" style="cursor:pointer;padding:10px 14px;background:var(--grey-100);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;list-style:none;margin:0;">${escapeHtml(section.title)}</summary>
     <div style="padding:12px 14px;">${body}</div>
   </details>`;
