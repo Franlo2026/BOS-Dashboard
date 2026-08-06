@@ -1156,6 +1156,47 @@ function viewHome(){
   }));
 }
 
+// ==================================================================
+// SHARED DATE-RANGE FILTER (Dashboard, Task Tracker, Visit Reports,
+// Regional Report all use this same control/state pattern)
+// ==================================================================
+const DATE_RANGE_STATE = {}; // tabKey -> {from, to}
+function getDateRange(tabKey){ return DATE_RANGE_STATE[tabKey] || { from:'', to:'' }; }
+function setDateRange(tabKey, from, to){ DATE_RANGE_STATE[tabKey] = { from, to }; }
+function dateInRange(dateStr, tabKey){
+  if (!dateStr) return true; // undated records are never hidden by a period filter
+  const { from, to } = getDateRange(tabKey);
+  if (from && dateStr < from) return false;
+  if (to && dateStr > to) return false;
+  return true;
+}
+function renderDateRangeFilterHtml(tabKey){
+  const { from, to } = getDateRange(tabKey);
+  return `<div class="filter-row no-print" style="align-items:center;">
+    <label style="font-size:11px;color:var(--grey-500);display:flex;align-items:center;gap:4px;">From
+      <input type="date" class="dateRangeFrom" data-tabkey="${tabKey}" value="${from}" style="font-size:11.5px;padding:5px 6px;">
+    </label>
+    <label style="font-size:11px;color:var(--grey-500);display:flex;align-items:center;gap:4px;">To
+      <input type="date" class="dateRangeTo" data-tabkey="${tabKey}" value="${to}" style="font-size:11.5px;padding:5px 6px;">
+    </label>
+    ${(from || to) ? `<button class="btn btn-outline btn-mini dateRangeClearBtn" data-tabkey="${tabKey}">Clear period</button>` : ''}
+  </div>`;
+}
+function wireDateRangeFilter(tabKey, onChange){
+  document.querySelectorAll(`.dateRangeFrom[data-tabkey="${tabKey}"]`).forEach(el => el.addEventListener('change', () => {
+    setDateRange(tabKey, el.value, getDateRange(tabKey).to);
+    onChange();
+  }));
+  document.querySelectorAll(`.dateRangeTo[data-tabkey="${tabKey}"]`).forEach(el => el.addEventListener('change', () => {
+    setDateRange(tabKey, getDateRange(tabKey).from, el.value);
+    onChange();
+  }));
+  document.querySelectorAll(`.dateRangeClearBtn[data-tabkey="${tabKey}"]`).forEach(el => el.addEventListener('click', () => {
+    setDateRange(tabKey, '', '');
+    onChange();
+  }));
+}
+
 function viewDashboard(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
@@ -1989,6 +2030,7 @@ function viewActions(){
         <button class="btn btn-outline" id="actExportPdf" style="margin-left:auto;">⬇ PDF</button>
         <button class="btn btn-outline" id="actExportCsv">⬇ CSV</button>
       </div>
+      ${renderDateRangeFilterHtml('tasks')}
     </div>
     <div id="taskListWrap" style="margin-top:14px;"></div>
   `;
@@ -2083,6 +2125,7 @@ function viewActions(){
       (subTab==='completed' ? a.status==='closed' : subTab==='nonconformance' ? true : a.status!=='closed') &&
       (subTab!=='nonconformance' || a.isNonConformance) &&
       (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) && (!statusF||a.status===statusF) &&
+      dateInRange(a.createdDate, 'tasks') &&
       (!searchF || (a.store||'').toLowerCase().includes(searchF) || (a.owner||'').toLowerCase().includes(searchF))
     );
   }
@@ -2367,6 +2410,7 @@ function viewActions(){
   document.getElementById('actPillar').addEventListener('change', render);
   document.getElementById('actStatus').addEventListener('change', render);
   document.getElementById('actSearch').addEventListener('input', render);
+  wireDateRangeFilter('tasks', render);
   document.querySelectorAll('#taskSubTab .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
     subTab = btn.dataset.sub;
     document.querySelectorAll('#taskSubTab .segmented-btn').forEach(b=>b.classList.remove('active'));
@@ -2376,7 +2420,8 @@ function viewActions(){
   document.getElementById('actClear').addEventListener('click', () => {
     document.getElementById('actFsm').value=''; document.getElementById('actPillar').value='';
     document.getElementById('actStatus').value=''; document.getElementById('actSearch').value='';
-    render();
+    setDateRange('tasks', '', '');
+    viewActions();
   });
   document.getElementById('actRefresh').addEventListener('click', async () => { await refreshState(); await loadOpsTasksForTracker(); render(); });
   document.getElementById('actExportCsv').addEventListener('click', exportCsv);
@@ -3297,6 +3342,7 @@ function viewVisitReports(){
       <input type="text" id="vrSearch" placeholder="Search store or FSM...">
       <select id="vrTypeFilter"><option value="">All Types</option><option value="Support Visit">Support Visit</option><option value="Trainer Visit">Trainer Visit</option></select>
     </div>
+    ${renderDateRangeFilterHtml('visitreports')}
     <div id="vrEmptyWrap"></div>
     <div id="vrDupWrap"></div>
     <div id="vrTableWrap"></div>
@@ -3332,8 +3378,15 @@ function viewVisitReports(){
     if (isNaN(d)) return 0;
     return Math.floor((Date.now() - d.getTime()) / 86400000);
   }
+  function linkedActionsFor(v){
+    return STATE.actions.filter(a => a.visitId === v.id);
+  }
   function isArchived(v){
     if (Object.prototype.hasOwnProperty.call(ARCHIVE_OVERRIDES, v.id)) return !!ARCHIVE_OVERRIDES[v.id];
+    // A report with tasks still open shouldn't silently drop into Archived
+    // just because 30 days passed — it stays in Open Jobs until those
+    // tasks are actually closed (or someone archives it manually).
+    if (linkedActionsFor(v).some(a => a.status !== 'closed')) return false;
     return daysSince(v.date) >= AUTO_ARCHIVE_DAYS;
   }
   async function toggleArchive(v){
@@ -3343,14 +3396,16 @@ function viewVisitReports(){
     render();
   }
 
-  // A visit record only counts as a genuine report if someone actually
-  // submitted it through the form — a scheduler confirmation (source tag)
-  // never has fullReport at all, and an abandoned draft that somehow made
-  // it into the visits table would have fullReport but submitted:false.
-  // Filtering on this one flag catches both cases without needing to
-  // special-case "empty" any other way.
+  // A visit record counts as a genuine report if EITHER someone actually
+  // submitted it through the form (fullReport.submitted), OR it has real
+  // logged tasks against it in the Task Tracker — a report that spawned
+  // actual work is never "empty" regardless of that internal flag. Only a
+  // scheduler confirmation (no fullReport, no tasks) or a truly abandoned
+  // draft (no content, no tasks) gets filtered out.
   function hasRealContent(v){
-    return !!(v.fullReport && v.fullReport.submitted);
+    if (v.fullReport && v.fullReport.submitted) return true;
+    if (linkedActionsFor(v).length > 0) return true;
+    return false;
   }
 
   // ---------- Duplicate finder (admin only) ----------
@@ -3431,6 +3486,7 @@ function viewVisitReports(){
     const typeFilter = document.getElementById('vrTypeFilter').value;
     const rows = [...STATE.visits]
       .filter(hasRealContent)
+      .filter(v => dateInRange(v.date, 'visitreports'))
       .filter(v => (!typeFilter || v.type === typeFilter) && (!search || v.store.toLowerCase().includes(search) || v.fsm.toLowerCase().includes(search)))
       .filter(v => VR_TAB === 'archived' ? isArchived(v) : !isArchived(v))
       .sort((a,b) => b.date.localeCompare(a.date));
@@ -3469,6 +3525,7 @@ function viewVisitReports(){
   }
 
   document.querySelectorAll('.vrTabBtn').forEach(btn => btn.addEventListener('click', () => { VR_TAB = btn.dataset.tab; render(); }));
+  wireDateRangeFilter('visitreports', render);
 
   loadOverrides().then(() => { renderEmptyReportsFinder(); renderDuplicateFinder(); render(); });
 
