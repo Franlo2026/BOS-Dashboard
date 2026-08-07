@@ -753,6 +753,47 @@ function osFirstWeekday() { const d = new Date(OS_YEAR, OS_MONTH, 1).getDay(); r
 function osSupportRoster(managerKey) {
   return ROSTER[managerKey].map(p => ({ label: p.label, name: displayLabel(managerKey, p.label) }));
 }
+// Only cafés currently inside their opening-support window (Handover
+// through end of Week 4 post-opening) count as "active" — a café that
+// opened months ago shouldn't keep cluttering this view forever.
+function activeNewCafeOpenings(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  return NEWCAFE_STORES.filter(store => {
+    if (!store.openDate) return false;
+    const openDate = new Date(store.openDate + 'T00:00:00');
+    if (isNaN(openDate)) return false;
+    const handoverDate = store.handoverDate ? new Date(store.handoverDate + 'T00:00:00') : addDays(openDate, -7);
+    const supportEnd = addDays(openDate, 28);
+    return today >= handoverDate && today <= supportEnd;
+  });
+}
+// This tab is reserved for people genuinely tied to a live café opening —
+// its assigned FSM (from the New Café dashboard) plus whoever's been
+// selected as support on that café — not the general FSM/support roster.
+function osActiveRosterByManager(){
+  const byManager = {};
+  Object.keys(REGION_GROUPS).forEach(mk => byManager[mk] = []);
+  const seen = {}; // managerKey|name -> true, avoid listing the same person twice
+  activeNewCafeOpenings().forEach(store => {
+    const people = [];
+    if (store.fsm) people.push(store.fsm);
+    (NEWCAFE_ALLOCATIONS[store.name] || []).forEach(m => people.push(m));
+    people.forEach(name => {
+      const resolved = findRosterRowForName(name);
+      const mk = resolved ? resolved.managerKey : KNOWN_PERSON_MANAGER[name];
+      if (!mk) return;
+      const dedupeKey = mk + '|' + name;
+      if (seen[dedupeKey]) {
+        const existing = byManager[mk].find(e => e.name === name);
+        if (existing && !existing.cafes.includes(store.name)) existing.cafes.push(store.name);
+        return;
+      }
+      seen[dedupeKey] = true;
+      byManager[mk].push({ name, cafes: [store.name] });
+    });
+  });
+  return byManager;
+}
 function osSitesFor(managerKey) {
   return SITES.filter(s => REGION_GROUPS[managerKey].regions.includes(s.region)).sort((a,b) => a.name.localeCompare(b.name));
 }
@@ -760,19 +801,21 @@ function osSitesFor(managerKey) {
 function renderOpeningSupportTab() {
   const body = document.getElementById('tabBody');
   const managerKeys = OS_REGION === 'all' ? Object.keys(REGION_GROUPS) : [OS_REGION];
+  const activeRoster = osActiveRosterByManager();
 
   body.innerHTML = `
     <div class="card" style="margin-bottom:16px;">
-      <div class="section-title">Support Team — editable names (10 slots per region)</div>
+      <div class="section-title">Support Team — linked to a live café opening</div>
+      <div style="font-size:10px;color:var(--grey-500);margin-bottom:10px;">Only the FSM and support members actually assigned to a café currently inside its opening-support window (Handover → end of Week 4) show here — set who's assigned on the New Café dashboard.</div>
       <div style="display:flex;gap:24px;flex-wrap:wrap;">
         ${Object.keys(REGION_GROUPS).map(mk => `
           <div style="min-width:220px;">
             <div style="font-weight:700;font-size:12px;margin-bottom:6px;">${REGION_GROUPS[mk].label}</div>
-            ${osSupportRoster(mk).map(p => `
+            ${activeRoster[mk] && activeRoster[mk].length ? activeRoster[mk].map(p => `
               <div style="font-size:12px;padding:3px 0;">
-                <span style="color:var(--grey-500);">${p.label}:</span>
-                <span class="fsm-name-edit" data-os-editname="${mk}|${p.label}">${displayLabel(mk, p.label)}</span>
-              </div>`).join('')}
+                <span>${p.name}</span>
+                <span style="color:var(--grey-500);"> — ${p.cafes.join(', ')}</span>
+              </div>`).join('') : '<div style="font-size:11px;color:var(--grey-500);">No café openings currently in their support window.</div>'}
           </div>`).join('')}
       </div>
     </div>
