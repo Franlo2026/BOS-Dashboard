@@ -713,16 +713,46 @@ Object.entries(DATA.managers).forEach(([mgr, fsms]) => fsms.forEach(f => MANAGER
 const OT_PEOPLE_LIST = Array.from(new Set(["Franlo Geldenhuys", "Tarryn Palmer", ...FSM_LIST, ...SUPPORT_TEAM])).sort();
 // Every user account an admin enables should be selectable when logging a
 // task or visit report, not just names already in the hardcoded FSM/support
-// roster above. The admin-only /api/admin/users list gets mirrored (display
-// names only) to a plain storage key whenever the Admin tab loads it —
-// merge that in here, for every role, so the picker stays current without
-// needing another manual roster edit each time someone's added.
+// Some login accounts have a nickname or first-name-only display_name set
+// (e.g. an account literally named "Addy" instead of "Addright Chigama") —
+// merging those in as-is created duplicate picker entries for the same
+// real person. This maps known nicknames to the canonical roster name so
+// the duplicate is skipped rather than published a second time. Extend
+// this list if a new duplicate turns up after someone's account is created
+// — the real, permanent fix is correcting the account's display name via
+// Admin → Edit, which stops it recurring at the source.
+const KNOWN_NICKNAME_TO_CANONICAL = {
+  'addy': 'Addright Chigama',
+  'charlene': 'Charlene v Heerden',
+  'liam': 'Liam Smith',
+  'mini': 'Mini Mohale',
+  'aphiwe': 'Aphiwe Mqakayi',
+  'johannes': 'Johannes Moloto',
+  'franlo': 'Franlo Geldenhuys',
+  'tarryn': 'Tarryn Palmer',
+  'sipho': 'Sipho Mabaso',
+  'tshepo': 'Tshepo Goqo',
+  'raabia': 'Raabia Isaacs',
+  'siphesihle': 'Siphesihle Gwadela',
+  'sihle': 'Siphesihle Gwadela',
+};
 async function syncOTPeopleListWithActiveUsers(){
   try {
     const r = await apiGet('/api/storage/active-user-roster');
     const names = JSON.parse(r.value || '[]');
     let added = false;
-    names.forEach(n => { if (n && !OT_PEOPLE_LIST.includes(n)) { OT_PEOPLE_LIST.push(n); added = true; } });
+    names.forEach(n => {
+      if (!n) return;
+      if (n.trim().toLowerCase() === 'administrator') return; // system account, not a real person
+      const nick = KNOWN_NICKNAME_TO_CANONICAL[n.trim().toLowerCase()];
+      if (nick) {
+        // This account's display name is a known nickname for someone
+        // already on the canonical roster — skip publishing the duplicate.
+        if (!OT_PEOPLE_LIST.includes(nick)) { OT_PEOPLE_LIST.push(nick); added = true; }
+        return;
+      }
+      if (!OT_PEOPLE_LIST.includes(n)) { OT_PEOPLE_LIST.push(n); added = true; }
+    });
     if (added) OT_PEOPLE_LIST.sort();
   } catch (e) { /* no roster published yet — static list still works */ }
 }
@@ -731,6 +761,8 @@ function fsmOfStore(store){
   for (const f of FSM_LIST) if (DATA.fsmStores[f].includes(store)) return f;
   return null;
 }
+const STORE_REGION_MAP = Object.fromEntries(STORES.map(s => [s.store_name, s.region]));
+function regionOfStore(store){ return STORE_REGION_MAP[store] || null; }
 const ALL_STORES = [];
 FSM_LIST.forEach(f => DATA.fsmStores[f].forEach(s => ALL_STORES.push({ store: s, fsm: f, manager: MANAGER_OF_FSM[f] })));
 
@@ -2023,13 +2055,15 @@ function viewActions(){
       <div class="filter-row">
         <select id="actFsm"><option value="">All FSMs / Support Team</option>${personSelectOptions()}</select>
         <select id="actPillar"><option value="">All Pillars / Departments</option><option>Trade</option><option>Craft</option><option>People</option><option>Presence</option><option>Partnership</option>${OPS_DEPARTMENTS.map(d=>`<option>${d}</option>`).join('')}</select>
-        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="closed">Closed</option></select>
+        <select id="actStatus"><option value="">All Status</option><option value="open">Open</option><option value="overdue">Overdue</option><option value="closed">Closed</option></select>
+        <select id="actRegion"><option value="">All Regions</option>${Array.from(new Set(STORES.map(s=>s.region))).sort().map(r=>`<option>${r}</option>`).join('')}</select>
         <input type="text" id="actSearch" placeholder="Search store or owner...">
         <button class="btn btn-outline" id="actClear">Clear</button>
         <button class="btn btn-outline" id="actRefresh">↻</button>
         <button class="btn btn-outline" id="actExportPdf" style="margin-left:auto;">⬇ PDF</button>
         <button class="btn btn-outline" id="actExportCsv">⬇ CSV</button>
       </div>
+      <div id="actHitRateWrap" style="margin-top:8px;"></div>
       ${renderDateRangeFilterHtml('tasks')}
     </div>
     <div id="taskListWrap" style="margin-top:14px;"></div>
@@ -2118,13 +2152,17 @@ function viewActions(){
     return { text: Math.round(hrs/24) + 'd left', overdue: false };
   }
 
+  function isTaskOverdue(a){ return a.status !== 'closed' && a.dueDate && a.dueDate < todayISO(); }
   function filteredRows(){
     const fsmF = document.getElementById('actFsm').value, pillarF = document.getElementById('actPillar').value, statusF = document.getElementById('actStatus').value;
+    const regionF = document.getElementById('actRegion').value;
     const searchF = document.getElementById('actSearch').value.trim().toLowerCase();
     return [...STATE.actions, ...OPS_AS_TASKS].filter(a =>
       (subTab==='completed' ? a.status==='closed' : subTab==='nonconformance' ? true : a.status!=='closed') &&
       (subTab!=='nonconformance' || a.isNonConformance) &&
-      (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) && (!statusF||a.status===statusF) &&
+      (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) &&
+      (!statusF || (statusF==='overdue' ? isTaskOverdue(a) : a.status===statusF)) &&
+      (!regionF || regionOfStore(a.store)===regionF) &&
       dateInRange(a.createdDate, 'tasks') &&
       (!searchF || (a.store||'').toLowerCase().includes(searchF) || (a.owner||'').toLowerCase().includes(searchF))
     );
@@ -2142,6 +2180,20 @@ function viewActions(){
       <div class="card" style="border-top:3px solid var(--green);"><div class="card-value" style="color:var(--green);">${completed.length}</div><div class="card-label">Completed</div></div>
       <div class="card" style="border-top:3px solid #2563eb;"><div class="card-value" style="color:#2563eb;">${rows.length}</div><div class="card-label">Total Logged</div></div>
     `;
+
+    const regionF = document.getElementById('actRegion').value;
+    if (regionF) {
+      const hitRate = rows.length ? Math.round((completed.length / rows.length) * 100) : 0;
+      const rag = hitRate >= 80 ? 'green' : hitRate >= 60 ? 'amber' : 'red';
+      document.getElementById('actHitRateWrap').innerHTML = `
+        <div class="card" style="padding:10px 16px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--${rag==='amber'?'gold':rag});">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">${regionF} Hit Rate</div>
+          <div style="font-size:20px;font-weight:700;color:var(--${rag==='amber'?'gold':rag});">${hitRate}%</div>
+          <div style="font-size:11px;color:var(--grey-500);">${completed.length} closed of ${rows.length} logged (${overdue.length} currently overdue) — under the filters above</div>
+        </div>`;
+    } else {
+      document.getElementById('actHitRateWrap').innerHTML = '';
+    }
 
     document.getElementById('taskOverdueBanner').innerHTML = overdue.length ? `
       <div class="card" style="border-left:3px solid var(--red);background:var(--red-bg);margin-bottom:14px;">
@@ -2409,6 +2461,7 @@ function viewActions(){
   document.getElementById('actFsm').addEventListener('change', render);
   document.getElementById('actPillar').addEventListener('change', render);
   document.getElementById('actStatus').addEventListener('change', render);
+  document.getElementById('actRegion').addEventListener('change', render);
   document.getElementById('actSearch').addEventListener('input', render);
   wireDateRangeFilter('tasks', render);
   document.querySelectorAll('#taskSubTab .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
@@ -2420,6 +2473,7 @@ function viewActions(){
   document.getElementById('actClear').addEventListener('click', () => {
     document.getElementById('actFsm').value=''; document.getElementById('actPillar').value='';
     document.getElementById('actStatus').value=''; document.getElementById('actSearch').value='';
+    document.getElementById('actRegion').value='';
     setDateRange('tasks', '', '');
     viewActions();
   });
