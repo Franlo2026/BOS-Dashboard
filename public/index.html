@@ -905,21 +905,33 @@ function bbetterScore(fsm, storesList){
   const avg = withData.reduce((a,b)=>a+b,0)/withData.length;
   return { pct: avg, total: storesList.length, withData: withData.length };
 }
-function visitFrequency(storesList){
+function visitFrequency(storesList, range){
   const visited = new Set();
-  STATE.visits.forEach(v => { if (daysAgo(v.date) <= 28 && storesList.includes(v.store)) visited.add(v.store); });
+  STATE.visits.forEach(v => {
+    const inWindow = range && (range.from || range.to)
+      ? (!range.from || v.date >= range.from) && (!range.to || v.date <= range.to)
+      : daysAgo(v.date) <= 28;
+    if (inWindow && storesList.includes(v.store)) visited.add(v.store);
+  });
   if (!storesList.length) return { pct:null, visited:0, total:0 };
   return { pct: (visited.size/storesList.length)*100, visited: visited.size, total: storesList.length };
 }
-function actionsClosed(fsmFilter){
-  const relevant = STATE.actions.filter(a => !fsmFilter || a.fsm === fsmFilter);
+function taskInRange(a, range){
+  if (!range || (!range.from && !range.to)) return true;
+  if (!a.createdDate) return true;
+  if (range.from && a.createdDate < range.from) return false;
+  if (range.to && a.createdDate > range.to) return false;
+  return true;
+}
+function actionsClosed(fsmFilter, range){
+  const relevant = STATE.actions.filter(a => (!fsmFilter || a.fsm === fsmFilter) && taskInRange(a, range));
   if (!relevant.length) return { pct:null, closed:0, total:0, overdue:0 };
   const closed = relevant.filter(a => a.status === 'closed').length;
   const overdue = relevant.filter(a => a.status !== 'closed' && a.dueDate && a.dueDate < todayISO()).length;
   return { pct: (closed/relevant.length)*100, closed, total: relevant.length, overdue };
 }
-function actionsClosedForFsms(fsms){
-  const relevant = STATE.actions.filter(a => fsms.includes(a.fsm));
+function actionsClosedForFsms(fsms, range){
+  const relevant = STATE.actions.filter(a => fsms.includes(a.fsm) && taskInRange(a, range));
   if (!relevant.length) return { pct:null, closed:0, total:0, overdue:0 };
   const closed = relevant.filter(a => a.status === 'closed').length;
   const overdue = relevant.filter(a => a.status !== 'closed' && a.dueDate && a.dueDate < todayISO()).length;
@@ -938,7 +950,7 @@ function pipelineKPI(){
   return { total: active.length, upcoming90, thisMonth };
 }
 
-function scopedKPIs(scope){
+function scopedKPIs(scope, range){
   const fsms = fsmsForScope(scope);
   const stores = storesForScope(scope);
   return {
@@ -946,8 +958,8 @@ function scopedKPIs(scope){
     trade: tradeHealth(stores),
     standards: standardsScore(stores),
     bbetter: bbetterForFsms(fsms),
-    visit: visitFrequency(stores),
-    actions: actionsClosedForFsms(fsms),
+    visit: visitFrequency(stores, range),
+    actions: actionsClosedForFsms(fsms, range),
     cspi: cspiScore(stores)
   };
 }
@@ -1248,6 +1260,9 @@ function viewDashboard(){
       <div class="source-pill ${STATE.ltlAudits.length?'':'grey'}">${STATE.ltlAudits.length? '✓ LTL — '+STATE.ltlAudits.length+' logged' : 'LTL — Manual entry'}</div>
     </div>
 
+    ${renderDateRangeFilterHtml('dashboard')}
+    <div style="font-size:11px;color:var(--grey-500);margin:-8px 0 12px 2px;">Period filter applies to <b>Visit Frequency</b> and <b>Task Closure</b> only (defaults to a rolling 28 days / all-time when empty) — Trade, Flow, B-Better and CSPI are single uploaded snapshots with no historical range to filter.</div>
+
     <div id="kpiStripWrap"></div>
     <div id="kpiDrilldown"></div>
 
@@ -1262,6 +1277,7 @@ function viewDashboard(){
   document.querySelectorAll('#scopeToggle .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
     DASH_SCOPE = btn.dataset.scope; viewDashboard();
   }));
+  wireDateRangeFilter('dashboard', () => { renderKpiStrip(); renderDrilldown(); renderScorecardGrid(); renderAttention(); });
   renderKpiStrip();
   renderDrilldown();
   renderScorecardGrid();
@@ -1270,7 +1286,7 @@ function viewDashboard(){
 let DASH_DRILLDOWN = null; // which KPI card is currently expanded
 
 function renderKpiStrip(){
-  const k = scopedKPIs(DASH_SCOPE);
+  const k = scopedKPIs(DASH_SCOPE, getDateRange('dashboard'));
   const rTrade = ragOf(k.trade.pct, THRESH.trade), rStd = ragOf(k.standards.pct, THRESH.standards),
         rBB = ragOf(k.bbetter.pct, THRESH.bbetter), rVisit = ragOf(k.visit.pct, THRESH.visit), rAct = ragOf(k.actions.pct, THRESH.actions),
         rCspi = ragOf(k.cspi.pct, THRESH.cspi);
@@ -6246,7 +6262,9 @@ function viewRegionalReport(){
 
     function managerSection(mgr){
       const label = firstName(mgr) + "'s Team";
-      const k = scopedKPIs(mgr);
+      const range = getDateRange('regionalreport');
+      const k = scopedKPIs(mgr, range);
+      const visitWindowLabel = (range.from || range.to) ? 'selected period' : '28-day';
       const subRegions = rrTurnoverBySubRegion(mgr);
       const atRisk = rrTopAtRisk(mgr, 10);
       const pipeline = extraStores.filter(s => MANAGER_OF_FSM[s.fsm] === mgr);
@@ -6273,9 +6291,9 @@ function viewRegionalReport(){
 
           <div class="grid-3" style="margin-bottom:16px;">
             <div class="card">
-              <div class="section-title">Café Visits (28-day)</div>
+              <div class="section-title">Café Visits (${visitWindowLabel})</div>
               <div style="font-size:22px;font-weight:700;">${k.visit.visited||0}/${k.visit.total||0}</div>
-              <div style="font-size:11px;color:var(--grey-500);">${k.visit.total ? Math.round(100-((k.visit.visited/k.visit.total)*100))+'% at risk (not visited in 28 days)' : 'no data'}</div>
+              <div style="font-size:11px;color:var(--grey-500);">${k.visit.total ? Math.round(100-((k.visit.visited/k.visit.total)*100))+'% at risk (not visited in the '+visitWindowLabel+')' : 'no data'}</div>
             </div>
             <div class="card">
               <div class="section-title">Franchisee Meetings (28-day)</div>
@@ -6317,8 +6335,11 @@ function viewRegionalReport(){
         <div><div class="page-title">Regional Report</div><div class="page-subtitle">Turnover, visits, tasks, B-Better &amp; new cafés — split by team</div></div>
         <button class="btn btn-black no-print" onclick="window.print()">Print / Save as PDF</button>
       </div>
+      ${renderDateRangeFilterHtml('regionalreport')}
+      <div style="font-size:11px;color:var(--grey-500);margin:-8px 0 12px 2px;" class="no-print">Period filter applies to <b>Café Visits</b> and <b>Task Tracker</b> only — Turnover, At-Risk Stores and B-Better reflect their own current source data regardless of this filter.</div>
       ${managerKeys.map(mk => managerSection(mk)).join('')}
     `;
+    wireDateRangeFilter('regionalreport', () => viewRegionalReport());
   });
 }
 
