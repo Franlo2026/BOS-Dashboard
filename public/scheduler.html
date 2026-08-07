@@ -408,7 +408,10 @@ const SUPPORT_MONTHLY_PERIOD = 20;   // ≈ monthly, same value CADENCE.local us
 const SUPPORT_QUARTERLY_PERIOD = 65; // ≈ quarterly, same value MANAGER_CAFE_PERIOD uses
 const SUPPORT_TEAM_ROSTER = {
   Tarryn: ['Siphesihle Gwadela', 'Mini Mohale'],
-  Franlo: ['Aphiwe Mqakayi', 'Addright Chigama'],
+  // Addright Chigama was previously listed here too, alongside also being
+  // assigned to the FSM 5 slot (as "Addy") — the same person showing up
+  // twice in Franlo's team. He's kept as FSM 5 only now.
+  Franlo: ['Aphiwe Mqakayi'],
 };
 // Tarryn's support visits Gauteng cafés monthly (region-wide), everything
 // else in her region quarterly. Franlo's support visits Cape Town-based
@@ -463,6 +466,131 @@ function weekNumForDate(date) {
 }
 function absoluteWeekdayIndex(weekNum, dayIdx) { return (weekNum - 1) * 5 + dayIdx; } // dayIdx 0..4 = Mon..Fri only feeds the plan array
 function fmtShort(d) { return d.toLocaleDateString('en-ZA', { day: '2-digit', month: 'short' }); }
+function addDays(d, n){ const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+function isoOf(d){ return d.toISOString().slice(0, 10); }
+function absDayForDate(date){
+  const wn = weekNumForDate(date);
+  const dayIdx = date.getDay() - 1; // Mon(1)->0 .. Fri(5)->4; caller only passes weekdays
+  return absoluteWeekdayIndex(wn, dayIdx);
+}
+
+// Currently-known real people not yet tied to any roster row (an FSM
+// bucket via NAME_OVERRIDES, or a support-team row) still need a manager
+// to file their new-café support entries under. This covers the org
+// structure as it stands — extend it if a new person is added.
+const KNOWN_PERSON_MANAGER = {
+  'Raabia Isaacs': 'Franlo', 'Charlene v Heerden': 'Franlo', 'Liam Smith': 'Franlo',
+  'Aphiwe Mqakayi': 'Franlo', 'Addright Chigama': 'Franlo',
+  'Sipho Mabaso': 'Tarryn', 'Tshepo Goqo': 'Tarryn',
+  'Siphesihle Gwadela': 'Tarryn', 'Mini Mohale': 'Tarryn',
+};
+// Finds which existing weekly-view row a real name belongs to, so a new
+// café's opening-support entry lands "next to their name" on the same row
+// they already appear on elsewhere — not a duplicate row.
+function findRosterRowForName(realName){
+  for (const mk of Object.keys(SUPPORT_TEAM_PLANS)) {
+    if ((SUPPORT_TEAM_PLANS[mk] || []).some(p => p.label === realName)) return { managerKey: mk, personLabel: realName };
+  }
+  for (const key of Object.keys(NAME_OVERRIDES)) {
+    if (NAME_OVERRIDES[key] === realName) {
+      const [mk, label] = key.split('|');
+      return { managerKey: mk, personLabel: label };
+    }
+  }
+  if (KNOWN_PERSON_MANAGER[realName]) return { managerKey: KNOWN_PERSON_MANAGER[realName], personLabel: realName };
+  return null; // unresolvable — no safe row to file this under, skip
+}
+
+// Auto-populates the New Café Opening Support calendar from each
+// pipeline café's CPA dates and its allocated support team (set in New
+// Café Ops). Handover through end of Week 1 post-opening: every allocated
+// member covers every weekday. Weeks 2-4: one member per week, rotating
+// through the allocated list. Entries this function creates are tagged
+// `auto:true` so re-running it (whenever allocations or dates change)
+// only ever replaces its own prior output — anything added manually via
+// the calendar's own "+ Add" form is never touched.
+let VIRTUAL_ROSTER_ROWS = {}; // managerKey -> [{label, sites:[], subtitle, plan:[]}] — for people who have new-café support duties but no existing FSM/support row yet
+function ensureVirtualRosterRow(managerKey, personLabel){
+  const alreadyReal = (ROSTER[managerKey] || []).some(p => p.label === personLabel || NAME_OVERRIDES[managerKey+'|'+p.label] === personLabel)
+    || (SUPPORT_TEAM_PLANS[managerKey] || []).some(p => p.label === personLabel);
+  if (alreadyReal) return;
+  VIRTUAL_ROSTER_ROWS[managerKey] = VIRTUAL_ROSTER_ROWS[managerKey] || [];
+  if (VIRTUAL_ROSTER_ROWS[managerKey].some(p => p.label === personLabel)) return;
+  VIRTUAL_ROSTER_ROWS[managerKey].push({
+    label: personLabel, sites: [], subtitle: 'New café opening support only — not yet on a named FSM slot',
+    plan: Array.from({ length: ROTATION_HORIZON }, () => []),
+  });
+}
+async function generateNewCafeSupportEntries(){
+  VIRTUAL_ROSTER_ROWS = {};
+  Object.keys(OPENING_SUPPORT).forEach(iso => {
+    OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => !e.auto);
+    if (!OPENING_SUPPORT[iso].length) delete OPENING_SUPPORT[iso];
+  });
+  // Only clear a prior auto-written override key if every entry in it is
+  // still purely auto-generated — the moment a user confirms/reschedules
+  // one of these chips it's no longer "purely auto" and is left alone, so
+  // regeneration never undoes a real interaction.
+  NEWCAFE_AUTO_KEYS.forEach(k => {
+    const entries = OVERRIDES[k];
+    if (entries && entries.every(e => e.source === 'newcafe-auto' && e.status === '')) delete OVERRIDES[k];
+  });
+  const newAutoKeys = new Set();
+
+  NEWCAFE_STORES.forEach(store => {
+    const members = NEWCAFE_ALLOCATIONS[store.name];
+    if (!members || !members.length || !store.openDate) return;
+    const openDate = new Date(store.openDate + 'T00:00:00');
+    if (isNaN(openDate)) return;
+    const handoverDate = store.handoverDate ? new Date(store.handoverDate + 'T00:00:00') : addDays(openDate, -7);
+    if (isNaN(handoverDate)) return;
+    const matchedSite = SITES.find(s => s.name === store.name);
+    const cafeId = matchedSite ? matchedSite.id : (store.id != null ? store.id : store.name);
+
+    function addEntry(date, personName){
+      const dow = date.getDay();
+      if (dow === 0 || dow === 6) return; // weekdays only
+      const resolved = findRosterRowForName(personName);
+      if (!resolved) return;
+      ensureVirtualRosterRow(resolved.managerKey, resolved.personLabel);
+      const iso = isoOf(date);
+
+      // Calendar view (New Café Opening Support tab)
+      OPENING_SUPPORT[iso] = OPENING_SUPPORT[iso] || [];
+      if (!OPENING_SUPPORT[iso].some(e => e.managerKey===resolved.managerKey && e.personLabel===resolved.personLabel && e.cafeId===cafeId)) {
+        OPENING_SUPPORT[iso].push({ managerKey: resolved.managerKey, personLabel: resolved.personLabel, cafeId, auto: true, cafeName: store.name });
+      }
+
+      // Weekly view + confirm/reschedule/remove — same key format the rest
+      // of the grid already uses, so all existing chip machinery just works.
+      const absDay = absDayForDate(date);
+      const overrideKey = cellKey(resolved.managerKey, resolved.personLabel, String(absDay));
+      newAutoKeys.add(overrideKey);
+      const existing = OVERRIDES[overrideKey] || getCellEntriesByAbsDay(resolved.managerKey, resolved.personLabel, absDay, []);
+      const already = existing.some(e => e.text === store.name && e.source === 'newcafe-auto');
+      if (!already) {
+        OVERRIDES[overrideKey] = existing.concat([{ id: 'newcafe-' + iso + '-' + cafeId, text: store.name + ' 🆕', status: '', source: 'newcafe-auto' }]);
+      }
+    }
+
+    // Period 1 — Handover through end of Week 1 post-opening: everyone allocated, every weekday.
+    const week1End = addDays(openDate, 7);
+    for (let d = new Date(handoverDate); d <= week1End; d = addDays(d, 1)) {
+      members.forEach(m => addEntry(d, m));
+    }
+    // Period 2 — Weeks 2-4: one allocated member per week, rotating.
+    for (let wk = 2; wk <= 4; wk++) {
+      const person = members[(wk - 2) % members.length];
+      const weekStart = addDays(openDate, 7 * (wk - 1) + 1);
+      for (let i = 0; i < 7; i++) addEntry(addDays(weekStart, i), person);
+    }
+  });
+
+  NEWCAFE_AUTO_KEYS = Array.from(newAutoKeys);
+  saveOpeningSupport();
+  saveOverrides();
+  try { await window.storage.set('newcafe-support-autokeys-v1', JSON.stringify(NEWCAFE_AUTO_KEYS)); } catch (e) {}
+}
 function fmtDayDate(d) { return d.toLocaleDateString('en-ZA', { weekday: 'short' }).toUpperCase() + ' ' + fmtShort(d); }
 
 /* ============================================================
@@ -471,11 +599,17 @@ function fmtDayDate(d) { return d.toLocaleDateString('en-ZA', { weekday: 'short'
 let OVERRIDES = {};   // cellKey -> [{id, text, status}]   status: '' | 'confirmed' | 'rescheduled'
 let CONFIRM_LOG = {}; // visitKey -> { confirmedAt, confirmedBy }
 let NAME_OVERRIDES = {}; // "managerKey|FSM label" -> assigned person's name
+let NEWCAFE_STORES = [];      // extraStores from New Café Ops (Handover/Opening dates)
+let NEWCAFE_ALLOCATIONS = {}; // storeName -> [assigned support member real names]
 async function loadState() {
   try { const r = await window.storage.get('support-schedule-overrides-v1'); OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { OVERRIDES = {}; }
   try { const r = await window.storage.get('support-schedule-confirmations-v1'); CONFIRM_LOG = JSON.parse((r && r.value) || '{}'); } catch (e) { CONFIRM_LOG = {}; }
   try { const r = await window.storage.get('support-schedule-names-v1'); NAME_OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { NAME_OVERRIDES = {}; }
   try { const r = await window.storage.get('opening-support-schedule-v1'); OPENING_SUPPORT = JSON.parse((r && r.value) || '{}'); } catch (e) { OPENING_SUPPORT = {}; }
+  try { const r = await window.storage.get('dashboard-stores-v1'); NEWCAFE_STORES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_STORES = []; }
+  try { const r = await window.storage.get('support-allocations-v1'); NEWCAFE_ALLOCATIONS = JSON.parse((r && r.value) || '{}'); } catch (e) { NEWCAFE_ALLOCATIONS = {}; }
+  try { const r = await window.storage.get('newcafe-support-autokeys-v1'); NEWCAFE_AUTO_KEYS = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_AUTO_KEYS = []; }
+  await generateNewCafeSupportEntries();
 }
 async function saveOverrides() { try { await window.storage.set('support-schedule-overrides-v1', JSON.stringify(OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
 async function saveConfirmations() { try { await window.storage.set('support-schedule-confirmations-v1', JSON.stringify(CONFIRM_LOG)); } catch (e) { toast('Could not save — check connection'); } }
@@ -770,7 +904,7 @@ function renderWeeklyTab() {
   const group = REGION_GROUPS[ACTIVE_MANAGER];
   const weekStart = weekStartDate(VIEW_WEEK);
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
-  const roster = ROSTER[ACTIVE_MANAGER].concat(SUPPORT_TEAM_PLANS[ACTIVE_MANAGER] || []);
+  const roster = ROSTER[ACTIVE_MANAGER].concat(SUPPORT_TEAM_PLANS[ACTIVE_MANAGER] || []).concat(VIRTUAL_ROSTER_ROWS[ACTIVE_MANAGER] || []);
   const franchisePlan = MANAGER_COMBINED_PLANS[ACTIVE_MANAGER];
 
   // KPI computation for this week — includes the manager's own row now too
@@ -797,6 +931,7 @@ function renderWeeklyTab() {
       <div><div class="card-label">Scheduled This Week</div><div class="card-value">${scheduledCount}</div></div>
       <div><div class="card-label">Confirmed</div><div class="card-value" style="color:var(--green);">${confirmedCount}</div></div>
       <div><div class="card-label">Rescheduled</div><div class="card-value" style="color:var(--amber);">${rescheduledCount}</div></div>
+      <div><div class="card-label">Completion %</div><div class="card-value" style="color:${scheduledCount ? (confirmedCount/scheduledCount >= 0.8 ? 'var(--green)' : confirmedCount/scheduledCount >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${scheduledCount ? Math.round((confirmedCount/scheduledCount)*100) + '%' : '—'}</div><div class="card-sub">confirmed vs scheduled this cycle</div></div>
     </div>
     <div class="card" style="padding:0;">
       <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--grey-200);">
@@ -955,10 +1090,19 @@ function wireWeekGridEvents(roster, groupSites, franchisePlan) {
         toast('Visit confirmed');
         logConfirmedVisitToDashboard(mgrKey, personLabel, entries[idx].text);
       } else if (act === 'reschedule') {
-        // Open the date picker instead of moving immediately — pre-filled
-        // with the next open day in this person's cycle, but editable.
+        // Moves immediately to the next open day in this person's own
+        // cycle (same logic that used to just pre-fill a manual date
+        // picker) — no extra confirm step needed.
+        const targetAbsDay = findNextOpenSlot(mgrKey, personLabel, plan, absDay);
+        if (targetAbsDay === null) { toast('Could not find an open slot to move this to'); return; }
+        const moved = entries[idx];
+        entries.splice(idx, 1);
+        setCellEntries(mgrKey, personLabel, dayIdx, weekNum, entries);
+        const targetEntries = getCellEntriesByAbsDay(mgrKey, personLabel, targetAbsDay, plan).slice();
+        targetEntries.push({ id: 'resched' + Date.now(), text: moved.text, status: 'rescheduled' });
+        setCellEntriesByAbsDay(mgrKey, personLabel, targetAbsDay, targetEntries);
+        toast('Rescheduled to ' + fmtDayDate(absDayToDate(targetAbsDay)));
         OPEN_CHIP = null;
-        RESCHEDULE_CHIP = chipIdFor(mgrKey, personLabel, weekNum, dayIdx, idx);
         renderWeeklyTab();
         return;
       } else if (act === 'remove') {
@@ -1328,7 +1472,20 @@ function isAtRisk(site, upcomingDays, nowAbsDay) {
 function fsmOptionsFor(managerFilter) {
   const keys = managerFilter ? [managerFilter] : Object.keys(REGION_GROUPS);
   const opts = [];
-  keys.forEach(mk => ROSTER[mk].forEach(p => opts.push({ value: mk + '|' + p.label, label: mk + ' · ' + displayLabel(mk, p.label) })));
+  keys.forEach(mk => {
+    ROSTER[mk].forEach(p => opts.push({ value: mk + '|' + p.label, label: mk + ' · ' + displayLabel(mk, p.label) }));
+    (SUPPORT_TEAM_PLANS[mk] || []).forEach(p => opts.push({ value: mk + '|' + p.label, label: mk + ' · ' + p.label + ' (Support)' }));
+    (VIRTUAL_ROSTER_ROWS[mk] || []).forEach(p => opts.push({ value: mk + '|' + p.label, label: mk + ' · ' + p.label + ' (New café support)' }));
+  });
+  // Real names first, anonymous FSM-N placeholders last — makes an actual
+  // person ("filter Charlene and see her cafés only") easy to find instead
+  // of buried among unrenamed slots.
+  opts.sort((a, b) => {
+    const aAnon = /^FSM \d+$/.test(a.label.split(' · ')[1]);
+    const bAnon = /^FSM \d+$/.test(b.label.split(' · ')[1]);
+    if (aAnon !== bAnon) return aAnon ? 1 : -1;
+    return a.label.localeCompare(b.label);
+  });
   return opts;
 }
 
@@ -1347,7 +1504,7 @@ function renderDirectoryTab() {
       <input type="text" id="dirSearch" placeholder="Search café..." value="${DIR_SEARCH.replace(/"/g,'&quot;')}">
       <select id="dirCafeSelect" style="min-width:220px;">
         <option value="">— Jump to a café —</option>
-        ${allSiteNames.map(s => `<option value="${s.id}" ${DIR_EXPANDED===s.id?'selected':''}>${s.name}</option>`).join('')}
+        ${allSiteNames.map(s => `<option value="${s.id}" ${String(DIR_EXPANDED)===String(s.id)?'selected':''}>${s.name}</option>`).join('')}
       </select>
     </div>
     <div class="card" style="padding:0;">
@@ -1386,7 +1543,13 @@ function renderDirTable() {
     const [fmgr, flabel] = DIR_FILTER_FSM.split('|');
     sites = sites.filter(s => {
       const stats = cafeVisitStats(s);
-      return stats.managerKey === fmgr && stats.personLabel === flabel;
+      if (stats.managerKey === fmgr && stats.personLabel === flabel) return true;
+      if ((stats.visitors || []).some(v => v.managerKey === fmgr && v.personLabel === flabel)) return true;
+      // Covers support-team members AND anyone only present via new-café
+      // opening support (a virtual roster row with no rotation plan of
+      // its own) — their only link to a café is an OPENING_SUPPORT entry.
+      return Object.values(OPENING_SUPPORT).some(dayEntries =>
+        (dayEntries || []).some(e => e.managerKey === fmgr && e.personLabel === flabel && e.cafeId === s.id));
     });
   }
   if (q) sites = sites.filter(s => s.name.toLowerCase().includes(q));
@@ -1432,13 +1595,13 @@ function renderDirTable() {
       <td>${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
       <td>${atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
     </tr>`;
-    const detailRow = DIR_EXPANDED === site.id ? `<tr><td colspan="7" style="padding:0;background:var(--grey-100);">${buildDirExpandedHtml(site, stats)}</td></tr>` : '';
+    const detailRow = String(DIR_EXPANDED) === String(site.id) ? `<tr><td colspan="7" style="padding:0;background:var(--grey-100);">${buildDirExpandedHtml(site, stats)}</td></tr>` : '';
     return row + detailRow;
   }).join('') || '<tr><td colspan="7" class="empty-state">No cafés match this filter.</td></tr>';
 
   document.querySelectorAll('#dirTableBody tr[data-site]').forEach(row => {
     row.addEventListener('click', () => {
-      DIR_EXPANDED = DIR_EXPANDED === row.dataset.site ? null : row.dataset.site;
+      DIR_EXPANDED = String(DIR_EXPANDED) === row.dataset.site ? null : row.dataset.site;
       const sel = document.getElementById('dirCafeSelect');
       if (sel) sel.value = DIR_EXPANDED || '';
       renderDirTable();
@@ -1451,6 +1614,24 @@ function buildDirExpandedHtml(site, stats) {
   const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
     .sort((a, b) => new Date(b.confirmedAt) - new Date(a.confirmedAt));
   const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay).slice(0, 10);
+
+  // Opening-support days for this café, if it's a new café with an
+  // active CPA-linked support schedule — grouped so it reads as "who's
+  // covering which week" rather than a flat list of every single day.
+  const openingDays = Object.keys(OPENING_SUPPORT)
+    .filter(iso => (OPENING_SUPPORT[iso] || []).some(e => e.cafeId === site.id))
+    .sort()
+    .map(iso => ({ iso, entries: OPENING_SUPPORT[iso].filter(e => e.cafeId === site.id) }));
+  const openingSupportHtml = openingDays.length ? `
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--grey-200);">
+      <div style="font-size:10px;font-weight:700;color:var(--grey-500);text-transform:uppercase;margin-bottom:8px;">New Café Opening Support Schedule</div>
+      <div style="max-height:180px;overflow-y:auto;">
+        ${openingDays.map(d => `<div style="font-size:12px;padding:4px 0;border-bottom:1px solid var(--grey-100);display:flex;justify-content:space-between;">
+          <span>${fmtDayDate(new Date(d.iso + 'T00:00:00'))}</span>
+          <span style="color:var(--grey-500);">${d.entries.map(e => e.personLabel).join(', ')}</span>
+        </div>`).join('')}
+      </div>
+    </div>` : '';
 
   return `
     <div style="padding:16px 20px;">
@@ -1465,6 +1646,7 @@ function buildDirExpandedHtml(site, stats) {
           ${upcoming.length ? upcoming.map(d => `<div style="font-size:12px;padding:5px 0;border-bottom:1px solid var(--grey-200);">${fmtDayDate(absDayToDate(d))}</div>`).join('') : '<div class="empty-state">Nothing scheduled — check the café is still assigned to a support member.</div>'}
         </div>
       </div>
+      ${openingSupportHtml}
       <div style="margin-top:10px;font-size:10px;color:var(--grey-500);">Assigned to: ${stats.managerKey || '—'} team · ${stats.personLabel ? displayLabel(stats.managerKey, stats.personLabel) : '—'} · Zone: ${site.zone} · Franchisee: ${site.franchisee || '—'}</div>
     </div>
   `;
