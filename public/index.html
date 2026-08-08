@@ -3466,14 +3466,19 @@ function viewVisitReports(){
     render();
   }
 
-  // A visit record counts as a genuine report if EITHER someone actually
-  // submitted it through the form (fullReport.submitted), OR it has real
-  // logged tasks against it in the Task Tracker — a report that spawned
-  // actual work is never "empty" regardless of that internal flag. Only a
-  // scheduler confirmation (no fullReport, no tasks) or a truly abandoned
-  // draft (no content, no tasks) gets filtered out.
+  // A visit record counts as a genuine report if it has a fullReport
+  // object at all — a scheduler confirmation never sends one (see
+  // logConfirmedVisitToDashboard in scheduler.html), and an in-progress
+  // draft lives in browser-side storage, never in this table, until the
+  // person actually clicks Submit. So the mere presence of fullReport is
+  // itself proof someone submitted it — checking fullReport.submitted on
+  // top of that was actively wrong: the visit-logging form was setting
+  // that flag on its LOCAL copy of the report only *after* already
+  // sending the (still-false) version to the server, so genuinely
+  // submitted reports with no flagged items were incorrectly treated as
+  // empty. Linked tasks remain a second, independent signal regardless.
   function hasRealContent(v){
-    if (v.fullReport && v.fullReport.submitted) return true;
+    if (v.fullReport) return true;
     if (linkedActionsFor(v).length > 0) return true;
     return false;
   }

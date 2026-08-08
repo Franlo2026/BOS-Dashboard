@@ -1247,6 +1247,12 @@ async function submitToBOS(){
     return;
   }
 
+  // Set these BEFORE building the payload below — fullReport is what
+  // actually gets sent to the server, so anything set after this point
+  // never makes it into the saved record at all.
+  state.meta.endTime = new Date().toISOString();
+  state.submitted = true;
+
   const flags = buildFlagList();
   const taskFlags = flags.filter(f => state.nextSteps[f.id] && (state.nextSteps[f.id].action === 'tasktracker' || state.nextSteps[f.id].action === 'nonconformance'));
   const missingDetails = taskFlags.filter(f => !state.nextSteps[f.id].owner || !state.nextSteps[f.id].dueDate);
