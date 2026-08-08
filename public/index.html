@@ -3496,12 +3496,23 @@ function viewVisitReports(){
     });
     return Object.values(groups).filter(g => g.length > 1);
   }
-  // Anything without real submitted content — old scheduler-confirmation
-  // stubs from before that tag existed, or abandoned drafts that somehow
-  // got POSTed — regardless of whether it happens to be a store/date/fsm
-  // duplicate of anything else.
+  // Scheduler confirmations are a completely different kind of record —
+  // they exist to feed the Dashboard's Visit Frequency KPI, not to be a
+  // GRIND report. They belong in the same visits table for that purpose,
+  // but should never appear anywhere on this page: not in the main list
+  // (already excluded via hasRealContent), and not in the cleanup-review
+  // panel below either, since there's zero ambiguity about what they are
+  // — nothing to review, nothing to decide. Only genuinely unclear
+  // records (no fullReport, no source tag — e.g. a pre-existing stub from
+  // before this tag even existed) get surfaced for a human to look at.
+  function isSchedulerConfirmation(v){
+    return v.source === 'scheduler-confirmation';
+  }
   function findEmptyReports(){
-    return STATE.visits.filter(v => !hasRealContent(v));
+    return STATE.visits.filter(v => !hasRealContent(v) && !isSchedulerConfirmation(v));
+  }
+  function findSchedulerConfirmationCount(){
+    return STATE.visits.filter(isSchedulerConfirmation).length;
   }
   function reportContentSummary(v){
     const fr = v.fullReport;
