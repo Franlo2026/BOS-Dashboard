@@ -3503,25 +3503,69 @@ function viewVisitReports(){
   function findEmptyReports(){
     return STATE.visits.filter(v => !hasRealContent(v));
   }
+  function reportContentSummary(v){
+    const fr = v.fullReport;
+    if (!fr) return { hasComments: false, hasPhotos: false, photoCount: 0, itemCount: 0 };
+    const comments = Object.values(fr.comments || {}).filter(c => c && String(c).trim());
+    const photoCount = Object.values(fr.photos || {}).reduce((sum, arr) => sum + (Array.isArray(arr) ? arr.length : (arr ? 1 : 0)), 0);
+    const itemCount = (fr.customItems || []).length + (fr.portion || []).length
+      + Object.values(fr.tasting || {}).reduce((sum, arr) => sum + (arr || []).length, 0)
+      + Object.keys(fr.nextSteps || {}).length;
+    return { hasComments: comments.length > 0, hasPhotos: photoCount > 0, photoCount, itemCount };
+  }
+
   function renderEmptyReportsFinder(){
     if (!isAdmin()) { document.getElementById('vrEmptyWrap').innerHTML = ''; return; }
     const empties = findEmptyReports();
     if (!empties.length) { document.getElementById('vrEmptyWrap').innerHTML = ''; return; }
     document.getElementById('vrEmptyWrap').innerHTML = `
       <div class="card no-print" style="margin-bottom:16px;border-left:3px solid var(--red);">
-        <div class="section-title">🧹 ${empties.length} report(s) with no actual content</div>
-        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Scheduler confirmations or abandoned drafts that never had a real GRIND report submitted against them — safe to remove in bulk.</div>
-        <button class="btn btn-outline" id="vrCleanEmptyBtn" style="color:var(--red);border-color:var(--red);">Delete all ${empties.length} empty report(s)</button>
+        <div class="section-title">🧹 ${empties.length} report(s) flagged as having no actual content</div>
+        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Review each one below before deleting anything — deletion is permanent and cannot be undone from within BOS. Nothing is selected by default.</div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid var(--grey-200);">
+          <table class="data-table" style="font-size:12px;">
+            <thead><tr><th style="width:24px;"></th><th>Date</th><th>Store</th><th>FSM</th><th>Type</th><th>Source / Notes</th><th>Content</th></tr></thead>
+            <tbody>
+              ${empties.map(v => {
+                const src = v.source === 'scheduler-confirmation' ? 'Scheduler confirmation' : (v.notes || '(no notes)');
+                return `<tr>
+                  <td><input type="checkbox" class="vrEmptySelect" data-id="${v.id}"></td>
+                  <td>${v.date}</td><td>${v.store}</td><td>${v.fsm}</td><td>${v.type}</td>
+                  <td style="color:var(--grey-500);">${escapeHtmlVR2(src)}</td>
+                  <td style="color:var(--grey-500);">${v.fullReport ? 'has fullReport, but no content fields set' : 'no fullReport at all'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+          <button class="btn btn-outline" id="vrEmptySelectAll">Select all</button>
+          <button class="btn btn-outline" id="vrEmptyClearSel">Clear selection</button>
+          <button class="btn btn-outline" id="vrCleanEmptyBtn" style="color:var(--red);border-color:var(--red);margin-left:auto;">Delete selected (<span id="vrEmptySelCount">0</span>)</button>
+        </div>
       </div>`;
+    const updateCount = () => {
+      const n = document.querySelectorAll('.vrEmptySelect:checked').length;
+      document.getElementById('vrEmptySelCount').textContent = n;
+    };
+    document.querySelectorAll('.vrEmptySelect').forEach(cb => cb.addEventListener('change', updateCount));
+    document.getElementById('vrEmptySelectAll').addEventListener('click', () => {
+      document.querySelectorAll('.vrEmptySelect').forEach(cb => cb.checked = true); updateCount();
+    });
+    document.getElementById('vrEmptyClearSel').addEventListener('click', () => {
+      document.querySelectorAll('.vrEmptySelect').forEach(cb => cb.checked = false); updateCount();
+    });
     document.getElementById('vrCleanEmptyBtn').addEventListener('click', async () => {
-      if (!confirm(`Delete ${empties.length} report(s) with no actual content? This cannot be undone.`)) return;
+      const ids = Array.from(document.querySelectorAll('.vrEmptySelect:checked')).map(cb => cb.dataset.id);
+      if (!ids.length) { toast('Nothing selected'); return; }
+      if (!confirm(`Delete ${ids.length} selected report(s)? This is permanent and cannot be undone.`)) return;
       try {
-        for (const v of empties) { await apiDelete('/api/visits/' + v.id); STATE.visits = STATE.visits.filter(r => r.id !== v.id); }
-        toast(`Deleted ${empties.length} empty report(s)`);
+        for (const id of ids) { await apiDelete('/api/visits/' + id); STATE.visits = STATE.visits.filter(r => r.id !== id); }
+        toast(`Deleted ${ids.length} report(s)`);
         renderEmptyReportsFinder();
         renderDuplicateFinder();
         render();
-      } catch (e) { toast(e.message || 'Could not delete empty reports'); }
+      } catch (e) { toast(e.message || 'Could not delete selected reports'); }
     });
   }
   function renderDuplicateFinder(){
@@ -3531,21 +3575,39 @@ function viewVisitReports(){
     document.getElementById('vrDupWrap').innerHTML = `
       <div class="card no-print" style="margin-bottom:16px;border-left:3px solid var(--amber);">
         <div class="section-title">⚠ ${dupGroups.length} possible duplicate group(s) found</div>
-        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Same store, date, FSM and visit type appearing more than once — usually a double-confirm. Keeps the most recently created entry, deletes the rest.</div>
+        <div style="font-size:12px;color:var(--grey-500);margin-bottom:10px;">Same store, date, FSM and visit type appearing more than once. Review the content of each before deciding which to keep — nothing is pre-selected.</div>
         ${dupGroups.map((g, gi) => `
-          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--grey-200);">
-            <div style="flex:1;font-size:13px;">${g[0].store} — ${g[0].fsm} — ${g[0].date} — ${g[0].type} <span class="badge amber">${g.length}x</span></div>
-            <button class="btn btn-outline vrDupCleanBtn" data-gi="${gi}" style="color:var(--red);border-color:var(--red);">Keep newest, delete rest</button>
+          <div style="padding:8px 0;border-bottom:1px solid var(--grey-200);">
+            <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${g[0].store} — ${g[0].fsm} — ${g[0].date} — ${g[0].type} <span class="badge amber">${g.length}x</span></div>
+            <table class="data-table" style="font-size:11.5px;margin-bottom:6px;">
+              <thead><tr><th style="width:24px;"></th><th>ID</th><th>Comments</th><th>Photos</th><th>Items logged</th><th>Notes</th></tr></thead>
+              <tbody>
+                ${g.map(v => {
+                  const c = reportContentSummary(v);
+                  return `<tr>
+                    <td><input type="checkbox" class="vrDupSelect" data-gi="${gi}" data-id="${v.id}"></td>
+                    <td>${v.id}</td>
+                    <td>${c.hasComments ? '✓' : '—'}</td>
+                    <td>${c.hasPhotos ? c.photoCount : '—'}</td>
+                    <td>${c.itemCount || '—'}</td>
+                    <td style="color:var(--grey-500);">${escapeHtmlVR2(v.notes || '')}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+            <button class="btn btn-outline vrDupCleanBtn" data-gi="${gi}" style="color:var(--red);border-color:var(--red);">Delete checked in this group</button>
           </div>`).join('')}
       </div>`;
     document.querySelectorAll('.vrDupCleanBtn').forEach(btn => btn.addEventListener('click', async () => {
-      const g = dupGroups[parseInt(btn.dataset.gi, 10)];
-      const sorted = [...g].sort((a,b) => (b.id||'').localeCompare(a.id||'')); // newest id last-created, assuming uid() is time-ordered
-      const toDelete = sorted.slice(1);
-      if (!confirm(`Delete ${toDelete.length} duplicate report(s) for ${g[0].store} on ${g[0].date}, keeping the newest one?`)) return;
+      const gi = btn.dataset.gi;
+      const ids = Array.from(document.querySelectorAll(`.vrDupSelect[data-gi="${gi}"]:checked`)).map(cb => cb.dataset.id);
+      if (!ids.length) { toast('Nothing checked in this group'); return; }
+      const g = dupGroups[parseInt(gi, 10)];
+      if (ids.length === g.length) { toast('You\'ve checked every copy in this group — leave at least one, or none of this café\'s visit will remain.'); return; }
+      if (!confirm(`Delete ${ids.length} selected report(s) from this group? This is permanent and cannot be undone.`)) return;
       try {
-        for (const v of toDelete) { await apiDelete('/api/visits/' + v.id); STATE.visits = STATE.visits.filter(r => r.id !== v.id); }
-        toast(`Deleted ${toDelete.length} duplicate report(s)`);
+        for (const id of ids) { await apiDelete('/api/visits/' + id); STATE.visits = STATE.visits.filter(r => r.id !== id); }
+        toast(`Deleted ${ids.length} report(s)`);
         renderDuplicateFinder();
         render();
       } catch (e) { toast(e.message || 'Could not delete duplicates'); }
