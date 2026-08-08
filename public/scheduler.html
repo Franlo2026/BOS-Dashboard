@@ -34,7 +34,7 @@ nav.topnav { background: var(--black); height: 52px; position: sticky; top:0; z-
 .segmented-btn:last-child{ border-right:none; }
 .segmented-btn.active { background:var(--black); color:var(--gold); }
 .segmented-btn:not(.active):hover { color:var(--black); }
-.kpi-strip { display:grid; grid-template-columns:repeat(4,1fr); background:var(--white); border:1px solid var(--grey-200); margin-bottom:16px; }
+.kpi-strip { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); background:var(--white); border:1px solid var(--grey-200); margin-bottom:16px; }
 .kpi-strip > div { padding:16px 20px; border-right:1px solid var(--grey-200); }
 .kpi-strip > div:last-child{ border-right:none; }
 .card-label { font-size:9px; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--grey-500); margin-bottom:6px; }
@@ -524,7 +524,16 @@ function ensureVirtualRosterRow(managerKey, personLabel){
 async function generateNewCafeSupportEntries(){
   VIRTUAL_ROSTER_ROWS = {};
   Object.keys(OPENING_SUPPORT).forEach(iso => {
-    OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => !e.auto);
+    OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => {
+      // Self-heal: drop anything auto-generated, AND anything (regardless
+      // of origin) that no longer resolves to a real café — an entry
+      // showing "?" instead of a café name is never useful to anyone and
+      // usually means a stale record from an earlier version of this
+      // generator that keyed cafés differently.
+      if (e.auto) return false;
+      const resolves = SITES.some(s => s.id === e.cafeId);
+      return resolves;
+    });
     if (!OPENING_SUPPORT[iso].length) delete OPENING_SUPPORT[iso];
   });
   // Only clear a prior auto-written override key if every entry in it is
@@ -545,11 +554,13 @@ async function generateNewCafeSupportEntries(){
     const handoverDate = store.handoverDate ? new Date(store.handoverDate + 'T00:00:00') : addDays(openDate, -7);
     if (isNaN(handoverDate)) return;
     const matchedSite = SITES.find(s => s.name === store.name);
-    const cafeId = matchedSite ? matchedSite.id : (store.id != null ? store.id : store.name);
+    if (!matchedSite) return; // not resolvable to a real café — never generate a "?" entry
+    const cafeId = matchedSite.id;
+    const chipText = store.name + ' 🆕';
 
     function addEntry(date, personName){
       const dow = date.getDay();
-      if (dow === 0 || dow === 6) return; // weekdays only
+      if (dow === 0) return; // Sunday only — Fri and Sat both covered for a new opening
       const resolved = findRosterRowForName(personName);
       if (!resolved) return;
       ensureVirtualRosterRow(resolved.managerKey, resolved.personLabel);
@@ -561,15 +572,19 @@ async function generateNewCafeSupportEntries(){
         OPENING_SUPPORT[iso].push({ managerKey: resolved.managerKey, personLabel: resolved.personLabel, cafeId, auto: true, cafeName: store.name });
       }
 
-      // Weekly view + confirm/reschedule/remove — same key format the rest
-      // of the grid already uses, so all existing chip machinery just works.
-      const absDay = absDayForDate(date);
-      const overrideKey = cellKey(resolved.managerKey, resolved.personLabel, String(absDay));
+      // Weekly view + confirm/reschedule/remove — Saturday needs the
+      // grid's own special key format ("W{week}-SAT"), not the plain
+      // weekday absDay number, or the chip is written somewhere the
+      // weekly view never actually looks.
+      const wn = weekNumForDate(date);
+      const overrideKey = dow === 6
+        ? cellKey(resolved.managerKey, resolved.personLabel, 'W' + wn + '-SAT')
+        : cellKey(resolved.managerKey, resolved.personLabel, String(absDayForDate(date)));
       newAutoKeys.add(overrideKey);
-      const existing = OVERRIDES[overrideKey] || getCellEntriesByAbsDay(resolved.managerKey, resolved.personLabel, absDay, []);
-      const already = existing.some(e => e.text === store.name && e.source === 'newcafe-auto');
+      const existing = OVERRIDES[overrideKey] || (dow === 6 ? [] : getCellEntriesByAbsDay(resolved.managerKey, resolved.personLabel, absDayForDate(date), []));
+      const already = existing.some(e => e.source === 'newcafe-auto' && e.text === chipText);
       if (!already) {
-        OVERRIDES[overrideKey] = existing.concat([{ id: 'newcafe-' + iso + '-' + cafeId, text: store.name + ' 🆕', status: '', source: 'newcafe-auto' }]);
+        OVERRIDES[overrideKey] = existing.concat([{ id: 'newcafe-' + iso + '-' + cafeId, text: chipText, status: '', source: 'newcafe-auto' }]);
       }
     }
 
@@ -950,21 +965,40 @@ function renderWeeklyTab() {
   const roster = ROSTER[ACTIVE_MANAGER].concat(SUPPORT_TEAM_PLANS[ACTIVE_MANAGER] || []).concat(VIRTUAL_ROSTER_ROWS[ACTIVE_MANAGER] || []);
   const franchisePlan = MANAGER_COMBINED_PLANS[ACTIVE_MANAGER];
 
-  // KPI computation for this week — includes the manager's own row now too
-  let scheduledCount = 0, confirmedCount = 0, rescheduledCount = 0;
-  [{ label: MANAGER_LABEL, plan: franchisePlan }, ...roster].forEach(person => {
-    for (let i = 0; i < 5; i++) {
-      const entries = getCellEntries(ACTIVE_MANAGER, person.label, i, VIEW_WEEK, person.plan);
-      entries.forEach(e => {
-        scheduledCount++;
-        if (e.status === 'confirmed') confirmedCount++;
-        if (e.status === 'rescheduled') rescheduledCount++;
-      });
-    }
-  });
+  // Reusable so the same scheduled/confirmed math backs both this region's
+  // KPI strip and the always-visible both-regions-combined summary below.
+  function weekStatsFor(mgrKey, weekNum){
+    const mgrRoster = ROSTER[mgrKey].concat(SUPPORT_TEAM_PLANS[mgrKey] || []).concat(VIRTUAL_ROSTER_ROWS[mgrKey] || []);
+    const mgrPlan = MANAGER_COMBINED_PLANS[mgrKey];
+    let scheduled = 0, confirmed = 0, rescheduled = 0;
+    [{ label: MANAGER_LABEL, plan: mgrPlan }, ...mgrRoster].forEach(person => {
+      for (let i = 0; i < 5; i++) {
+        getCellEntries(mgrKey, person.label, i, weekNum, person.plan).forEach(e => {
+          scheduled++;
+          if (e.status === 'confirmed') confirmed++;
+          if (e.status === 'rescheduled') rescheduled++;
+        });
+      }
+    });
+    return { scheduled, confirmed, rescheduled };
+  }
+
+  const thisRegionStats = weekStatsFor(ACTIVE_MANAGER, VIEW_WEEK);
+  const scheduledCount = thisRegionStats.scheduled, confirmedCount = thisRegionStats.confirmed, rescheduledCount = thisRegionStats.rescheduled;
+  const franloStats = ACTIVE_MANAGER === 'Franlo' ? thisRegionStats : weekStatsFor('Franlo', VIEW_WEEK);
+  const tarrynStats = ACTIVE_MANAGER === 'Tarryn' ? thisRegionStats : weekStatsFor('Tarryn', VIEW_WEEK);
+  const combinedScheduled = franloStats.scheduled + tarrynStats.scheduled;
+  const combinedConfirmed = franloStats.confirmed + tarrynStats.confirmed;
+  const combinedPct = combinedScheduled ? Math.round((combinedConfirmed / combinedScheduled) * 100) : null;
+
   const groupSites = SITES.filter(s => group.regions.includes(s.region));
 
   body.innerHTML = `
+    <div class="card" style="padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Week</div>
+      <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
+      <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${franloStats.confirmed}/${franloStats.scheduled} · Tarryn: ${tarrynStats.confirmed}/${tarrynStats.scheduled})</div>
+    </div>
     <div class="segmented" id="mgrTabs">
       <button class="segmented-btn ${ACTIVE_MANAGER==='Franlo'?'active':''}" data-mgr="Franlo">Franlo's Team (WC · EC · Namibia)</button>
       <button class="segmented-btn ${ACTIVE_MANAGER==='Tarryn'?'active':''}" data-mgr="Tarryn">Tarryn's Team (GP · LP · MP · FS · KZN · NC · NW)</button>
@@ -1369,6 +1403,7 @@ function renderFrTable() {
     <div><div class="card-label">Confirmed (This Month)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
     <div><div class="card-label">Rescheduled (This Month)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
+    <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
 
   tbody.innerHTML = rows.map(({ f, stats, scheduledThisMonth, confirmed, nextDay, atRisk }) => {
@@ -1626,6 +1661,7 @@ function renderDirTable() {
     <div><div class="card-label">Confirmed (This Month)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
     <div><div class="card-label">Rescheduled (This Month)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
+    <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
 
   tbody.innerHTML = rows.map(({ site, stats, scheduledThisMonth, confirmed, nextDay, atRisk }) => {
