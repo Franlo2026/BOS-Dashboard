@@ -401,11 +401,12 @@ const BRAND_NETWORK_AVG = {
 
 const THRESH = {
   trade:    { green: 75, amber: 60 },
-  standards:{ green: 80, amber: 65 },
-  bbetter:  { green: 80, amber: 60 },
+  standards:{ green: 80, amber: 80 }, // amber floor raised to 80 per OKR O1-KR3 ("no FSM region below 80%") — was 65, giving a 15-point gap the OKR doesn't allow
+  bbetter:  { green: 90, amber: 90 }, // raised to 90 per OKR O2-KR1 ("Network average ≥90%; no FSM region below 90%") — was green:80/amber:60, a real gap vs the actual OKR target
   visit:    { green: 100, amber: 80 },
   actions:  { green: 80, amber: 60 },
-  cspi:     { green: 85, amber: 70 }
+  cspi:     { green: 85, amber: 70 },
+  ltl:      { green: 85, amber: 70 } // newly added — OKR O2-KR3 sets ≥85%, BOS had no LTL threshold configured at all before this
 };
 
 /* ---------- Ops Tasks config (folded in from the standalone tracker) ---------- */
@@ -958,6 +959,12 @@ function taskInRange(a, range){
   if (range.to && a.createdDate > range.to) return false;
   return true;
 }
+function ltlHealth(fsms){
+  const audits = fsms ? STATE.ltlAudits.filter(a => fsms.includes(a.fsm)) : STATE.ltlAudits;
+  if (!audits.length) return { pct: null, withData: 0 };
+  const avg = audits.reduce((s,a) => s + Number(a.score), 0) / audits.length;
+  return { pct: avg, withData: audits.length };
+}
 function actionsClosed(fsmFilter, range){
   const relevant = STATE.actions.filter(a => (!fsmFilter || a.fsm === fsmFilter) && taskInRange(a, range));
   if (!relevant.length) return { pct:null, closed:0, total:0, overdue:0 };
@@ -995,7 +1002,8 @@ function scopedKPIs(scope, range){
     bbetter: bbetterForFsms(fsms),
     visit: visitFrequency(stores, range),
     actions: actionsClosedForFsms(fsms, range),
-    cspi: cspiScore(stores)
+    cspi: cspiScore(stores),
+    ltl: ltlHealth(fsms)
   };
 }
 
@@ -1324,13 +1332,13 @@ function renderKpiStrip(){
   const k = scopedKPIs(DASH_SCOPE, getDateRange('dashboard'));
   const rTrade = ragOf(k.trade.pct, THRESH.trade), rStd = ragOf(k.standards.pct, THRESH.standards),
         rBB = ragOf(k.bbetter.pct, THRESH.bbetter), rVisit = ragOf(k.visit.pct, THRESH.visit), rAct = ragOf(k.actions.pct, THRESH.actions),
-        rCspi = ragOf(k.cspi.pct, THRESH.cspi);
+        rCspi = ragOf(k.cspi.pct, THRESH.cspi), rLtl = ragOf(k.ltl.pct, THRESH.ltl);
   document.getElementById('kpiStripWrap').innerHTML = `
     <div class="kpi-strip">
       <div class="kpi-clickable ${DASH_DRILLDOWN==='trade'?'kpi-active':''}" data-metric="trade">
         <div class="card-label">Trade Health</div>
         <div class="card-value">${fmtPct(k.trade.pct,0)}</div>
-        <div class="card-sub">${k.trade.positive||0}/${k.trade.withData||0} stores YOY+ (Jul 2026 MTD)</div>
+        <div class="card-sub">${k.trade.positive||0}/${k.trade.withData||0} stores YOY+ (last complete month)</div>
         ${ragStatusPill(rTrade)}
       </div>
       <div class="kpi-clickable ${DASH_DRILLDOWN==='standards'?'kpi-active':''}" data-metric="standards">
@@ -1362,6 +1370,12 @@ function renderKpiStrip(){
         <div class="card-value">${fmtPct(k.actions.pct,0)}</div>
         <div class="card-sub">${k.actions.overdue} overdue</div>
         ${ragStatusPill(rAct)}
+      </div>
+      <div class="kpi-clickable ${DASH_DRILLDOWN==='ltl'?'kpi-active':''}" data-metric="ltl">
+        <div class="card-label">LTL Audit Score</div>
+        <div class="card-value">${fmtPct(k.ltl.pct,0)}</div>
+        <div class="card-sub">${k.ltl.withData} audit(s) logged</div>
+        ${ragStatusPill(rLtl)}
       </div>
       <div class="kpi-clickable" id="kpiPipelineCard">
         <div class="card-label">Cafés Opening</div>
@@ -1429,6 +1443,12 @@ function renderDrilldown(){
       .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
     rows = overdue.map(a => `<tr><td>${a.store}</td><td>${a.fsm}</td><td>${a.description||''}</td><td class="rag-text red">${a.dueDate}</td></tr>`);
     var head = '<tr><th>Store</th><th>FSM</th><th>Action</th><th>Due Date</th></tr>';
+  } else if (metric === 'ltl') {
+    title = 'LTL Audits Below Target (85%)';
+    const belowTarget = STATE.ltlAudits.filter(a => fsms.includes(a.fsm) && Number(a.score) < THRESH.ltl.green)
+      .sort((a,b) => Number(a.score) - Number(b.score));
+    rows = belowTarget.map(a => `<tr><td>${a.store}</td><td>${a.fsm}</td><td>${a.date}</td><td class="rag-text red">${fmtPct(Number(a.score),0)}</td></tr>`);
+    var head = '<tr><th>Store</th><th>FSM</th><th>Audit Date</th><th>Score</th></tr>';
   }
 
   el.innerHTML = `
