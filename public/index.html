@@ -6352,19 +6352,23 @@ function viewCafeStatus2(){
     const openActions = actions.filter(a => a.status !== 'closed');
 
     let html = '';
-    if (td) {
-      const metricLine = (label, cur, growth, fmtVal) => `
+    const monthlyRec = CSPI_COMPONENTS[resolveAlias(s.store_name)] ? true : false; // just a presence check, not used directly below
+    const augRange = monthlyTradeRange(s.store_name, 'aug', 'aug');
+    const julRange = monthlyTradeRange(s.store_name, 'jul', 'jul');
+    const ytdRange = monthlyTradeRange(s.store_name, 'mar', 'jul');
+    if (augRange || julRange || ytdRange) {
+      const spiOf = r => (r && r.cur.inv) ? r.cur.sales / r.cur.inv : null;
+      const metricLine2 = (label, r) => `
         <tr><td style="color:var(--grey-500);width:140px;">${label}</td>
-        <td style="font-family:monospace;">${fmtVal(cur)}</td>
-        <td>${growth!=null ? `<span class="rag-text ${growth>=0?'green':'red'}">${fmtSigned(growth*100,1)}</span>` : (td.is_new_store?'<span class="badge amber">NEW STORE</span>':'—')}</td></tr>`;
-      html += `<div class="section-title">Turnover — MTD Jul / Jun / FYTD Mar–Jun</div>
+        <td style="font-family:monospace;">${r ? fmtRand(r.cur.sales) : '—'}</td>
+        <td>${r && r.growth!=null ? `<span class="rag-text ${r.growth>=0?'green':'red'}">${fmtSigned(r.growth*100,1)}</span>` : '—'}</td></tr>`;
+      html += `<div class="section-title">Turnover — Real Silo Data: Current Month (Aug MTD) / Previous Full Month (Jul) / YTD (Mar–Jul)</div>
         <table class="data-table" style="margin-bottom:12px;"><thead><tr><th></th><th>Value</th><th>vs 2025</th></tr></thead><tbody>
-          ${metricLine('MTD Jul', td.sales_mtd, td.sales_mtd_growth, fmtRand)}
-          ${metricLine('Jun (prev month)', td.sales_lastmonth, td.sales_lastmonth_growth, fmtRand)}
-          ${metricLine('FYTD Avg/Month', td.sales_fytd_avg_monthly, td.sales_fytd_growth, fmtRand)}
-          ${ba ? `<tr><td style="color:var(--grey-500);">Format Avg (${td.store_type})</td><td style="font-family:monospace;">${fmtRand(ba.sales_mtd)}</td><td></td></tr>` : ''}
-          ${metricLine('SPI (MTD)', td.spi_mtd, td.spi_mtd_growth, v=>v!=null?'R'+v.toFixed(2):'—')}
-          ${metricLine('Invoices (MTD)', td.inv_mtd, td.inv_mtd_growth, v=>v!=null?Math.round(v).toLocaleString('en-ZA'):'—')}
+          ${metricLine2('Current Month (Aug MTD)', augRange)}
+          ${metricLine2('Previous Full Month (Jul)', julRange)}
+          ${metricLine2('YTD (Mar–Jul)', ytdRange)}
+          <tr><td style="color:var(--grey-500);">SPI (Jul)</td><td style="font-family:monospace;">${julRange && spiOf(julRange)!=null ? fmtRand(spiOf(julRange)) : '—'}</td><td></td></tr>
+          <tr><td style="color:var(--grey-500);">Invoices (Jul)</td><td style="font-family:monospace;">${julRange ? julRange.cur.inv.toLocaleString('en-ZA') : '—'}</td><td></td></tr>
         </tbody></table>`;
     } else {
       html += `<div class="empty-state" style="margin-bottom:12px;">No turnover data linked for this store.</div>`;
@@ -6485,12 +6489,12 @@ function rrTurnoverBySubRegion(managerKey){
   const stores = storesForScope(managerKey);
   const byRegion = {};
   stores.forEach(storeName => {
-    const t = TURNOVER_DATA[resolveAlias(storeName)];
-    if (!t) return;
+    const r = monthlyTradeRange(storeName, 'jul', 'jul');
+    if (!r) return;
     const region = rrRegionOf(storeName);
     if (!byRegion[region]) byRegion[region] = { sales:0, py:0, n:0 };
-    byRegion[region].sales += t.sales_mtd || 0;
-    byRegion[region].py += t.sales_mtd_py || 0;
+    byRegion[region].sales += r.cur.sales;
+    byRegion[region].py += r.py.sales;
     byRegion[region].n++;
   });
   return Object.entries(byRegion).map(([region, v]) => ({
@@ -6500,9 +6504,9 @@ function rrTurnoverBySubRegion(managerKey){
 
 function rrTopAtRisk(managerKey, n){
   const stores = storesForScope(managerKey);
-  const rows = stores.map(storeName => ({ storeName, t: TURNOVER_DATA[resolveAlias(storeName)] }))
-    .filter(r => r.t && !r.t.is_new_store && r.t.sales_mtd_growth != null)
-    .sort((a,b) => a.t.sales_mtd_growth - b.t.sales_mtd_growth);
+  const rows = stores.map(storeName => ({ storeName, r: monthlyTradeRange(storeName, 'jul', 'jul') }))
+    .filter(x => x.r && x.r.py.sales > 0 && x.r.growth != null)
+    .sort((a,b) => a.r.growth - b.r.growth);
   return rows.slice(0, n);
 }
 
@@ -6554,16 +6558,16 @@ function viewRegionalReport(){
           <div class="section-divider"></div>
           <div class="page-title" style="font-size:16px;margin-bottom:4px;">${label}</div>
 
-          <div class="section-title" style="margin-top:14px;">Turnover — by Region (MTD, per Masterfile)</div>
+          <div class="section-title" style="margin-top:14px;">Turnover — by Region (Jul 2026, real Silo data)</div>
           <table class="data-table" style="margin-bottom:16px;">
-            <thead><tr><th>Region</th><th>Stores</th><th>MTD Turnover</th><th>vs 2025</th></tr></thead>
+            <thead><tr><th>Region</th><th>Stores</th><th>Jul Turnover</th><th>vs 2025</th></tr></thead>
             <tbody>${subRegions.map(r => `<tr><td>${r.city}</td><td>${r.n}</td><td>${fmtRand(r.sales)}</td><td>${r.growth!=null?`<span class="rag-text ${r.growth>=0?'green':'red'}">${fmtSigned(r.growth*100,1)}</span>`:'—'}</td></tr>`).join('')}</tbody>
           </table>
 
-          <div class="section-title">Top 10 Stores At Risk (worst YoY, MTD)</div>
+          <div class="section-title">Top 10 Stores At Risk (worst YoY, Jul 2026)</div>
           <table class="data-table" style="margin-bottom:16px;">
-            <thead><tr><th>Store</th><th>MTD Turnover</th><th>YoY</th></tr></thead>
-            <tbody>${atRisk.map(r => `<tr><td>${r.storeName}</td><td>${fmtRand(r.t.sales_mtd)}</td><td><span class="rag-text red">${fmtSigned(r.t.sales_mtd_growth*100,1)}</span></td></tr>`).join('') || '<tr><td colspan="3">No comparable stores.</td></tr>'}</tbody>
+            <thead><tr><th>Store</th><th>Jul Turnover</th><th>YoY</th></tr></thead>
+            <tbody>${atRisk.map(x => `<tr><td>${x.storeName}</td><td>${fmtRand(x.r.cur.sales)}</td><td><span class="rag-text red">${fmtSigned(x.r.growth*100,1)}</span></td></tr>`).join('') || '<tr><td colspan="3">No comparable stores.</td></tr>'}</tbody>
           </table>
 
           <div class="grid-3" style="margin-bottom:16px;">
@@ -6580,7 +6584,30 @@ function viewRegionalReport(){
             <div class="card">
               <div class="section-title">B-Better</div>
               <div style="font-size:22px;font-weight:700;">${fmtPct(k.bbetter.pct,0)}</div>
-              <div style="font-size:11px;color:var(--grey-500);">${k.bbetter.withData||0} stores tracked</div>
+              <div style="font-size:11px;color:var(--grey-500);">${k.bbetter.withData||0} stores tracked · target ≥90%</div>
+            </div>
+          </div>
+
+          <div class="grid-4" style="margin-bottom:16px;">
+            <div class="card">
+              <div class="section-title">CSPI</div>
+              <div style="font-size:20px;font-weight:700;">${fmtPct(k.cspi.pct,0)}</div>
+              <div style="font-size:11px;color:var(--grey-500);">target ≥85%</div>
+            </div>
+            <div class="card">
+              <div class="section-title">Google Rating</div>
+              <div style="font-size:20px;font-weight:700;">${fmtPct(k.google.pct,0)}</div>
+              <div style="font-size:11px;color:var(--grey-500);">target ≥92%</div>
+            </div>
+            <div class="card">
+              <div class="section-title">Mystery Diner</div>
+              <div style="font-size:20px;font-weight:700;">${fmtPct(k.mysteryDiner.pct,0)}</div>
+              <div style="font-size:11px;color:var(--grey-500);">target ≥87%</div>
+            </div>
+            <div class="card">
+              <div class="section-title">LTL Audit</div>
+              <div style="font-size:20px;font-weight:700;">${fmtPct(k.ltl.pct,0)}</div>
+              <div style="font-size:11px;color:var(--grey-500);">${k.ltl.withData} logged · target ≥85%</div>
             </div>
           </div>
 
@@ -6607,13 +6634,40 @@ function viewRegionalReport(){
       `;
     }
 
+    function nationalSection(){
+      const range = getDateRange('regionalreport');
+      const k = scopedKPIs('all', range);
+      const nationalSubRegions = managerKeys.flatMap(mk => rrTurnoverBySubRegion(mk));
+      const totalStores = nationalSubRegions.reduce((s,r) => s+r.n, 0);
+      const totalSales = nationalSubRegions.reduce((s,r) => s+r.sales, 0);
+      const totalPy = nationalSubRegions.reduce((s,r) => s + (r.growth!=null ? r.sales/(1+r.growth) : 0), 0);
+      const nationalGrowth = totalPy ? (totalSales-totalPy)/totalPy : null;
+      return `
+        <div style="page-break-inside:avoid;margin-bottom:24px;">
+          <div class="page-title" style="font-size:18px;margin-bottom:4px;">Combined — Both Regions (National)</div>
+          <div class="grid-4" style="margin-bottom:16px;">
+            <div class="card"><div class="section-title">Total Turnover (Jul 2026)</div><div style="font-size:20px;font-weight:700;">${fmtRand(totalSales)}</div><div style="font-size:11px;color:${nationalGrowth>=0?'var(--green)':'var(--red)'};">${nationalGrowth!=null?fmtSigned(nationalGrowth*100,1)+' vs LY':'—'}</div></div>
+            <div class="card"><div class="section-title">Stores Tracked</div><div style="font-size:20px;font-weight:700;">${totalStores}</div></div>
+            <div class="card"><div class="section-title">CSPI (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.cspi.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥85%</div></div>
+            <div class="card"><div class="section-title">Visit Frequency (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.visit.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥100%</div></div>
+          </div>
+          <div class="grid-4" style="margin-bottom:16px;">
+            <div class="card"><div class="section-title">B-Better (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.bbetter.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥90%</div></div>
+            <div class="card"><div class="section-title">Google Rating (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.google.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥92%</div></div>
+            <div class="card"><div class="section-title">Mystery Diner (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.mysteryDiner.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥87%</div></div>
+            <div class="card"><div class="section-title">Tasks Closed (Network)</div><div style="font-size:20px;font-weight:700;">${fmtPct(k.actions.pct,0)}</div><div style="font-size:11px;color:var(--grey-500);">target ≥80%</div></div>
+          </div>
+        </div>`;
+    }
+
     app.innerHTML = `
       <div class="page-header">
-        <div><div class="page-title">Regional Report</div><div class="page-subtitle">Turnover, visits, tasks, B-Better &amp; new cafés — split by team</div></div>
+        <div><div class="page-title">Regional Report</div><div class="page-subtitle">Turnover, visits, tasks, B-Better &amp; new cafés — split by team, plus combined national view</div></div>
         <button class="btn btn-black no-print" onclick="window.print()">Print / Save as PDF</button>
       </div>
       ${renderDateRangeFilterHtml('regionalreport')}
-      <div style="font-size:11px;color:var(--grey-500);margin:-8px 0 12px 2px;" class="no-print">Period filter applies to <b>Café Visits</b> and <b>Task Tracker</b> only — Turnover, At-Risk Stores and B-Better reflect their own current source data regardless of this filter.</div>
+      <div style="font-size:11px;color:var(--grey-500);margin:-8px 0 12px 2px;" class="no-print">Period filter applies to <b>Café Visits</b> and <b>Task Tracker</b> only — Turnover, At-Risk Stores, CSPI, Google, Mystery Diner and B-Better reflect their own current source data regardless of this filter.</div>
+      ${nationalSection()}
       ${managerKeys.map(mk => managerSection(mk)).join('')}
     `;
     wireDateRangeFilter('regionalreport', () => viewRegionalReport());
