@@ -625,6 +625,49 @@ async function loadState() {
   try { const r = await window.storage.get('support-allocations-v1'); NEWCAFE_ALLOCATIONS = JSON.parse((r && r.value) || '{}'); } catch (e) { NEWCAFE_ALLOCATIONS = {}; }
   try { const r = await window.storage.get('newcafe-support-autokeys-v1'); NEWCAFE_AUTO_KEYS = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_AUTO_KEYS = []; }
   await generateNewCafeSupportEntries();
+  await ensureEnabledUsersVisible();
+}
+// Guards against exactly the "Addright Chigama not visible on Scheduler"
+// class of bug: a real person only ever appearing here through a
+// NAME_OVERRIDE on an anonymous FSM slot is fragile — if that override
+// was never set (or resets), they silently vanish from every scheduler
+// view even though they're a genuine, currently-active team member. This
+// pulls the same canonical "who's actually active" signal used elsewhere
+// (BOS's own trainers list, reflecting real fsmStores/support structure,
+// plus published login accounts) and guarantees each one has a visible
+// row somewhere — never silently dropped again.
+async function ensureEnabledUsersVisible(){
+  const token = localStorage.getItem('bos_token');
+  const authHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
+  let canonicalNames = [];
+  let fsmStoreKeys = new Set();
+  try {
+    const res = await fetch('/api/reference-data', { headers: authHeader });
+    if (res.ok) {
+      const ref = await res.json();
+      canonicalNames = canonicalNames.concat(ref.trainers || []);
+      fsmStoreKeys = new Set(Object.keys(ref.fsmStores || {}));
+    }
+  } catch (e) { /* reference-data unavailable this load — fall through */ }
+  try {
+    const res = await fetch('/api/storage/' + encodeURIComponent('active-user-roster'), { headers: authHeader });
+    if (res.ok) { const r = await res.json(); canonicalNames = canonicalNames.concat(JSON.parse(r.value || '[]')); }
+  } catch (e) { /* no roster published yet */ }
+  const skip = new Set(['administrator']);
+  Array.from(new Set(canonicalNames)).forEach(name => {
+    if (!name || skip.has(name.trim().toLowerCase())) return;
+    // Anyone who's literally an fsmStores key already has their café
+    // portfolio represented (via the anonymous FSM-N bucket split) — they
+    // aren't actually invisible, just not labeled with their real name
+    // yet. Creating a virtual row for them would duplicate that portfolio
+    // under a second identity, which is exactly the bug this is meant to
+    // prevent, not cause.
+    if (fsmStoreKeys.has(name)) return;
+    const resolved = findRosterRowForName(name);
+    const mk = resolved ? resolved.managerKey : KNOWN_PERSON_MANAGER[name];
+    if (!mk) return; // no reliable way to place someone we don't recognize at all
+    ensureVirtualRosterRow(mk, resolved ? resolved.personLabel : name);
+  });
 }
 async function saveOverrides() { try { await window.storage.set('support-schedule-overrides-v1', JSON.stringify(OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
 async function saveConfirmations() { try { await window.storage.set('support-schedule-confirmations-v1', JSON.stringify(CONFIRM_LOG)); } catch (e) { toast('Could not save — check connection'); } }
