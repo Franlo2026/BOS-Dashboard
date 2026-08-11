@@ -437,7 +437,9 @@ async function purgeObsoleteRosterReferences(){
 
   let changed = false;
   Object.keys(NAME_OVERRIDES).forEach(key => {
-    if (!validCombos.has(key)) { delete NAME_OVERRIDES[key]; changed = true; }
+    if (!validCombos.has(key)) { delete NAME_OVERRIDES[key]; changed = true; return; }
+    const label = key.split('|')[1];
+    if (!/^FSM \d+$/.test(label)) { delete NAME_OVERRIDES[key]; changed = true; } // stale override on an already-real name
   });
   Object.keys(OVERRIDES).forEach(key => {
     const parts = key.split('|');
@@ -1186,6 +1188,7 @@ function renderWeeklyTab() {
 const MANAGER_LABEL = '__MANAGER__';
 function displayLabel(managerKey, personLabel) {
   if (personLabel === MANAGER_LABEL) return managerKey;
+  if (!/^FSM \d+$/.test(personLabel)) return personLabel; // already a real name — never double up with an override
   const name = NAME_OVERRIDES[managerKey + '|' + personLabel];
   return name ? personLabel + ' — ' + name : personLabel;
 }
