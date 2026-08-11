@@ -907,10 +907,19 @@ function storesForScope(scope){
 
 /* ---------- KPI computation ---------- */
 function tradeHealth(storesList){
-  const withData = storesList.map(s => gaapOf(s)).filter(v => v!==null);
-  if (!withData.length) return { pct: null, total: storesList.length, withData: 0 };
-  const positive = withData.filter(v => v > 0).length;
-  return { pct: (positive/withData.length)*100, total: storesList.length, withData: withData.length, positive };
+  // Uses the same fresh, Silo-pulled monthly dataset the Trade tab's
+  // period filter draws from (last complete month = July), instead of the
+  // old single-snapshot TURNOVER_DATA.sales_mtd_growth — that field was
+  // stuck showing a stale partial-month figure from whenever GAAP was
+  // last uploaded, which is exactly why this card and the Trade tab could
+  // show different, inconsistent numbers for the same underlying period.
+  const results = storesList.map(s => {
+    const r = monthlyTradeRange(s, 'jul', 'jul');
+    return (r && r.py.sales > 0) ? r.growth : null;
+  }).filter(v => v !== null);
+  if (!results.length) return { pct: null, total: storesList.length, withData: 0 };
+  const positive = results.filter(v => v > 0).length;
+  return { pct: (positive/results.length)*100, total: storesList.length, withData: results.length, positive };
 }
 function standardsScore(storesList){
   const withData = storesList.map(s => keytechOf(s)).filter(v => v!==null);

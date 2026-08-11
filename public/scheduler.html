@@ -387,18 +387,75 @@ async function buildRosterFromFsmStores(){
     if (res.ok) { const ref = await res.json(); fsmStoresData = ref.fsmStores || {}; managersData = ref.managers || {}; }
   } catch (e) { /* fall through to empty rosters if this fails */ }
 
+  const realFsmNames = new Set(Object.keys(fsmStoresData));
+  function hasManualOverride(mgrKey, label){
+    return Object.keys(OVERRIDES).some(k => k.startsWith(mgrKey + '|' + label + '|') && (OVERRIDES[k] || []).length > 0);
+  }
+
   const newRoster = {};
   Object.keys(REGION_GROUPS).forEach(mgrKey => {
     const canonicalMgr = MANAGER_KEY_TO_CANONICAL[mgrKey] || mgrKey;
     const fsmNames = managersData[canonicalMgr] || [];
-    newRoster[mgrKey] = fsmNames.map(fsmName => {
-      const cafeNames = fsmStoresData[fsmName] || [];
-      const sites = cafeNames.map(n => SITES.find(s => s.name === n)).filter(Boolean);
-      const withMeta = sites.map(s => ({ id: s.id, name: s.name, zone: s.zone, outlying: s.outlying, period: s.outlying ? CADENCE.outlying : CADENCE.local }));
-      return { label: fsmName, sites, plan: buildPlan(withMeta, ROTATION_HORIZON, 2) };
-    });
+    newRoster[mgrKey] = fsmNames
+      .filter(fsmName => {
+        const hasRealCafes = (fsmStoresData[fsmName] || []).length > 0;
+        if (hasRealCafes) return true;
+        // A generic "FSM N" slot renamed (via the pencil-edit UI) to a name
+        // that's already a real fsmStores key elsewhere is a stale
+        // duplicate, not a genuine second row for that person — always
+        // hide it, even if it happens to have manual overrides sitting on
+        // the old label (those are orphaned along with it).
+        if (/^FSM \d+$/.test(fsmName) && realFsmNames.has(NAME_OVERRIDES[mgrKey + '|' + fsmName])) return false;
+        // Otherwise: only show an empty slot if it has something manually
+        // added to it already — never show a genuinely untouched one.
+        return hasManualOverride(mgrKey, fsmName);
+      })
+      .map(fsmName => {
+        const cafeNames = fsmStoresData[fsmName] || [];
+        const sites = cafeNames.map(n => SITES.find(s => s.name === n)).filter(Boolean);
+        const withMeta = sites.map(s => ({ id: s.id, name: s.name, zone: s.zone, outlying: s.outlying, period: s.outlying ? CADENCE.outlying : CADENCE.local }));
+        return { label: fsmName, sites, plan: buildPlan(withMeta, ROTATION_HORIZON, 2) };
+      });
   });
   ROSTER = newRoster;
+}
+
+// Cleans up references to labels that no longer correspond to anyone real
+// — e.g. an old "FSM 1" placeholder from before FSM assignments were
+// pulled from real data, which a prior confirm/reschedule action had
+// "protected" from the normal regeneration cleanup forever, even though
+// the label itself is now permanently invalid. This runs unconditionally
+// (unlike the "don't touch confirmed entries" rule elsewhere), since an
+// obsolete label being previously confirmed doesn't make it any less
+// obsolete — it just means the duplicate had gone unnoticed longer. Real,
+// currently-valid people and their café data are never touched here.
+async function purgeObsoleteRosterReferences(){
+  const validCombos = new Set();
+  Object.keys(ROSTER).forEach(mk => (ROSTER[mk] || []).forEach(p => validCombos.add(mk + '|' + p.label)));
+  Object.keys(SUPPORT_TEAM_PLANS).forEach(mk => (SUPPORT_TEAM_PLANS[mk] || []).forEach(p => validCombos.add(mk + '|' + p.label)));
+  Object.keys(VIRTUAL_ROSTER_ROWS).forEach(mk => (VIRTUAL_ROSTER_ROWS[mk] || []).forEach(p => validCombos.add(mk + '|' + p.label)));
+
+  let changed = false;
+  Object.keys(NAME_OVERRIDES).forEach(key => {
+    if (!validCombos.has(key)) { delete NAME_OVERRIDES[key]; changed = true; }
+  });
+  Object.keys(OVERRIDES).forEach(key => {
+    const parts = key.split('|');
+    const combo = parts[0] + '|' + parts[1];
+    if (!validCombos.has(combo)) { delete OVERRIDES[key]; changed = true; }
+  });
+  Object.keys(OPENING_SUPPORT).forEach(iso => {
+    const filtered = (OPENING_SUPPORT[iso] || []).filter(e => validCombos.has(e.managerKey + '|' + e.personLabel));
+    if (filtered.length !== (OPENING_SUPPORT[iso] || []).length) {
+      changed = true;
+      if (filtered.length) OPENING_SUPPORT[iso] = filtered; else delete OPENING_SUPPORT[iso];
+    }
+  });
+  if (changed) {
+    await saveNameOverrides();
+    await saveOverrides();
+    await saveOpeningSupport();
+  }
 }
 
 // Franlo/Tarryn's own café visits — every café in their region, flat
@@ -440,7 +497,7 @@ const SUPPORT_TEAM_ROSTER = {
   // here to balance support capacity across the two teams. Move him to
   // Franlo's list instead if that's not the right call.
   Tarryn: ['Siphesihle Gwadela', 'Mini Mohale', 'Johannes Moloto'],
-  Franlo: ['Aphiwe Mqakayi', 'Addright Chigama'],
+  Franlo: ['Aphiwe Mqakayi', 'Addright Chigama', 'Tristan Smith'],
 };
 // Tarryn's support visits Gauteng cafés monthly (region-wide), everything
 // else in her region quarterly. Franlo's support visits Cape Town-based
@@ -656,6 +713,11 @@ async function loadState() {
   try { const r = await window.storage.get('dashboard-stores-v1'); NEWCAFE_STORES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_STORES = []; }
   try { const r = await window.storage.get('support-allocations-v1'); NEWCAFE_ALLOCATIONS = JSON.parse((r && r.value) || '{}'); } catch (e) { NEWCAFE_ALLOCATIONS = {}; }
   try { const r = await window.storage.get('newcafe-support-autokeys-v1'); NEWCAFE_AUTO_KEYS = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_AUTO_KEYS = []; }
+}
+// Runs after ROSTER exists — both of these read/mutate ROSTER directly, so
+// calling them before it's built (or before OVERRIDES/NAME_OVERRIDES are
+// loaded) would work from stale/empty data.
+async function postRosterSetup(){
   await generateNewCafeSupportEntries();
   await ensureEnabledUsersVisible();
 }
@@ -800,7 +862,11 @@ let OS_YEAR = new Date().getFullYear();
 let OPENING_SUPPORT = {}; // dateISO -> [{managerKey, personLabel, cafeId, notes}]
 
 function startApp() {
-  buildRosterFromFsmStores().then(() => loadState().then(render));
+  loadState()
+    .then(() => buildRosterFromFsmStores())
+    .then(() => postRosterSetup())
+    .then(() => purgeObsoleteRosterReferences())
+    .then(render);
 }
 
 function render() {
