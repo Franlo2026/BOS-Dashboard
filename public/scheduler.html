@@ -361,16 +361,45 @@ function franchiseeVisitPlan(managerKey, horizonDays) {
 /* ============================================================
    BUILD ROSTER (cached once — deterministic from the data + engine)
    ============================================================ */
-const ROSTER = {}; // managerKey -> [{label, sites, plan}]
-Object.keys(REGION_GROUPS).forEach(key => {
-  const group = REGION_GROUPS[key];
-  const groupSites = SITES.filter(s => group.regions.includes(s.region));
-  const buckets = allocateStores(groupSites, group.supportCount);
-  ROSTER[key] = buckets.map((sitesForPerson, i) => {
-    const withMeta = sitesForPerson.map(s => ({ id: s.id, name: s.name, zone: s.zone, outlying: s.outlying, period: s.outlying ? CADENCE.outlying : CADENCE.local }));
-    return { label: 'FSM ' + (i + 1), sites: sitesForPerson, plan: buildPlan(withMeta, ROTATION_HORIZON, 2) };
+let ROSTER = {}; // managerKey -> [{label, sites, plan}] — built async, see buildRosterFromFsmStores below
+// Manager-key naming differs slightly between this file ("Franlo"/"Tarryn")
+// and BOS's own canonical managers blob ("Franlo"/"Tarryn Palmer") — this
+// bridges the two without needing every lookup site to know about it.
+const MANAGER_KEY_TO_CANONICAL = { Franlo: 'Franlo', Tarryn: 'Tarryn Palmer' };
+
+// Builds each region's roster directly from BOS's real, current
+// fsmStores/managers assignments — Sipho Mabaso's row shows exactly his
+// real cafés under his real name, from the very first render. This
+// replaces the old anonymous "FSM 1..N" load-balanced split entirely,
+// which required Franlo to manually rename each bucket to match a real
+// person and had no connection to their actual assigned portfolio — that
+// mismatch was the root cause of cafés like "Liam Smith" appearing twice
+// (once as a renamed anonymous bucket, once as a fallback virtual row,
+// since the two systems couldn't recognize each other as the same
+// person). With real names as the label from the start, there's nothing
+// left to fall out of sync.
+async function buildRosterFromFsmStores(){
+  const token = localStorage.getItem('bos_token');
+  const authHeader = token ? { 'Authorization': 'Bearer ' + token } : {};
+  let fsmStoresData = {}, managersData = {};
+  try {
+    const res = await fetch('/api/reference-data', { headers: authHeader });
+    if (res.ok) { const ref = await res.json(); fsmStoresData = ref.fsmStores || {}; managersData = ref.managers || {}; }
+  } catch (e) { /* fall through to empty rosters if this fails */ }
+
+  const newRoster = {};
+  Object.keys(REGION_GROUPS).forEach(mgrKey => {
+    const canonicalMgr = MANAGER_KEY_TO_CANONICAL[mgrKey] || mgrKey;
+    const fsmNames = managersData[canonicalMgr] || [];
+    newRoster[mgrKey] = fsmNames.map(fsmName => {
+      const cafeNames = fsmStoresData[fsmName] || [];
+      const sites = cafeNames.map(n => SITES.find(s => s.name === n)).filter(Boolean);
+      const withMeta = sites.map(s => ({ id: s.id, name: s.name, zone: s.zone, outlying: s.outlying, period: s.outlying ? CADENCE.outlying : CADENCE.local }));
+      return { label: fsmName, sites, plan: buildPlan(withMeta, ROTATION_HORIZON, 2) };
+    });
   });
-});
+  ROSTER = newRoster;
+}
 
 // Franlo/Tarryn's own café visits — every café in their region, flat
 // quarterly cadence (not the monthly/6-weekly cadence support/FSM get).
@@ -407,11 +436,11 @@ Object.keys(REGION_GROUPS).forEach(key => {
 const SUPPORT_MONTHLY_PERIOD = 20;   // ≈ monthly, same value CADENCE.local uses
 const SUPPORT_QUARTERLY_PERIOD = 65; // ≈ quarterly, same value MANAGER_CAFE_PERIOD uses
 const SUPPORT_TEAM_ROSTER = {
-  Tarryn: ['Siphesihle Gwadela', 'Mini Mohale'],
-  // Addright Chigama was previously listed here too, alongside also being
-  // assigned to the FSM 5 slot (as "Addy") — the same person showing up
-  // twice in Franlo's team. He's kept as FSM 5 only now.
-  Franlo: ['Aphiwe Mqakayi'],
+  // Johannes Moloto isn't tied to either region in BOS's own data — placed
+  // here to balance support capacity across the two teams. Move him to
+  // Franlo's list instead if that's not the right call.
+  Tarryn: ['Siphesihle Gwadela', 'Mini Mohale', 'Johannes Moloto'],
+  Franlo: ['Aphiwe Mqakayi', 'Addright Chigama'],
 };
 // Tarryn's support visits Gauteng cafés monthly (region-wide), everything
 // else in her region quarterly. Franlo's support visits Cape Town-based
@@ -488,6 +517,9 @@ const KNOWN_PERSON_MANAGER = {
 // café's opening-support entry lands "next to their name" on the same row
 // they already appear on elsewhere — not a duplicate row.
 function findRosterRowForName(realName){
+  for (const mk of Object.keys(ROSTER)) {
+    if ((ROSTER[mk] || []).some(p => p.label === realName)) return { managerKey: mk, personLabel: realName };
+  }
   for (const mk of Object.keys(SUPPORT_TEAM_PLANS)) {
     if ((SUPPORT_TEAM_PLANS[mk] || []).some(p => p.label === realName)) return { managerKey: mk, personLabel: realName };
   }
@@ -768,7 +800,7 @@ let OS_YEAR = new Date().getFullYear();
 let OPENING_SUPPORT = {}; // dateISO -> [{managerKey, personLabel, cafeId, notes}]
 
 function startApp() {
-  loadState().then(render);
+  buildRosterFromFsmStores().then(() => loadState().then(render));
 }
 
 function render() {
@@ -1121,7 +1153,7 @@ function renderWeekGrid(days, roster, franchisePlan, groupSites) {
 
 function renderPersonRow(managerKey, personLabel, subtitle, planArr, addOptions) {
   const isManager = personLabel === MANAGER_LABEL;
-  const isNamedAlready = isManager || SUPPORT_TEAM_NAMES.has(personLabel);
+  const isNamedAlready = isManager || SUPPORT_TEAM_NAMES.has(personLabel) || !/^FSM \d+$/.test(personLabel);
   let html = `<div class="fsm-row-name">
       <span class="${isNamedAlready ? '' : 'fsm-name-edit'}" ${isNamedAlready ? '' : `data-editname="${managerKey}|${personLabel}"`}>${displayLabel(managerKey, personLabel)}</span>
       <div class="sub">${subtitle}</div>
@@ -1270,13 +1302,14 @@ function wireWeekGridEvents(roster, groupSites, franchisePlan) {
       if (existing) { existing.remove(); return; }
       const box = document.createElement('div');
       box.className = 'cafe-search-box';
-      const quickOptions = isManager ? '' : `
+      const quickOptions = `
         <div style="display:flex;gap:4px;margin-bottom:6px;flex-wrap:wrap;">
           <button type="button" class="quickAddBtn" data-name="🌴 Leave" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">🌴 Leave</button>
           <button type="button" class="quickAddBtn" data-name="📵 Off Day" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">📵 Off Day</button>
           <button type="button" class="quickAddBtn" data-name="📞 On-Call" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">📞 On-Call</button>
           <button type="button" class="quickAddBtn" data-name="📚 Training Day" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">📚 Training Day</button>
           <button type="button" class="quickAddBtn" data-name="🗂 Admin Day" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">🗂 Admin Day</button>
+          <button type="button" class="quickAddBtn" data-name="🌅 Weekend Support" style="font-size:10px;padding:4px 8px;border:1px solid var(--grey-300);background:#fff;border-radius:3px;cursor:pointer;">🌅 Weekend Support</button>
         </div>`;
       box.innerHTML = `${quickOptions}<input type="text" placeholder="${isManager ? 'Search café or franchisee...' : 'Search café...'}" style="width:100%;font-size:11px;padding:6px;border:1px solid var(--grey-300);"><div class="cafe-search-results" style="display:none;"></div>`;
       btn.parentElement.insertBefore(box, btn);
