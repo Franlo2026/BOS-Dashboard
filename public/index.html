@@ -1563,8 +1563,8 @@ function viewTrade(){
       </div>
     `;
   }
-  document.getElementById('tradeMonthFrom').addEventListener('change', renderTradeMonthly);
-  document.getElementById('tradeMonthTo').addEventListener('change', renderTradeMonthly);
+  document.getElementById('tradeMonthFrom').addEventListener('change', () => { renderTradeMonthly(); render(); });
+  document.getElementById('tradeMonthTo').addEventListener('change', () => { renderTradeMonthly(); render(); });
   document.getElementById('tradeSearch').addEventListener('input', renderTradeMonthly);
   renderTradeMonthly();
 
@@ -1612,16 +1612,23 @@ function viewTrade(){
   function render(){
     const sort = document.getElementById('tradeSort').value;
     let rows = storeRows();
-    // "Stores w/ Data" = total active stores in this filtered view.
-    // YoY comparisons only apply to stores that were trading in the same MTD window last year —
-    // new-2026 openings are counted separately rather than silently dropped or scored as negative.
-    const newStores = rows.filter(r=>r.t.is_new_store).length;
-    const comparable = rows.filter(r=>!r.t.is_new_store && r.t.sales_mtd_growth!=null);
-    const positive = comparable.filter(r=>r.t.sales_mtd_growth>0).length;
+    const fromM = document.getElementById('tradeMonthFrom').value;
+    const toM = document.getElementById('tradeMonthTo').value;
+    const periodLabel = fromM === toM ? MONTHLY_TRADE_MONTH_LABELS[fromM] : `${MONTHLY_TRADE_MONTH_LABELS[fromM]}\u2013${MONTHLY_TRADE_MONTH_LABELS[toM]}`;
+    // "Stores w/ Data" = total active stores in this filtered view. YoY
+    // comparisons only apply to stores with real prior-year sales for
+    // THIS selected period — a store that opened partway through the
+    // window has zero prior-year data for it regardless of what the old
+    // single-snapshot MTD flag says, so that's checked fresh per period
+    // rather than reused from the fixed MTD calculation.
+    const withRange = rows.map(r => ({ r, mr: monthlyTradeRange(r.store, fromM, toM) })).filter(x => x.mr);
+    const newStores = withRange.filter(x => !x.mr.py.sales).length;
+    const comparable = withRange.filter(x => x.mr.py.sales > 0);
+    const positive = comparable.filter(x => x.mr.growth > 0).length;
     const negative = comparable.length - positive;
     document.getElementById('tradeSummary').innerHTML = `
-      <div class="card"><div class="card-label">Stores w/ Data</div><div class="card-value">${rows.length}</div><div class="card-sub">${newStores? newStores+' new in 2026 (no YoY yet)' : ''}</div></div>
-      <div class="card"><div class="card-label">Positive YoY (MTD Jul)</div><div class="card-value" style="color:var(--green)">${positive}</div><div class="card-sub">of ${comparable.length} comparable stores (${comparable.length?((positive/comparable.length)*100).toFixed(0):0}%)</div></div>
+      <div class="card"><div class="card-label">Stores w/ Data</div><div class="card-value">${rows.length}</div><div class="card-sub">${newStores? newStores+' new in this period (no YoY yet)' : ''}</div></div>
+      <div class="card"><div class="card-label">Positive YoY (${periodLabel})</div><div class="card-value" style="color:var(--green)">${positive}</div><div class="card-sub">of ${comparable.length} comparable stores (${comparable.length?((positive/comparable.length)*100).toFixed(0):0}%)</div></div>
       <div class="card"><div class="card-label">Negative YoY</div><div class="card-value" style="color:var(--red)">${negative}</div><div class="card-sub">of ${comparable.length} comparable stores</div></div>
     `;
     if (sort==='worst') rows.sort((a,b)=>(a.t.sales_mtd_growth??999)-(b.t.sales_mtd_growth??999));
