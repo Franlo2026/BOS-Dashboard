@@ -398,17 +398,15 @@ async function buildRosterFromFsmStores(){
     const fsmNames = managersData[canonicalMgr] || [];
     newRoster[mgrKey] = fsmNames
       .filter(fsmName => {
-        const hasRealCafes = (fsmStoresData[fsmName] || []).length > 0;
-        if (hasRealCafes) return true;
         // A generic "FSM N" slot renamed (via the pencil-edit UI) to a name
         // that's already a real fsmStores key elsewhere is a stale
         // duplicate, not a genuine second row for that person — always
-        // hide it, even if it happens to have manual overrides sitting on
-        // the old label (those are orphaned along with it).
+        // hide it. Everything else configured in managers[] is shown as-is,
+        // including intentionally empty placeholders like a newly added
+        // FSM or a "to follow" slot — those are real, current org
+        // structure, not leftover clutter to filter out.
         if (/^FSM \d+$/.test(fsmName) && realFsmNames.has(NAME_OVERRIDES[mgrKey + '|' + fsmName])) return false;
-        // Otherwise: only show an empty slot if it has something manually
-        // added to it already — never show a genuinely untouched one.
-        return hasManualOverride(mgrKey, fsmName);
+        return true;
       })
       .map(fsmName => {
         const cafeNames = fsmStoresData[fsmName] || [];
@@ -495,9 +493,6 @@ Object.keys(REGION_GROUPS).forEach(key => {
 const SUPPORT_MONTHLY_PERIOD = 20;   // ≈ monthly, same value CADENCE.local uses
 const SUPPORT_QUARTERLY_PERIOD = 65; // ≈ quarterly, same value MANAGER_CAFE_PERIOD uses
 const SUPPORT_TEAM_ROSTER = {
-  // Johannes Moloto isn't tied to either region in BOS's own data — placed
-  // here to balance support capacity across the two teams. Move him to
-  // Franlo's list instead if that's not the right call.
   Tarryn: ['Siphesihle Gwadela', 'Mini Mohale', 'Johannes Moloto'],
   Franlo: ['Aphiwe Mqakayi', 'Addright Chigama', 'Tristan Smith'],
 };
@@ -721,7 +716,12 @@ async function loadState() {
 // loaded) would work from stale/empty data.
 async function postRosterSetup(){
   await generateNewCafeSupportEntries();
-  await ensureEnabledUsersVisible();
+  // ensureEnabledUsersVisible() intentionally not called here anymore —
+  // per the definitive "only FSMs/support listed above should be visible"
+  // spec, pulling in anyone else active in BOS (even innocently) would
+  // violate that. New-café opening support can still create a virtual row
+  // for someone new (via generateNewCafeSupportEntries above), which is a
+  // narrower, more deliberate case than "everyone who's ever logged in."
 }
 // Guards against exactly the "Addright Chigama not visible on Scheduler"
 // class of bug: a real person only ever appearing here through a
