@@ -6233,12 +6233,13 @@ function viewCafeOverview2(){
       <select id="coFsm"><option value="">All FSMs</option>${cafeFSMs().map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
       <button class="btn btn-outline" id="coExportPdf" style="white-space:nowrap;">🖨 Save PDF</button>
     </div>
-    <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">Tick specific cafés to export just those — leave none ticked to export everything currently filtered.</div>
+    <div id="coSelectionCount" style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">No cafés selected — exporting everything currently filtered</div>
     <div id="coListWrap"></div>
     <div id="coPrintArea" style="display:none;"></div>
   `;
 
   let expanded = null;
+  const selectedKeys = new Set(); // survives re-renders — same fix as Café Status
 
   function render(){
     const rows = filterStores('coSearch','coRegion','coFsm').sort((a,b)=>a.store_name.localeCompare(b.store_name));
@@ -6247,7 +6248,7 @@ function viewCafeOverview2(){
       const isExp = expanded === key;
       return `<div class="card" style="margin-bottom:8px;padding:0;">
         <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;" data-toggle-co="${key}">
-          <input type="checkbox" class="coSelectBox no-print" data-key="${key}" onclick="event.stopPropagation()">
+          <input type="checkbox" class="coSelectBox no-print" data-key="${key}" ${selectedKeys.has(key)?'checked':''} onclick="event.stopPropagation()">
           <div style="flex:1;"><b>${s.store_name}</b> <span class="badge" style="margin-left:6px;">${s.category||'—'}</span> <span style="color:var(--grey-500);font-size:11px;margin-left:6px;">${s.region}${s.town?' · '+s.town:''}</span></div>
           <div style="text-align:right;font-size:11px;color:var(--grey-500);">${s.fsm||'—'}</div>
         </div>
@@ -6284,6 +6285,14 @@ function viewCafeOverview2(){
       expanded = expanded === el.dataset.toggleCo ? null : el.dataset.toggleCo;
       render();
     }));
+    document.querySelectorAll('.coSelectBox').forEach(cb => cb.addEventListener('change', () => {
+      if (cb.checked) selectedKeys.add(cb.dataset.key); else selectedKeys.delete(cb.dataset.key);
+      updateCoSelectionCount();
+    }));
+  }
+  function updateCoSelectionCount(){
+    const el = document.getElementById('coSelectionCount');
+    if (el) el.textContent = selectedKeys.size ? `${selectedKeys.size} café(s) selected for export` : 'No cafés selected — exporting everything currently filtered';
   }
 
   function buildCoPrintHtml(list){
@@ -6302,9 +6311,9 @@ function viewCafeOverview2(){
   }
 
   document.getElementById('coExportPdf').addEventListener('click', () => {
-    const checked = [...document.querySelectorAll('.coSelectBox:checked')].map(c => c.dataset.key);
     const rows = filterStores('coSearch','coRegion','coFsm');
-    const list = checked.length ? rows.filter(s => checked.includes(storeKey2(s))) : rows;
+    const list = selectedKeys.size ? rows.filter(s => selectedKeys.has(storeKey2(s))) : rows;
+    if (!list.length) { toast('No cafés match — nothing to export.'); return; }
     document.getElementById('coPrintArea').innerHTML = `<h2>Cafe Overview — ${list.length} store(s)</h2>` + buildCoPrintHtml(list);
     document.getElementById('coPrintArea').style.display = 'block';
     window.print();
@@ -6333,12 +6342,13 @@ function viewCafeStatus2(){
       <select id="csFsm"><option value="">All FSMs</option>${cafeFSMs().map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
       <button class="btn btn-outline" id="csExportPdf" style="white-space:nowrap;">🖨 Save PDF</button>
     </div>
-    <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">Tick specific cafés to export just those — leave none ticked to export everything currently filtered.</div>
+    <div id="csSelectionCount" style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">No cafés selected — exporting everything currently filtered</div>
     <div id="csListWrap"></div>
     <div id="csPrintArea" style="display:none;"></div>
   `;
 
   let expanded = null;
+  const selectedKeys = new Set(); // survives re-renders — checking a box, then expanding/collapsing a different row or searching, must not silently lose the selection
 
   function buildStatusDetailHtml(s){
     const td = getTurnover2(s.store_name);
@@ -6441,7 +6451,7 @@ function viewCafeStatus2(){
       const openCount = actions.filter(a => a.status !== 'closed').length;
       return `<div class="card" style="margin-bottom:8px;padding:0;">
         <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;" data-toggle-cs="${key}">
-          <input type="checkbox" class="csSelectBox no-print" data-key="${key}" onclick="event.stopPropagation()">
+          <input type="checkbox" class="csSelectBox no-print" data-key="${key}" ${selectedKeys.has(key)?'checked':''} onclick="event.stopPropagation()">
           <div style="flex:1;"><b>${s.store_name}</b> <span class="badge" style="margin-left:6px;">${td?td.store_type:(s.category||'—')}</span>${openCount?` <span class="badge amber">${openCount} open</span>`:''}</div>
           <div style="text-align:right;font-size:12px;">${td ? `<div style="color:var(--grey-500);font-size:10px;">MTD JUL</div>${fmtRand(td.sales_mtd)}` : '<span style="color:var(--grey-500);">No turnover data</span>'}</div>
         </div>
@@ -6453,12 +6463,20 @@ function viewCafeStatus2(){
       expanded = expanded === el.dataset.toggleCs ? null : el.dataset.toggleCs;
       render();
     }));
+    document.querySelectorAll('.csSelectBox').forEach(cb => cb.addEventListener('change', () => {
+      if (cb.checked) selectedKeys.add(cb.dataset.key); else selectedKeys.delete(cb.dataset.key);
+      updateSelectionCount();
+    }));
+  }
+  function updateSelectionCount(){
+    const el = document.getElementById('csSelectionCount');
+    if (el) el.textContent = selectedKeys.size ? `${selectedKeys.size} café(s) selected for export` : 'No cafés selected — exporting everything currently filtered';
   }
 
   document.getElementById('csExportPdf').addEventListener('click', () => {
-    const checked = [...document.querySelectorAll('.csSelectBox:checked')].map(c => c.dataset.key);
     const rows = filterStores('csSearch','csRegion','csFsm');
-    const list = checked.length ? rows.filter(s => checked.includes(storeKey2(s))) : rows;
+    const list = selectedKeys.size ? rows.filter(s => selectedKeys.has(storeKey2(s))) : rows;
+    if (!list.length) { toast('No cafés match — nothing to export.'); return; }
     document.getElementById('csPrintArea').innerHTML = `<h2>Cafe Status — ${list.length} store(s)</h2>` +
       list.map(s => `<div style="page-break-inside:avoid;border-bottom:1px solid #ccc;padding:14px 0;">
         <div style="font-size:16px;font-weight:700;">${s.store_name}</div>${buildStatusDetailHtml(s)}</div>`).join('');
