@@ -366,6 +366,7 @@ let ROSTER = {}; // managerKey -> [{label, sites, plan}] — built async, see bu
 // and BOS's own canonical managers blob ("Franlo"/"Tarryn Palmer") — this
 // bridges the two without needing every lookup site to know about it.
 const MANAGER_KEY_TO_CANONICAL = { Franlo: 'Franlo', Tarryn: 'Tarryn Palmer' };
+const MANAGER_DISPLAY_NAME = { Franlo: 'Franlo Geldenhuys', Tarryn: 'Tarryn Palmer' };
 
 // Builds each region's roster directly from BOS's real, current
 // fsmStores/managers assignments — Sipho Mabaso's row shows exactly his
@@ -611,26 +612,28 @@ async function generateNewCafeSupportEntries(){
   VIRTUAL_ROSTER_ROWS = {};
   Object.keys(OPENING_SUPPORT).forEach(iso => {
     OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => {
-      // Self-heal: drop anything auto-generated, AND anything (regardless
-      // of origin) that no longer resolves to a real café — an entry
-      // showing "?" instead of a café name is never useful to anyone and
-      // usually means a stale record from an earlier version of this
-      // generator that keyed cafés differently.
-      if (e.auto) return false;
+      // Self-heal: drop anything that no longer resolves to a real café —
+      // an entry showing "?" instead of a café name is never useful to
+      // anyone and usually means a stale record from an earlier version
+      // of this generator that keyed cafés differently. Manually-added
+      // entries are otherwise left completely alone.
       const resolves = SITES.some(s => s.id === e.cafeId);
       return resolves;
     });
     if (!OPENING_SUPPORT[iso].length) delete OPENING_SUPPORT[iso];
   });
-  // Only clear a prior auto-written override key if every entry in it is
-  // still purely auto-generated — the moment a user confirms/reschedules
-  // one of these chips it's no longer "purely auto" and is left alone, so
-  // regeneration never undoes a real interaction.
-  NEWCAFE_AUTO_KEYS.forEach(k => {
-    const entries = OVERRIDES[k];
-    if (entries && entries.every(e => e.source === 'newcafe-auto' && e.status === '')) delete OVERRIDES[k];
-  });
-  const newAutoKeys = new Set();
+  // Each (date, café, person) combination is only ever auto-generated
+  // once, ever — tracked permanently in NEWCAFE_SEEDED_TRIPLES. Once
+  // seeded, it's the team's to edit, confirm, reschedule, or remove
+  // freely; the generator will never look at that exact combination
+  // again, no matter what it currently contains. This replaces an
+  // earlier design that re-derived these entries fresh on every page
+  // load — which meant any manual removal or edit silently reverted
+  // back to the auto-generated default on the next reload, since the
+  // underlying allocation data hadn't changed. That was a real bug
+  // affecting the team's actual planned schedules, not just new-café
+  // support — fixed here at the root.
+  const seeded = new Set(NEWCAFE_SEEDED_TRIPLES);
 
   NEWCAFE_STORES.forEach(store => {
     const members = NEWCAFE_ALLOCATIONS[store.name];
@@ -649,8 +652,11 @@ async function generateNewCafeSupportEntries(){
       if (dow === 0) return; // Sunday only — Fri and Sat both covered for a new opening
       const resolved = findRosterRowForName(personName);
       if (!resolved) return;
-      ensureVirtualRosterRow(resolved.managerKey, resolved.personLabel);
       const iso = isoOf(date);
+      const tripleKey = iso + '|' + cafeId + '|' + resolved.managerKey + '|' + resolved.personLabel;
+      if (seeded.has(tripleKey)) return; // already seeded, ever — never touch again regardless of current state
+      seeded.add(tripleKey);
+      ensureVirtualRosterRow(resolved.managerKey, resolved.personLabel);
 
       // Calendar view (New Café Opening Support tab)
       OPENING_SUPPORT[iso] = OPENING_SUPPORT[iso] || [];
@@ -666,12 +672,8 @@ async function generateNewCafeSupportEntries(){
       const overrideKey = dow === 6
         ? cellKey(resolved.managerKey, resolved.personLabel, 'W' + wn + '-SAT')
         : cellKey(resolved.managerKey, resolved.personLabel, String(absDayForDate(date)));
-      newAutoKeys.add(overrideKey);
       const existing = OVERRIDES[overrideKey] || (dow === 6 ? [] : getCellEntriesByAbsDay(resolved.managerKey, resolved.personLabel, absDayForDate(date), []));
-      const already = existing.some(e => e.source === 'newcafe-auto' && e.text === chipText);
-      if (!already) {
-        OVERRIDES[overrideKey] = existing.concat([{ id: 'newcafe-' + iso + '-' + cafeId, text: chipText, status: '', source: 'newcafe-auto' }]);
-      }
+      OVERRIDES[overrideKey] = existing.concat([{ id: 'newcafe-' + iso + '-' + cafeId, text: chipText, status: '', source: 'newcafe-auto' }]);
     }
 
     // Period 1 — Handover through end of Week 1 post-opening: everyone allocated, every weekday.
@@ -687,10 +689,10 @@ async function generateNewCafeSupportEntries(){
     }
   });
 
-  NEWCAFE_AUTO_KEYS = Array.from(newAutoKeys);
+  NEWCAFE_SEEDED_TRIPLES = Array.from(seeded);
   saveOpeningSupport();
   saveOverrides();
-  try { await window.storage.set('newcafe-support-autokeys-v1', JSON.stringify(NEWCAFE_AUTO_KEYS)); } catch (e) {}
+  try { await window.storage.set('newcafe-seeded-triples-v1', JSON.stringify(NEWCAFE_SEEDED_TRIPLES)); } catch (e) {}
 }
 function fmtDayDate(d) { return d.toLocaleDateString('en-ZA', { weekday: 'short' }).toUpperCase() + ' ' + fmtShort(d); }
 
@@ -702,6 +704,7 @@ let CONFIRM_LOG = {}; // visitKey -> { confirmedAt, confirmedBy }
 let NAME_OVERRIDES = {}; // "managerKey|FSM label" -> assigned person's name
 let NEWCAFE_STORES = [];      // extraStores from New Café Ops (Handover/Opening dates)
 let NEWCAFE_ALLOCATIONS = {}; // storeName -> [assigned support member real names]
+let NEWCAFE_SEEDED_TRIPLES = []; // "date|cafeId|managerKey|personLabel" — every triple ever auto-generated, permanently. Once here, never touched again.
 async function loadState() {
   try { const r = await window.storage.get('support-schedule-overrides-v1'); OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { OVERRIDES = {}; }
   try { const r = await window.storage.get('support-schedule-confirmations-v1'); CONFIRM_LOG = JSON.parse((r && r.value) || '{}'); } catch (e) { CONFIRM_LOG = {}; }
@@ -709,7 +712,7 @@ async function loadState() {
   try { const r = await window.storage.get('opening-support-schedule-v1'); OPENING_SUPPORT = JSON.parse((r && r.value) || '{}'); } catch (e) { OPENING_SUPPORT = {}; }
   try { const r = await window.storage.get('dashboard-stores-v1'); NEWCAFE_STORES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_STORES = []; }
   try { const r = await window.storage.get('support-allocations-v1'); NEWCAFE_ALLOCATIONS = JSON.parse((r && r.value) || '{}'); } catch (e) { NEWCAFE_ALLOCATIONS = {}; }
-  try { const r = await window.storage.get('newcafe-support-autokeys-v1'); NEWCAFE_AUTO_KEYS = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_AUTO_KEYS = []; }
+  try { const r = await window.storage.get('newcafe-seeded-triples-v1'); NEWCAFE_SEEDED_TRIPLES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_SEEDED_TRIPLES = []; }
 }
 // Runs after ROSTER exists — both of these read/mutate ROSTER directly, so
 // calling them before it's built (or before OVERRIDES/NAME_OVERRIDES are
@@ -1187,7 +1190,7 @@ function renderWeeklyTab() {
 
 const MANAGER_LABEL = '__MANAGER__';
 function displayLabel(managerKey, personLabel) {
-  if (personLabel === MANAGER_LABEL) return managerKey;
+  if (personLabel === MANAGER_LABEL) return MANAGER_DISPLAY_NAME[managerKey] || managerKey;
   if (!/^FSM \d+$/.test(personLabel)) return personLabel; // already a real name — never double up with an override
   const name = NAME_OVERRIDES[managerKey + '|' + personLabel];
   return name ? personLabel + ' — ' + name : personLabel;
