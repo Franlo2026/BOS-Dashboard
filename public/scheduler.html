@@ -434,29 +434,55 @@ async function purgeObsoleteRosterReferences(){
   Object.keys(SUPPORT_TEAM_PLANS).forEach(mk => (SUPPORT_TEAM_PLANS[mk] || []).forEach(p => validCombos.add(mk + '|' + p.label)));
   Object.keys(VIRTUAL_ROSTER_ROWS).forEach(mk => (VIRTUAL_ROSTER_ROWS[mk] || []).forEach(p => validCombos.add(mk + '|' + p.label)));
 
+  // Only NAME_OVERRIDES (cosmetic rename mappings) get pruned here — never
+  // OVERRIDES (actual saved schedule entries: confirmed visits, manually
+  // added cafés, leave/off days, everything the team has entered) or
+  // OPENING_SUPPORT. Those must never be deleted based on a fuzzy
+  // "does this label still look valid" check: a mismatch there is exactly
+  // as likely to mean "this person's data predates a roster naming
+  // change" as "this is genuinely stale" — and there is no safe way to
+  // tell those apart automatically. Getting this wrong in either
+  // direction is fine for a rename mapping (worst case: a slightly wrong
+  // display name) but never acceptable for real schedule data.
   let changed = false;
   Object.keys(NAME_OVERRIDES).forEach(key => {
     if (!validCombos.has(key)) { delete NAME_OVERRIDES[key]; changed = true; return; }
     const label = key.split('|')[1];
     if (!/^FSM \d+$/.test(label)) { delete NAME_OVERRIDES[key]; changed = true; } // stale override on an already-real name
   });
-  Object.keys(OVERRIDES).forEach(key => {
-    const parts = key.split('|');
-    const combo = parts[0] + '|' + parts[1];
-    if (!validCombos.has(combo)) { delete OVERRIDES[key]; changed = true; }
-  });
-  Object.keys(OPENING_SUPPORT).forEach(iso => {
-    const filtered = (OPENING_SUPPORT[iso] || []).filter(e => validCombos.has(e.managerKey + '|' + e.personLabel));
-    if (filtered.length !== (OPENING_SUPPORT[iso] || []).length) {
-      changed = true;
-      if (filtered.length) OPENING_SUPPORT[iso] = filtered; else delete OPENING_SUPPORT[iso];
-    }
-  });
   if (changed) {
     await saveNameOverrides();
-    await saveOverrides();
-    await saveOpeningSupport();
   }
+
+  await recoverOldStyleOverrides();
+}
+
+// Best-effort recovery for schedule entries still keyed under a generic
+// "FSM N" label from before the roster was rebuilt to use real names
+// directly — merges them onto the correct real-name row, using the
+// currently-set NAME_OVERRIDES (e.g. "Franlo|FSM 2" -> "Sipho Mabaso") as
+// the correlation. Genuinely additive and non-destructive: the old key's
+// data is copied onto the real name's row, never deleted from its
+// original location, so nothing is lost even if the correlation happens
+// to be wrong.
+async function recoverOldStyleOverrides(){
+  let changed = false;
+  Object.keys(OVERRIDES).forEach(key => {
+    const parts = key.split('|');
+    const label = parts[1];
+    if (!/^FSM \d+$/.test(label)) return; // already a real name, or not a recognizable old-style key
+    const realName = NAME_OVERRIDES[parts[0] + '|' + label];
+    if (!realName) return; // no known correlation — leave it exactly where it is, untouched
+    const newKey = cellKey(parts[0], realName, parts[2]);
+    const oldEntries = OVERRIDES[key] || [];
+    const alreadyThere = OVERRIDES[newKey] || [];
+    const merged = alreadyThere.concat(oldEntries.filter(e => !alreadyThere.some(existing => existing.id === e.id)));
+    if (merged.length !== alreadyThere.length) {
+      OVERRIDES[newKey] = merged;
+      changed = true;
+    }
+  });
+  if (changed) await saveOverrides();
 }
 
 // Franlo/Tarryn's own café visits — every café in their region, flat
