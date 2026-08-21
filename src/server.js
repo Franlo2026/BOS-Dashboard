@@ -1087,22 +1087,29 @@ function getStoresAndManagersData() {
 // been captured (currently blank for every café — there's no UI yet to
 // enter it, flagged separately). Anyone whose email isn't on file is
 // silently skipped rather than blocking the whole notification.
-async function resolveStoreNotificationRecipients(storeName, fsmName) {
+async function resolveStoreNotificationRecipientsLabeled(storeName, fsmName) {
   const { storesByName, managerOfFsm } = getStoresAndManagersData();
   const store = storesByName[storeName] || {};
-  const recipients = new Set();
-  if (store.email) recipients.add(store.email);
-  if (store.franchisee_email) recipients.add(store.franchisee_email);
+  const out = [];
+  const seen = new Set();
+  const add = (label, email) => { if (email && !seen.has(email)) { seen.add(email); out.push({ label, email }); } };
+  add('Café', store.email);
+  add('Franchisee' + (store.franchisee_name ? ` (${store.franchisee_name})` : ''), store.franchisee_email);
+  add('Operator' + (store.operator_name ? ` (${store.operator_name})` : ''), store.operator_email);
   if (fsmName) {
     const { rows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [fsmName]);
-    if (rows[0] && rows[0].email) recipients.add(rows[0].email);
+    add(`FSM (${fsmName})`, rows[0] && rows[0].email);
     const mgrName = managerOfFsm[fsmName];
     if (mgrName) {
       const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
-      if (mrows[0] && mrows[0].email) recipients.add(mrows[0].email);
+      add(`Regional Manager (${mgrName})`, mrows[0] && mrows[0].email);
     }
   }
-  return Array.from(recipients);
+  return out;
+}
+async function resolveStoreNotificationRecipients(storeName, fsmName) {
+  const labeled = await resolveStoreNotificationRecipientsLabeled(storeName, fsmName);
+  return labeled.map(r => r.email);
 }
 
 // ==================================================================
@@ -1112,6 +1119,61 @@ async function resolveStoreNotificationRecipients(storeName, fsmName) {
 // groups them by café, and sends each café's FSM/mailbox/manager/
 // franchisee one digest listing everything overdue there. A café with
 // nothing overdue gets no email at all.
+// ==================================================================
+// Daily digest — visit frequency & LTL "at risk" cafés
+// ==================================================================
+// Mirrors the exact thresholds already used on the Dashboard/LTL pages:
+// a café is visit-overdue if it hasn't had ANY visit (confirmed or full
+// report — this KPI counts both) in the last 28 days, and LTL-at-risk if
+// its latest score is below 85% AND it has a non-conformance open for
+// more than 7 days. Same recipient set as the task digest above.
+async function sendDailyVisitLtlOverdueDigests() {
+  if (!EMAIL_CONFIGURED) return;
+  try {
+    const { storesByName } = getStoresAndManagersData();
+    const today = new Date();
+    const daysAgo = (dateStr) => Math.floor((today - new Date(dateStr)) / 86400000);
+
+    const { rows: visitRows } = await pool.query('SELECT data FROM visits');
+    const lastVisitByStore = {};
+    visitRows.forEach(r => {
+      const v = r.data;
+      if (!v || !v.store || !v.date) return;
+      if (!lastVisitByStore[v.store] || v.date > lastVisitByStore[v.store]) lastVisitByStore[v.store] = v.date;
+    });
+
+    const { rows: ltlRows } = await pool.query('SELECT data FROM ltl_audits');
+    const latestLtlByStore = {};
+    ltlRows.map(r => r.data).filter(a => a && a.store && a.date)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .forEach(a => { latestLtlByStore[a.store] = a; }); // last one wins = latest by date, ascending sort
+    const agingNcStores = new Set(
+      ltlRows.map(r => r.data).filter(a => a && a.store && a.date && Number(a.ncRaised) > Number(a.ncClosed) && daysAgo(a.date) > 7).map(a => a.store)
+    );
+
+    for (const [storeName, store] of Object.entries(storesByName)) {
+      const lastVisit = lastVisitByStore[storeName];
+      const visitOverdue = !lastVisit || daysAgo(lastVisit) > 28;
+
+      const latestLtl = latestLtlByStore[storeName];
+      const ltlAtRisk = latestLtl && Number(latestLtl.score) < 85 && agingNcStores.has(storeName);
+
+      if (!visitOverdue && !ltlAtRisk) continue;
+
+      const recipients = await resolveStoreNotificationRecipients(storeName, store.fsm);
+      if (!recipients.length) continue;
+
+      const issues = [];
+      if (visitOverdue) issues.push(lastVisit ? `No café visit logged in the last 28 days (last visit: ${lastVisit}).` : 'No café visit has ever been logged.');
+      if (ltlAtRisk) issues.push(`LTL score is ${latestLtl.score}%, below the 85% target, with ${latestLtl.ncRaised - latestLtl.ncClosed} non-conformance(s) open for more than 7 days.`);
+
+      const html = `<h3>Café Needs Attention — ${storeName}</h3><ul>${issues.map(i => `<li>${i}</li>`).join('')}</ul>`;
+      await sendEmail({ to: recipients, subject: `BOS: ${storeName} — visit/LTL follow-up needed`, html });
+    }
+  } catch (e) {
+    console.error('sendDailyVisitLtlOverdueDigests() error:', e.message);
+  }
+}
 async function sendDailyOverdueTaskDigests() {
   if (!EMAIL_CONFIGURED) return;
   try {
@@ -1146,6 +1208,40 @@ app.post('/api/email/test', authRequired, requireAdmin, async (req, res) => {
   else res.status(500).json({ error: EMAIL_CONFIGURED ? 'Send failed — check server logs' : 'Email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway' });
 });
 
+// Returns who a manual "Send Update Email" button should offer as
+// recipients for a given café — café mailbox, franchisee, operator, FSM,
+// regional manager — each labeled so the frontend can show a real name,
+// not just a bare address. Missing contacts are simply left out.
+app.get('/api/email/recipients', authRequired, async (req, res) => {
+  try {
+    const store = req.query.store;
+    if (!store) return res.status(400).json({ error: 'store query param required' });
+    const { storesByName } = getStoresAndManagersData();
+    const fsmName = (storesByName[store] || {}).fsm;
+    const recipients = await resolveStoreNotificationRecipientsLabeled(store, fsmName);
+    res.json({ recipients });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// General-purpose manual send — any editor can use this (not admin-only
+// like the diagnostic test endpoint above), since these are ordinary
+// update/escalation emails sent as part of everyday BOS use, not a
+// one-off setup check.
+app.post('/api/email/send', authRequired, requireEditor, async (req, res) => {
+  try {
+    const { to, cc, subject, html } = req.body;
+    if (!to || (Array.isArray(to) && !to.length)) return res.status(400).json({ error: 'at least one recipient required' });
+    if (!subject || !html) return res.status(400).json({ error: 'subject and html body required' });
+    const ok = await sendEmail({ to, cc, subject, html });
+    if (ok) res.json({ ok: true });
+    else res.status(500).json({ error: EMAIL_CONFIGURED ? 'Send failed — check server logs' : 'Email is not configured yet' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -1157,6 +1253,8 @@ initDB()
     setInterval(cleanupOldTaskPhotos, 24 * 60 * 60 * 1000);
     sendDailyOverdueTaskDigests();
     setInterval(sendDailyOverdueTaskDigests, 24 * 60 * 60 * 1000);
+    sendDailyVisitLtlOverdueDigests();
+    setInterval(sendDailyVisitLtlOverdueDigests, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
