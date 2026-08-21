@@ -203,6 +203,79 @@ async function checkBosSession() {
   } catch (e) { return null; }
 }
 
+// Ported from BOS Dashboard's index.html — same modal, same backend
+// endpoints, kept in sync manually since these are separate static files.
+async function openSendEmailModal(storeName, defaultSubject, defaultBody){
+  let recipients = [];
+  try {
+    const r = await apiGet('/api/email/recipients?store=' + encodeURIComponent(storeName));
+    recipients = r.recipients || [];
+  } catch (e) { /* fall through with an empty list — modal still lets you type a manual address */ }
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:8px;padding:24px;width:520px;max-width:92vw;max-height:85vh;overflow-y:auto;">
+      <div class="section-title" style="margin-bottom:12px;">✉ Send Update Email — ${escapeHtml(storeName)}</div>
+      <div style="font-size:11px;color:#888;margin-bottom:10px;">${recipients.length ? 'Tick who should receive this.' : 'No contacts on file for this café yet — enter an address manually below.'}</div>
+      <div id="sendEmailRecipients" style="margin-bottom:12px;">
+        ${recipients.map(r => r.email
+          ? `<label style="display:block;font-size:12px;padding:3px 0;"><input type="checkbox" class="semRecipientBox" data-email="${escapeHtml(r.email)}" checked> ${escapeHtml(r.label)} — ${escapeHtml(r.email)}</label>`
+          : `<label style="display:block;font-size:12px;padding:3px 0;color:#888;"><input type="checkbox" disabled> ${escapeHtml(r.label)} — <em>${escapeHtml(r.missing||'No email on file')}</em></label>`
+        ).join('')}
+      </div>
+      <label style="font-size:11px;color:#888;">Additional recipient (optional)</label>
+      <input type="text" id="semExtraEmail" placeholder="name@example.com" style="width:100%;font-size:12px;padding:6px;border:1px solid #ccc;margin-bottom:10px;box-sizing:border-box;">
+      <label style="font-size:11px;color:#888;">Subject</label>
+      <input type="text" id="semSubject" value="${escapeHtml(defaultSubject||'')}" style="width:100%;font-size:12px;padding:6px;border:1px solid #ccc;margin-bottom:10px;box-sizing:border-box;">
+      <label style="font-size:11px;color:#888;">Message</label>
+      <textarea id="semBody" rows="6" style="width:100%;font-size:12px;padding:6px;border:1px solid #ccc;margin-bottom:14px;box-sizing:border-box;">${defaultBody||''}</textarea>
+      <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-outline" id="semCancelBtn">Cancel</button>
+        <button class="btn btn-gold" id="semSendBtn">Send</button>
+      </div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.querySelector('#semCancelBtn').addEventListener('click', () => modal.remove());
+  modal.querySelector('#semSendBtn').addEventListener('click', async () => {
+    const checked = Array.from(modal.querySelectorAll('.semRecipientBox:checked')).map(cb => cb.dataset.email);
+    const extra = modal.querySelector('#semExtraEmail').value.trim();
+    if (extra) checked.push(extra);
+    const subject = modal.querySelector('#semSubject').value.trim();
+    const bodyText = modal.querySelector('#semBody').value.trim();
+    if (!checked.length) { toast('Select at least one recipient, or enter one manually'); return; }
+    if (!subject || !bodyText) { toast('Subject and message are both required'); return; }
+    const sendBtn = modal.querySelector('#semSendBtn');
+    sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
+    try {
+      const token = localStorage.getItem('bos_token');
+      const res = await fetch('/api/email/send', {
+        method: 'POST',
+        headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
+        body: JSON.stringify({ to: checked, subject, html: '<p>' + escapeHtml(bodyText).replace(/\n/g,'<br>') + '</p>' }),
+      });
+      const data = await res.json();
+      if (res.ok && data.ok) { toast('Email sent'); modal.remove(); }
+      else { toast(data.error || 'Could not send — check email setup'); sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
+    } catch (e) {
+      toast('Could not send — check your connection');
+      sendBtn.disabled = false; sendBtn.textContent = 'Send';
+    }
+  });
+}
+function wireSendUpdateEmailButtons(){
+  document.querySelectorAll('.sendUpdateEmailBtn').forEach(btn => {
+    if (btn.dataset.semWired) return;
+    btn.dataset.semWired = '1';
+    btn.addEventListener('click', () => {
+      const store = btn.dataset.store;
+      const subject = btn.dataset.subject || `BOS Update — ${store}`;
+      const body = btn.dataset.body || '';
+      openSendEmailModal(store, subject, body);
+    });
+  });
+}
+
 function toast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg; t.style.display = 'block';
@@ -1957,7 +2030,7 @@ function viewPipeline(){
     });
     const pct = total ? Math.round((done/total)*100) : 0;
     const overdueBanner = overdueCount ? `<div class="badge red" style="margin-bottom:12px;font-size:10.5px;">⚠ ${overdueCount} action${overdueCount>1?'s':''} overdue</div>` : '';
-    const html = `<div class="section-title">📅 CPA Timeline</div>${overdueBanner}<div>${cpaRows}<div class="no-print">${customRows}${addCustomForm}</div>${postSupport}</div>`;
+    const html = `<div style="display:flex;align-items:center;justify-content:space-between;"><div class="section-title" style="margin-bottom:0;">📅 CPA Timeline</div><button class="btn btn-outline sendUpdateEmailBtn no-print" data-store="${escTC(s.name)}" data-subject="BOS CPA Update — ${escTC(s.name)}" style="font-size:11px;">✉ Notify Stakeholders</button></div>${overdueBanner}<div>${cpaRows}<div class="no-print">${customRows}${addCustomForm}</div>${postSupport}</div>`;
     return { html, pct, overdueCount };
   }
 
@@ -2715,6 +2788,7 @@ function viewPipeline(){
 
   // ---------- Shared wiring for CPA / Training&Rec / Details fields ----------
   function wireLegacyDetailInputs(storeName){
+    wireSendUpdateEmailButtons();
     document.querySelectorAll('.cpaConfirmCheck').forEach(el => el.addEventListener('change', (e) => { toggleCpaConfirm(el.dataset.store, el.dataset.key); if (PROFILE_CAFE_ID) renderProfile(); }));
     document.querySelectorAll('.cpaMilestoneToggle').forEach(el => el.addEventListener('click', () => {
       const k = el.dataset.mkey;

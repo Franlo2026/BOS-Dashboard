@@ -1226,7 +1226,10 @@ async function openSendEmailModal(storeName, defaultSubject, defaultBody){
       <div class="section-title" style="margin-bottom:12px;">✉ Send Update Email — ${escapeHtmlVR2(storeName)}</div>
       <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;">${recipients.length ? 'Tick who should receive this.' : 'No contacts on file for this café yet — enter an address manually below.'}</div>
       <div id="sendEmailRecipients" style="margin-bottom:12px;">
-        ${recipients.map((r,i) => `<label style="display:block;font-size:12px;padding:3px 0;"><input type="checkbox" class="semRecipientBox" data-email="${escapeHtmlVR2(r.email)}" checked> ${escapeHtmlVR2(r.label)} — ${escapeHtmlVR2(r.email)}</label>`).join('')}
+        ${recipients.map((r,i) => r.email
+          ? `<label style="display:block;font-size:12px;padding:3px 0;"><input type="checkbox" class="semRecipientBox" data-email="${escapeHtmlVR2(r.email)}" checked> ${escapeHtmlVR2(r.label)} — ${escapeHtmlVR2(r.email)}</label>`
+          : `<label style="display:block;font-size:12px;padding:3px 0;color:var(--grey-500);"><input type="checkbox" disabled> ${escapeHtmlVR2(r.label)} — <em>${escapeHtmlVR2(r.missing||'No email on file')}</em></label>`
+        ).join('')}
       </div>
       <label style="font-size:11px;color:var(--grey-500);">Additional recipient (optional)</label>
       <input type="text" id="semExtraEmail" placeholder="name@example.com" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--grey-300);margin-bottom:10px;">
@@ -3690,11 +3693,12 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       } catch (e) { /* non-fatal — dropdowns just fall back to the static roster */ }
       document.getElementById('admUserTable').innerHTML = `
         <table class="data-table">
-          <thead><tr><th>Username</th><th>Display Name</th><th>Role</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Username</th><th>Display Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
           <tbody>${users.map(u => `
             <tr>
               <td>${u.username}</td>
               <td><input type="text" class="admDisplayNameField" data-id="${u.id}" value="${escapeHtmlVR2(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
+              <td><input type="email" class="admEmailField" data-id="${u.id}" value="${escapeHtmlVR2(u.email || '')}" placeholder="name@bootlegger.co.za" style="width:180px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
               <td>
                 <select class="admRoleSel" data-id="${u.id}" ${u.username===USERNAME?'disabled':''}>
                   <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
@@ -3713,6 +3717,12 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       document.querySelectorAll('.admDisplayNameField').forEach(el => el.addEventListener('change', async () => {
         try { await apiFetchAdmin(el.dataset.id, { display_name: el.value.trim() }); toast('Display name updated'); }
         catch(e){ toast(e.message || 'Could not update display name'); loadUsers(); }
+      }));
+      document.querySelectorAll('.admEmailField').forEach(el => el.addEventListener('change', async () => {
+        const val = el.value.trim();
+        if (val && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) { toast('Enter a valid email address'); loadUsers(); return; }
+        try { await apiFetchAdmin(el.dataset.id, { email: val || null }); toast('Email updated — this is who they\'ll show up as in the Send Update Email options'); }
+        catch(e){ toast(e.message || 'Could not update email'); loadUsers(); }
       }));
       document.querySelectorAll('.admResetPwBtn').forEach(btn => btn.addEventListener('click', async () => {
         const newPw = prompt(`New password for ${btn.dataset.username} (min. 8 characters):`);

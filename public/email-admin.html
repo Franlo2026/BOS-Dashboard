@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>BOS — Email Automation Control Panel</title>
+<style>
+  :root {
+    --black:#1a1a1a; --grey-100:#f5f5f5; --grey-200:#e5e5e5; --grey-300:#d4d4d4;
+    --grey-500:#737373; --green:#16a34a; --red:#dc2626; --gold:#b8860b; --amber:#d97706;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:var(--grey-100); margin:0; padding:32px 20px; color:var(--black); }
+  .wrap { max-width:760px; margin:0 auto; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .subtitle { color:var(--grey-500); font-size:13px; margin:0 0 24px; }
+  .card { background:#fff; border:1px solid var(--grey-200); border-radius:8px; padding:20px; margin-bottom:20px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:0.04em; color:var(--grey-500); margin:0 0 14px; }
+  .row { display:flex; align-items:center; gap:12px; margin-bottom:10px; }
+  label.field { display:block; font-size:12px; color:var(--grey-500); margin-bottom:4px; }
+  input[type=text], input[type=email] { width:100%; font-size:13px; padding:8px 10px; border:1px solid var(--grey-300); border-radius:4px; }
+  button { font-size:13px; padding:8px 16px; border-radius:4px; border:1px solid var(--grey-300); background:#fff; cursor:pointer; }
+  button:hover { background:var(--grey-100); }
+  button:disabled { opacity:0.5; cursor:not-allowed; }
+  button.primary { background:var(--black); color:#fff; border-color:var(--black); }
+  button.danger { color:var(--red); border-color:var(--red); }
+  button.toggle-on { background:var(--green); color:#fff; border-color:var(--green); }
+  button.toggle-off { background:var(--grey-300); color:#555; border-color:var(--grey-300); }
+  .status-pill { display:inline-block; font-size:11px; font-weight:700; padding:3px 10px; border-radius:12px; text-transform:uppercase; letter-spacing:0.03em; }
+  .status-on { background:rgba(22,163,74,0.12); color:var(--green); }
+  .status-off { background:rgba(115,115,115,0.12); color:var(--grey-500); }
+  .status-warn { background:rgba(217,119,6,0.12); color:var(--amber); }
+  .job-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid var(--grey-100); }
+  .job-row:last-child { border-bottom:none; }
+  .job-label { font-size:13px; font-weight:600; }
+  .msg { font-size:12px; padding:8px 10px; border-radius:4px; margin-top:10px; }
+  .msg-ok { background:rgba(22,163,74,0.08); color:var(--green); }
+  .msg-err { background:rgba(220,38,38,0.08); color:var(--red); }
+  .warning-box { background:rgba(217,119,6,0.08); border:1px solid rgba(217,119,6,0.3); border-radius:6px; padding:12px 14px; font-size:12px; color:#7a4d00; margin-bottom:20px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>✉ BOS — Email Automation Control Panel</h1>
+  <p class="subtitle">Controls the four recurring digest jobs (daily overdue tasks, daily visit/LTL, daily CPA milestones, weekly café status). Test each one safely before turning automation on — test runs always redirect to an address you choose, never to real people.</p>
+
+  <div id="loginGate" class="card" style="display:none;">
+    <h2>Sign in required</h2>
+    <p style="font-size:13px;color:var(--grey-500);margin-bottom:12px;">This page shares your BOS Dashboard login. Sign in there first, then reload this page.</p>
+    <a href="/">Go to BOS Dashboard</a>
+  </div>
+
+  <div id="mainContent" style="display:none;">
+    <div id="configWarning"></div>
+
+    <div class="card">
+      <h2>Overall Status</h2>
+      <div class="row">
+        <span>Microsoft 365 email configured:</span>
+        <span id="configuredPill" class="status-pill status-off">checking…</span>
+      </div>
+      <div class="row">
+        <span>Automatic recurring sending:</span>
+        <span id="automationPill" class="status-pill status-off">checking…</span>
+        <button id="toggleBtn" style="margin-left:auto;">…</button>
+      </div>
+      <div id="statusMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Test a Digest (safe — redirects everywhere to one address)</h2>
+      <label class="field">Send all test output to</label>
+      <input type="email" id="testEmailInput" placeholder="you@bootlegger.co.za">
+      <div style="margin-top:16px;" id="jobsList"></div>
+      <div id="testMsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>What "Test" Actually Does</h2>
+      <p style="font-size:12px;color:var(--grey-500);line-height:1.6;margin:0;">
+        Clicking "Run Test" runs that digest's real logic against your real BOS data right now — it checks actual overdue tasks, actual café visit history, actual CPA milestones — but every email it would have sent gets redirected to the address above instead, with a note showing who it would normally have gone to. Nothing goes to real FSMs, cafés, franchisees, or managers during a test, regardless of whether automation is switched on or off above.
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+function authHeaders(){
+  const t = localStorage.getItem('bos_token');
+  return t ? { 'Authorization': 'Bearer ' + t } : {};
+}
+async function apiGet(path){
+  const res = await fetch(path, { headers: authHeaders() });
+  if (res.status === 401) { showLoginGate(); throw new Error('not authenticated'); }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+async function apiPost(path, body){
+  const res = await fetch(path, { method: 'POST', headers: Object.assign({ 'Content-Type': 'application/json' }, authHeaders()), body: JSON.stringify(body || {}) });
+  if (res.status === 401) { showLoginGate(); throw new Error('not authenticated'); }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
+}
+function showLoginGate(){
+  document.getElementById('loginGate').style.display = 'block';
+  document.getElementById('mainContent').style.display = 'none';
+}
+function showMsg(elId, text, ok){
+  const el = document.getElementById(elId);
+  el.innerHTML = `<div class="msg ${ok ? 'msg-ok' : 'msg-err'}">${text}</div>`;
+}
+
+let currentStatus = null;
+
+async function loadStatus(){
+  const status = await apiGet('/api/email/automation-status');
+  currentStatus = status;
+
+  document.getElementById('configuredPill').textContent = status.configured ? 'Configured' : 'Not configured yet';
+  document.getElementById('configuredPill').className = 'status-pill ' + (status.configured ? 'status-on' : 'status-warn');
+
+  document.getElementById('automationPill').textContent = status.enabled ? 'ON' : 'OFF';
+  document.getElementById('automationPill').className = 'status-pill ' + (status.enabled ? 'status-on' : 'status-off');
+
+  const toggleBtn = document.getElementById('toggleBtn');
+  toggleBtn.textContent = status.enabled ? 'Turn OFF' : 'Turn ON';
+  toggleBtn.className = status.enabled ? 'danger' : 'primary';
+
+  document.getElementById('configWarning').innerHTML = status.configured ? '' :
+    `<div class="warning-box">⚠ Microsoft 365 email isn't fully configured yet (MS_TENANT_ID / MS_CLIENT_ID / MS_CLIENT_SECRET / MS_SENDER_EMAIL on Railway). Test runs and automation won't actually send anything until that's done.</div>`;
+
+  document.getElementById('jobsList').innerHTML = status.jobs.map(j => `
+    <div class="job-row">
+      <span class="job-label">${j.label}</span>
+      <button class="runTestBtn" data-job="${j.id}">Run Test</button>
+    </div>
+  `).join('');
+  document.querySelectorAll('.runTestBtn').forEach(btn => btn.addEventListener('click', () => runTest(btn)));
+}
+
+document.getElementById('toggleBtn').addEventListener('click', async () => {
+  const btn = document.getElementById('toggleBtn');
+  btn.disabled = true;
+  try {
+    const newState = !currentStatus.enabled;
+    if (newState) {
+      const confirmed = confirm('This will start sending real automated emails to real FSMs, cafés, franchisees, and managers on their normal schedule. Have you tested every digest above first?');
+      if (!confirmed) { btn.disabled = false; return; }
+    }
+    await apiPost('/api/email/automation-status', { enabled: newState });
+    showMsg('statusMsg', newState ? 'Automation turned ON — recurring digests will now run on schedule.' : 'Automation turned OFF — no automatic emails will send.', true);
+    await loadStatus();
+  } catch (e) {
+    showMsg('statusMsg', e.message, false);
+  }
+  btn.disabled = false;
+});
+
+async function runTest(btn){
+  const testEmail = document.getElementById('testEmailInput').value.trim();
+  if (!testEmail) { showMsg('testMsg', 'Enter an email address to receive the test output first.', false); return; }
+  btn.disabled = true;
+  const original = btn.textContent;
+  btn.textContent = 'Running…';
+  try {
+    const result = await apiPost('/api/email/run-digest-test/' + btn.dataset.job, { testEmail });
+    showMsg('testMsg', result.message || 'Test run complete — check your inbox.', true);
+  } catch (e) {
+    showMsg('testMsg', e.message, false);
+  }
+  btn.disabled = false;
+  btn.textContent = original;
+}
+
+(async () => {
+  try {
+    await apiGet('/api/health');
+  } catch (e) { /* health check has no auth requirement, fine either way */ }
+  const token = localStorage.getItem('bos_token');
+  if (!token) { showLoginGate(); return; }
+  document.getElementById('mainContent').style.display = 'block';
+  try {
+    await loadStatus();
+  } catch (e) {
+    if (e.message !== 'not authenticated') showMsg('statusMsg', e.message, false);
+  }
+})();
+</script>
+</body>
+</html>
