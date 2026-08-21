@@ -97,6 +97,7 @@ async function initDB() {
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
   `);
+  await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS email TEXT;`);
   for (const table of ['visits', 'actions', 'ltl_audits', 'trainer_visits']) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS ${table} (
@@ -249,20 +250,20 @@ app.post('/api/change-password', authRequired, async (req, res) => {
 });
 
 app.get('/api/admin/users', authRequired, requireAdmin, async (req, res) => {
-  const { rows } = await pool.query('SELECT id, username, role, display_name, active, created_at FROM users ORDER BY created_at ASC');
+  const { rows } = await pool.query('SELECT id, username, role, display_name, email, active, created_at FROM users ORDER BY created_at ASC');
   res.json(rows);
 });
 
 app.post('/api/admin/users', authRequired, requireAdmin, async (req, res) => {
   try {
-    const { username, password, role, displayName } = req.body;
+    const { username, password, role, displayName, email } = req.body;
     if (!username || !password || !role) return res.status(400).json({ error: 'username, password and role are required' });
     if (!['admin', 'editor', 'viewer'].includes(role)) return res.status(400).json({ error: 'role must be admin, editor or viewer' });
     if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await pool.query(
-      'INSERT INTO users (username, password_hash, role, display_name) VALUES ($1,$2,$3,$4) RETURNING id, username, role, display_name, active, created_at',
-      [username, hash, role, displayName || username]
+      'INSERT INTO users (username, password_hash, role, display_name, email) VALUES ($1,$2,$3,$4,$5) RETURNING id, username, role, display_name, email, active, created_at',
+      [username, hash, role, displayName || username, email || null]
     );
     res.json(rows[0]);
   } catch (e) {
@@ -273,17 +274,18 @@ app.post('/api/admin/users', authRequired, requireAdmin, async (req, res) => {
 
 app.patch('/api/admin/users/:id', authRequired, requireAdmin, async (req, res) => {
   try {
-    const { role, active, password, display_name } = req.body;
+    const { role, active, password, display_name, email } = req.body;
     if (role && !['admin', 'editor', 'viewer'].includes(role)) return res.status(400).json({ error: 'invalid role' });
     if (role) await pool.query('UPDATE users SET role = $1 WHERE id = $2', [role, req.params.id]);
     if (active !== undefined) await pool.query('UPDATE users SET active = $1 WHERE id = $2', [active, req.params.id]);
     if (display_name !== undefined) await pool.query('UPDATE users SET display_name = $1 WHERE id = $2', [display_name, req.params.id]);
+    if (email !== undefined) await pool.query('UPDATE users SET email = $1 WHERE id = $2', [email || null, req.params.id]);
     if (password) {
       if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       const hash = await bcrypt.hash(password, 10);
       await pool.query('UPDATE users SET password_hash = $1 WHERE id = $2', [hash, req.params.id]);
     }
-    const { rows } = await pool.query('SELECT id, username, role, display_name, active, created_at FROM users WHERE id = $1', [req.params.id]);
+    const { rows } = await pool.query('SELECT id, username, role, display_name, email, active, created_at FROM users WHERE id = $1', [req.params.id]);
     res.json(rows[0]);
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -978,7 +980,171 @@ If the notes come from a GRIND Café Support / Store Visit Report, they follow a
   }
 });
 
+// ==================================================================
+// Email — Microsoft 365 via Graph API (application permissions)
+// ==================================================================
+// Setup needed from your IT manager, in Microsoft Entra ID (Azure AD):
+//   1. Register a new app (any name, e.g. "BOS Dashboard Mailer").
+//   2. API permissions -> Microsoft Graph -> Application permissions ->
+//      Mail.Send -> add it, then an admin must click "Grant admin consent".
+//      (Application permission, not Delegated — this sends as a fixed
+//      mailbox with no user sign-in involved, which is what a server needs.)
+//   3. Certificates & secrets -> New client secret -> copy the VALUE
+//      immediately (it's only shown once).
+//   4. Note down: Tenant ID, Application (client) ID, the client secret
+//      value, and which real mailbox in your tenant BOS should send from
+//      (e.g. bos@bootlegger.co.za — it must be a real, licensed mailbox).
+//
+// Then set these on Railway (Variables tab on the BOS service):
+//   MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL
+//
+// Nothing below runs until all four are set — sendEmail() just logs a
+// warning and returns until then, so this is safe to deploy right away.
+const MS_TENANT_ID = process.env.MS_TENANT_ID;
+const MS_CLIENT_ID = process.env.MS_CLIENT_ID;
+const MS_CLIENT_SECRET = process.env.MS_CLIENT_SECRET;
+const MS_SENDER_EMAIL = process.env.MS_SENDER_EMAIL;
+const EMAIL_CONFIGURED = !!(MS_TENANT_ID && MS_CLIENT_ID && MS_CLIENT_SECRET && MS_SENDER_EMAIL);
+
+let _graphTokenCache = { token: null, expiresAt: 0 };
+async function getGraphAccessToken() {
+  const now = Date.now();
+  if (_graphTokenCache.token && now < _graphTokenCache.expiresAt - 60000) {
+    return _graphTokenCache.token; // reuse until ~1 min before real expiry
+  }
+  const url = `https://login.microsoftonline.com/${MS_TENANT_ID}/oauth2/v2.0/token`;
+  const body = new URLSearchParams({
+    client_id: MS_CLIENT_ID,
+    client_secret: MS_CLIENT_SECRET,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials',
+  });
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  const data = await res.json();
+  if (!res.ok) throw new Error(`Graph token request failed: ${data.error_description || data.error || res.status}`);
+  _graphTokenCache = { token: data.access_token, expiresAt: now + (data.expires_in * 1000) };
+  return data.access_token;
+}
+
+// to/cc: a string or array of email addresses. html: the email body.
+// Never throws to the caller by default (logs and returns false instead)
+// so a failed notification never takes down whatever triggered it —
+// pass throwOnError:true if a specific caller genuinely needs to know.
+async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
+  if (!EMAIL_CONFIGURED) {
+    console.warn('sendEmail() called but Microsoft 365 email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway.');
+    return false;
+  }
+  const toList = (Array.isArray(to) ? to : [to]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } }));
+  const ccList = cc ? (Array.isArray(cc) ? cc : [cc]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } })) : [];
+  try {
+    const token = await getGraphAccessToken();
+    const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_SENDER_EMAIL)}/sendMail`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: { subject, body: { contentType: 'HTML', content: html }, toRecipients: toList, ccRecipients: ccList },
+        saveToSentItems: true,
+      }),
+    });
+    if (!res.ok) {
+      const errBody = await res.text();
+      throw new Error(`Graph sendMail failed: ${res.status} ${errBody}`);
+    }
+    return true;
+  } catch (e) {
+    console.error('sendEmail() error:', e.message);
+    if (throwOnError) throw e;
+    return false;
+  }
+}
+
+// ==================================================================
+// Notification recipient resolution — shared by every digest below
+// ==================================================================
+// Reads café contact details (email, franchisee_email, fsm) from the
+// live index.html data blob, and cross-references which regional manager
+// (Franlo / Tarryn Palmer) owns a given FSM, via the same managers
+// mapping the scheduler and reference-data endpoint already use.
+function getStoresAndManagersData() {
+  const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+  const bosMatch = html.match(/<script id="bos-data" type="application\/json">([\s\S]*?)<\/script>/);
+  const cafeMatch = html.match(/<script id="cafe-data" type="application\/json">([\s\S]*?)<\/script>/);
+  const bosData = bosMatch ? JSON.parse(bosMatch[1]) : { fsmStores: {}, managers: {} };
+  const cafeData = cafeMatch ? JSON.parse(cafeMatch[1]) : { STORES: [] };
+  const storesByName = {};
+  (cafeData.STORES || []).forEach(s => { storesByName[s.store_name] = s; });
+  const managerOfFsm = {};
+  Object.entries(bosData.managers || {}).forEach(([mgr, fsmList]) => {
+    (fsmList || []).forEach(fsm => { managerOfFsm[fsm] = mgr; });
+  });
+  return { storesByName, managerOfFsm };
+}
+
+// Recipients for a given café + its FSM: the café's own mailbox, the
+// FSM's email (looked up in the users table by matching display name),
+// their regional manager's email, and the franchisee's email once that's
+// been captured (currently blank for every café — there's no UI yet to
+// enter it, flagged separately). Anyone whose email isn't on file is
+// silently skipped rather than blocking the whole notification.
+async function resolveStoreNotificationRecipients(storeName, fsmName) {
+  const { storesByName, managerOfFsm } = getStoresAndManagersData();
+  const store = storesByName[storeName] || {};
+  const recipients = new Set();
+  if (store.email) recipients.add(store.email);
+  if (store.franchisee_email) recipients.add(store.franchisee_email);
+  if (fsmName) {
+    const { rows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [fsmName]);
+    if (rows[0] && rows[0].email) recipients.add(rows[0].email);
+    const mgrName = managerOfFsm[fsmName];
+    if (mgrName) {
+      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
+      if (mrows[0] && mrows[0].email) recipients.add(mrows[0].email);
+    }
+  }
+  return Array.from(recipients);
+}
+
+// ==================================================================
+// Daily digest — overdue tasks/actions
+// ==================================================================
+// Runs once a day: finds every open action whose due date has passed,
+// groups them by café, and sends each café's FSM/mailbox/manager/
+// franchisee one digest listing everything overdue there. A café with
+// nothing overdue gets no email at all.
+async function sendDailyOverdueTaskDigests() {
+  if (!EMAIL_CONFIGURED) return;
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const { rows } = await pool.query('SELECT data FROM actions');
+    const overdue = rows.map(r => r.data).filter(a => a && a.status !== 'closed' && a.dueDate && a.dueDate < today);
+    const byStore = {};
+    overdue.forEach(a => { (byStore[a.store] = byStore[a.store] || []).push(a); });
+    for (const [store, tasks] of Object.entries(byStore)) {
+      const fsm = tasks[0].fsm;
+      const recipients = await resolveStoreNotificationRecipients(store, fsm);
+      if (!recipients.length) continue;
+      const html = `<h3>Overdue Tasks — ${store}</h3><p>${tasks.length} task(s) past their due date, as of ${today}:</p><ul>${tasks.map(t => `<li>${t.description || '(no description)'} — due ${t.dueDate}</li>`).join('')}</ul>`;
+      await sendEmail({ to: recipients, subject: `BOS: ${tasks.length} overdue task(s) at ${store}`, html });
+    }
+  } catch (e) {
+    console.error('sendDailyOverdueTaskDigests() error:', e.message);
+  }
+}
+
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+// Lets the frontend (and you, when testing with IT) check at a glance
+// whether email is fully configured yet, without exposing the secret values.
+app.get('/api/email/status', authRequired, (req, res) => res.json({ configured: EMAIL_CONFIGURED, senderEmail: EMAIL_CONFIGURED ? MS_SENDER_EMAIL : null }));
+// Admin-only: send a one-off test email to confirm the Azure AD setup
+// actually works end-to-end, before wiring up any real notification.
+app.post('/api/email/test', authRequired, requireAdmin, async (req, res) => {
+  const to = req.body && req.body.to;
+  if (!to) return res.status(400).json({ error: 'to address required' });
+  const ok = await sendEmail({ to, subject: 'BOS Dashboard — test email', html: '<p>This is a test email from BOS Dashboard, sent via Microsoft Graph.</p><p>If you\'re reading this, the Microsoft 365 email setup is working correctly.</p>' });
+  if (ok) res.json({ ok: true });
+  else res.status(500).json({ error: EMAIL_CONFIGURED ? 'Send failed — check server logs' : 'Email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway' });
+});
 
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, '..', 'public')));
@@ -989,6 +1155,8 @@ initDB()
     app.listen(PORT, () => console.log(`BOS Dashboard running on port ${PORT}`));
     cleanupOldTaskPhotos();
     setInterval(cleanupOldTaskPhotos, 24 * 60 * 60 * 1000);
+    sendDailyOverdueTaskDigests();
+    setInterval(sendDailyOverdueTaskDigests, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
