@@ -1006,6 +1006,28 @@ const MS_CLIENT_SECRET = process.env.MS_CLIENT_SECRET;
 const MS_SENDER_EMAIL = process.env.MS_SENDER_EMAIL;
 const EMAIL_CONFIGURED = !!(MS_TENANT_ID && MS_CLIENT_ID && MS_CLIENT_SECRET && MS_SENDER_EMAIL);
 
+// Master switch for the four RECURRING automatic digest jobs — stored in
+// the same generic storage table everything else uses, defaults to OFF.
+// This is intentionally separate from EMAIL_CONFIGURED: email sending
+// itself can be fully wired up and manually tested (via the run-once
+// endpoints below) while the automatic recurring sends stay dormant
+// until this is explicitly switched on. Nothing automatic ever fires
+// until an admin turns this on from the control panel.
+const EMAIL_AUTOMATION_KEY = 'email-automation-enabled';
+async function isEmailAutomationEnabled() {
+  try {
+    const { rows } = await pool.query('SELECT value FROM storage WHERE key = $1', [EMAIL_AUTOMATION_KEY]);
+    return rows[0] ? rows[0].value === 'true' : false;
+  } catch (e) { return false; }
+}
+async function setEmailAutomationEnabled(enabled) {
+  await pool.query(
+    `INSERT INTO storage (key, value, updated_at) VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [EMAIL_AUTOMATION_KEY, enabled ? 'true' : 'false']
+  );
+}
+
 let _graphTokenCache = { token: null, expiresAt: 0 };
 async function getGraphAccessToken() {
   const now = Date.now();
@@ -1030,20 +1052,29 @@ async function getGraphAccessToken() {
 // Never throws to the caller by default (logs and returns false instead)
 // so a failed notification never takes down whatever triggered it —
 // pass throwOnError:true if a specific caller genuinely needs to know.
+let _testModeOverrideEmail = null;
 async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   if (!EMAIL_CONFIGURED) {
     console.warn('sendEmail() called but Microsoft 365 email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway.');
     return false;
   }
-  const toList = (Array.isArray(to) ? to : [to]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } }));
-  const ccList = cc ? (Array.isArray(cc) ? cc : [cc]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } })) : [];
+  let actualTo = to, actualCc = cc, actualSubject = subject, actualHtml = html;
+  if (_testModeOverrideEmail) {
+    const originalTo = (Array.isArray(to) ? to : [to]).filter(Boolean).join(', ') || '(no recipients would have been found)';
+    actualTo = _testModeOverrideEmail;
+    actualCc = undefined;
+    actualSubject = '[TEST MODE] ' + subject;
+    actualHtml = `<p style="background:#fffbe6;padding:8px 10px;border:1px solid #e6c200;margin-bottom:12px;"><b>Test mode</b> — this would normally have gone to: ${originalTo}</p>` + html;
+  }
+  const toList = (Array.isArray(actualTo) ? actualTo : [actualTo]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } }));
+  const ccList = actualCc ? (Array.isArray(actualCc) ? actualCc : [actualCc]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } })) : [];
   try {
     const token = await getGraphAccessToken();
     const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_SENDER_EMAIL)}/sendMail`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        message: { subject, body: { contentType: 'HTML', content: html }, toRecipients: toList, ccRecipients: ccList },
+        message: { subject: actualSubject, body: { contentType: 'HTML', content: actualHtml }, toRecipients: toList, ccRecipients: ccList },
         saveToSentItems: true,
       }),
     });
@@ -1056,6 +1087,7 @@ async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
     console.error('sendEmail() error:', e.message);
     if (throwOnError) throw e;
     return false;
+
   }
 }
 
@@ -1103,6 +1135,35 @@ async function resolveStoreNotificationRecipientsLabeled(storeName, fsmName) {
     if (mgrName) {
       const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
       add(`Regional Manager (${mgrName})`, mrows[0] && mrows[0].email);
+    }
+  }
+  return out;
+}
+// Modal-facing version — always shows FSM and Regional Manager as visible
+// options, even if their email isn't set yet (email: null, disabled on
+// the frontend), so it's obvious who's missing a contact rather than
+// them silently not appearing as a choice at all. The daily digest jobs
+// use the strict version above instead, since they need real, sendable
+// addresses only.
+async function resolveStoreNotificationRecipientsForModal(storeName, fsmName) {
+  const { storesByName, managerOfFsm } = getStoresAndManagersData();
+  const store = storesByName[storeName] || {};
+  const out = [];
+  const seen = new Set();
+  const add = (label, email, missingNote) => {
+    if (email) { if (!seen.has(email)) { seen.add(email); out.push({ label, email }); } }
+    else out.push({ label, email: null, missing: missingNote || 'No email on file' });
+  };
+  add('Café', store.email, 'No café email on file');
+  if (store.franchisee_name || store.franchisee_email) add(`Franchisee${store.franchisee_name ? ` (${store.franchisee_name})` : ''}`, store.franchisee_email, 'No franchisee email on file');
+  if (store.operator_name || store.operator_email) add(`Operator${store.operator_name ? ` (${store.operator_name})` : ''}`, store.operator_email, 'No operator email on file');
+  if (fsmName) {
+    const { rows } = await pool.query('SELECT email FROM users WHERE display_name = $1', [fsmName]);
+    add(`FSM (${fsmName})`, rows[0] && rows[0].email, `${fsmName} has no email set — add it in Admin \u2192 User Management`);
+    const mgrName = managerOfFsm[fsmName];
+    if (mgrName) {
+      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1', [mgrName]);
+      add(`Regional Manager (${mgrName})`, mrows[0] && mrows[0].email, `${mgrName} has no email set — add it in Admin \u2192 User Management`);
     }
   }
   return out;
@@ -1174,6 +1235,185 @@ async function sendDailyVisitLtlOverdueDigests() {
     console.error('sendDailyVisitLtlOverdueDigests() error:', e.message);
   }
 }
+// ==================================================================
+// CPA milestone calculation — ported from New Café Ops' calcCPA(), kept
+// in sync with that file manually. Computes every milestone's due date
+// for a given pipeline café, honoring any manual date overrides the same
+// way the frontend does.
+// ==================================================================
+function calcCPAServer(store) {
+  if (!store || !store.openDate) return null;
+  const open = new Date(store.openDate + 'T00:00:00');
+  if (isNaN(open)) return null;
+  const add = (d, days) => { const r = new Date(d); r.setDate(r.getDate() + days); return r; };
+  const sub = (d, days) => add(d, -days);
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const overrides = Object.assign({ handoverDate: store.handoverDate, trainingStart: store.trainingStartDate }, store.cpaOverrides || {});
+  const ov = (key) => {
+    const v = overrides[key];
+    if (!v) return null;
+    const d = new Date(v + 'T00:00:00');
+    return isNaN(d) ? null : d;
+  };
+  const handover = ov('handoverDate') || sub(open, 7);
+  const createdRaw = store.createdDate || (typeof store.id === 'number' ? new Date(store.id).toISOString().slice(0, 10) : null);
+  const created = createdRaw ? new Date(createdRaw + 'T00:00:00') : sub(handover, 98);
+  const franchiseeMeeting1 = ov('franchiseeMeeting1') || add(created, 14);
+  const base = [
+    { key: 'welcomeMail', label: 'Welcome Mail Sent, Masterfile Created/Updated', date: add(created, 2) },
+    { key: 'franchiseeMeeting1', label: 'Franchisee Meeting 1', date: franchiseeMeeting1 },
+    { key: 'cafeInfoCaptured', label: 'Café Info Captured & Communicated', date: add(created, 21) },
+    { key: 'cafeEmailsCreated', label: 'Café E-mails Created & Orderflow Profiles Live', date: add(created, 14) },
+    { key: 'acctAppDocsReceived', label: 'Account Application Supporting Documents Received', date: add(created, 14) },
+    { key: 'acctAppCompletion', label: 'Account Application Completion', date: sub(handover, 35) },
+    { key: 'appEncryptionSetup', label: 'Bootlegger App Applications Completed & Encryption Key Shared/Set Up', date: sub(handover, 42) },
+    { key: 'handoverDate', label: 'Handover Date', date: handover },
+    { key: 'openingOrdersPlaced', label: 'Opening Orders Placed & Delivery Dates Confirmed', date: sub(handover, 28) },
+    { key: 'openingOrdersReceived', label: 'Opening Orders Received', date: add(handover, 2) },
+    { key: 'topUpOrders', label: 'Top Up Orders Completed', date: add(handover, 4) },
+    { key: 'recruitmentArtwork', label: 'Recruitment Artwork Ready, Shared & Posted', date: add(created, 21) },
+    { key: 'interviewsScheduled', label: 'Interviews Scheduled', date: add(created, 35) },
+    { key: 'staffSecuredMgmt', label: 'Staff Positions Secured — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 56) },
+    { key: 'staffSecuredSupport', label: 'Staff Positions Secured — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 42) },
+    { key: 'trainingScheduleCommunicated', label: 'Training Schedule Communicated & Training Café Allocated', date: sub(handover, 56) },
+    { key: 'trainingCommencesMgmt', label: 'Training Commences — GM, Managers, Baristas & Kitchen Supervisors', date: sub(handover, 28) },
+    { key: 'trainingCommencesSupport', label: 'Training Commences — Kitchen Assistants, Scullers, Waitrons & Cashiers', date: sub(handover, 14) },
+    { key: 'bbetterCompletion', label: 'Online B.Better Training Completion — 100% All Sections', date: sub(handover, 7) },
+    { key: 'trainingEndAdjustments', label: 'Training End & Additional Training Period Adjustments', date: sub(handover, 1) },
+    { key: 'inStoreTraining1', label: 'In-Store Training Day 1', date: sub(handover, 7) },
+    { key: 'inStoreTraining2', label: 'In-Store Training Day 2', date: sub(handover, 6) },
+    { key: 'inStoreTraining3', label: 'In-Store Training Day 3', date: sub(handover, 5) },
+    { key: 'inStoreTraining4', label: 'In-Store Training Day 4', date: sub(handover, 4) },
+    { key: 'inStoreTraining5', label: 'In-Store Training Day 5', date: sub(handover, 3) },
+    { key: 'inStoreTraining6', label: 'In-Store Training Day 6', date: sub(handover, 2) },
+    { key: 'inStoreTraining7', label: 'In-Store Training Day 7', date: sub(handover, 1) },
+    { key: 'staffRecruitmentCommences', label: 'Staff Recruitment Commences', date: add(created, 21) },
+    { key: 'baristaSignOff', label: 'Barista Sign Off', date: sub(open, 2) },
+    { key: 'openingReadinessChecklist', label: 'Opening Readiness Checklist Complete', date: sub(open, 1) },
+    { key: 'openDate', label: 'Opening Date', date: open },
+    { key: 'completeBusinessEssentials', label: 'Complete Business Essentials', date: add(open, 7) },
+    { key: 'fullPostOpeningReport', label: 'Full Post-Opening Summary/Report', date: add(open, 28) },
+    { key: 'postSupportWk1', label: 'Post-Support Week 1', date: open },
+    { key: 'postSupportWk2', label: 'Post-Support Week 2', date: add(open, 14) },
+    { key: 'postSupportWk3', label: 'Post-Support Week 3', date: add(open, 21) },
+    { key: 'postSupportWk4', label: 'Post-Support Week 4', date: add(open, 28) },
+  ];
+  const milestones = base.map(m => ({ key: m.key, label: m.label, date: fmt(ov(m.key) || m.date) }));
+  let cursor = add(franchiseeMeeting1, 14);
+  let n = 2;
+  while (cursor < open) {
+    const key = `franchiseeMeeting${n}`;
+    milestones.push({ key, label: `Franchisee Meeting ${n}`, date: fmt(ov(key) || cursor) });
+    cursor = add(cursor, 14);
+    n++;
+  }
+  milestones.sort((a, b) => a.date.localeCompare(b.date));
+  return { milestones };
+}
+
+// ==================================================================
+// Daily digest — CPA milestones: missed (overdue, unconfirmed) and
+// upcoming (due within 2 days, unconfirmed) — per Franlo's spec.
+// ==================================================================
+// ==================================================================
+// Weekly digest — café status rollup, per region
+// ==================================================================
+// One email per regional manager (Franlo, Tarryn), listing every café in
+// their region with: days since last visit, latest LTL score, and how
+// many tasks are currently open — a single weekly rollup rather than
+// per-café alerts, using the exact same underlying data as the two daily
+// digests above.
+async function sendWeeklyCafeStatusDigests() {
+  if (!EMAIL_CONFIGURED) return;
+  try {
+    const { storesByName, managerOfFsm } = getStoresAndManagersData();
+    const today = new Date();
+    const daysAgo = (dateStr) => Math.floor((today - new Date(dateStr)) / 86400000);
+
+    const { rows: visitRows } = await pool.query('SELECT data FROM visits');
+    const lastVisitByStore = {};
+    visitRows.forEach(r => {
+      const v = r.data;
+      if (!v || !v.store || !v.date) return;
+      if (!lastVisitByStore[v.store] || v.date > lastVisitByStore[v.store]) lastVisitByStore[v.store] = v.date;
+    });
+
+    const { rows: ltlRows } = await pool.query('SELECT data FROM ltl_audits');
+    const latestLtlByStore = {};
+    ltlRows.map(r => r.data).filter(a => a && a.store && a.date)
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .forEach(a => { latestLtlByStore[a.store] = a; });
+
+    const { rows: taskRows } = await pool.query('SELECT data FROM actions');
+    const openTasksByStore = {};
+    taskRows.map(r => r.data).filter(a => a && a.store && a.status !== 'closed')
+      .forEach(a => { openTasksByStore[a.store] = (openTasksByStore[a.store] || 0) + 1; });
+
+    // Group every café by which regional manager owns its FSM
+    const storesByManager = {};
+    Object.values(storesByName).forEach(store => {
+      const mgr = managerOfFsm[store.fsm];
+      if (!mgr) return;
+      (storesByManager[mgr] = storesByManager[mgr] || []).push(store);
+    });
+
+    for (const [mgrName, stores] of Object.entries(storesByManager)) {
+      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
+      const mgrEmail = mrows[0] && mrows[0].email;
+      if (!mgrEmail) continue; // no email on file — nothing to send to
+
+      const tableRows = stores.map(store => {
+        const lastVisit = lastVisitByStore[store.store_name];
+        const visitCol = lastVisit ? `${daysAgo(lastVisit)}d ago` : 'Never';
+        const ltl = latestLtlByStore[store.store_name];
+        const ltlCol = ltl ? `${ltl.score}%` : '—';
+        const openCount = openTasksByStore[store.store_name] || 0;
+        return `<tr><td>${store.store_name}</td><td>${store.fsm||'—'}</td><td>${visitCol}</td><td>${ltlCol}</td><td>${openCount}</td></tr>`;
+      }).join('');
+      const html = `<h3>Weekly Café Status — ${mgrName}'s Region</h3>
+        <table border="1" cellpadding="6" style="border-collapse:collapse;"><tr><th>Café</th><th>FSM</th><th>Last Visit</th><th>Latest LTL</th><th>Open Tasks</th></tr>${tableRows}</table>`;
+      await sendEmail({ to: mgrEmail, subject: `BOS: Weekly Café Status — ${mgrName}'s Region`, html });
+    }
+  } catch (e) {
+    console.error('sendWeeklyCafeStatusDigests() error:', e.message);
+  }
+}
+
+async function sendDailyCpaMilestoneDigests() {
+  if (!EMAIL_CONFIGURED) return;
+  try {
+    const { rows: storeRows } = await pool.query("SELECT value FROM storage WHERE key = 'dashboard-stores-v1'");
+    const { rows: confRows } = await pool.query("SELECT value FROM storage WHERE key = 'cpa-confirmations-v1'");
+    const extraStores = storeRows[0] ? JSON.parse(storeRows[0].value || '[]') : [];
+    const cpaConfirmations = confRows[0] ? JSON.parse(confRows[0].value || '{}') : {};
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().slice(0, 10);
+    const in2Days = new Date(today.getTime() + 2 * 86400000).toISOString().slice(0, 10);
+
+    for (const store of extraStores) {
+      const cpa = calcCPAServer(store);
+      if (!cpa) continue;
+      const storeConf = cpaConfirmations[store.name] || {};
+      const missed = [], upcoming = [];
+      cpa.milestones.forEach(m => {
+        const confirmed = storeConf[m.key] && storeConf[m.key].confirmed;
+        if (confirmed) return;
+        if (m.date < todayStr) missed.push(m);
+        else if (m.date <= in2Days) upcoming.push(m);
+      });
+      if (!missed.length && !upcoming.length) continue;
+
+      const recipients = await resolveStoreNotificationRecipients(store.name, store.fsm);
+      if (!recipients.length) continue;
+
+      const section = (title, list) => list.length ? `<h4>${title}</h4><ul>${list.map(m => `<li>${m.label} — ${m.date}</li>`).join('')}</ul>` : '';
+      const html = `<h3>New Café Opening — ${store.name}</h3>${section('Missed milestones', missed)}${section('Due within 2 days', upcoming)}`;
+      await sendEmail({ to: recipients, subject: `BOS: ${store.name} — CPA milestone update`, html });
+    }
+  } catch (e) {
+    console.error('sendDailyCpaMilestoneDigests() error:', e.message);
+  }
+}
 async function sendDailyOverdueTaskDigests() {
   if (!EMAIL_CONFIGURED) return;
   try {
@@ -1218,7 +1458,7 @@ app.get('/api/email/recipients', authRequired, async (req, res) => {
     if (!store) return res.status(400).json({ error: 'store query param required' });
     const { storesByName } = getStoresAndManagersData();
     const fsmName = (storesByName[store] || {}).fsm;
-    const recipients = await resolveStoreNotificationRecipientsLabeled(store, fsmName);
+    const recipients = await resolveStoreNotificationRecipientsForModal(store, fsmName);
     res.json({ recipients });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1242,6 +1482,53 @@ app.post('/api/email/send', authRequired, requireEditor, async (req, res) => {
   }
 });
 
+// ==================================================================
+// Automation control panel — the four RECURRING digest jobs stay off
+// until an admin explicitly enables them here. Manual test runs below
+// work regardless of this switch, always redirected to a chosen test
+// address, never to real people.
+// ==================================================================
+const DIGEST_JOBS = {
+  overdueTasks: { fn: sendDailyOverdueTaskDigests, label: 'Daily overdue tasks' },
+  visitLtl: { fn: sendDailyVisitLtlOverdueDigests, label: 'Daily visit/LTL overdue' },
+  cpaMilestones: { fn: sendDailyCpaMilestoneDigests, label: 'Daily CPA milestones' },
+  weeklyCafeStatus: { fn: sendWeeklyCafeStatusDigests, label: 'Weekly café status' },
+};
+
+app.get('/api/email/automation-status', authRequired, async (req, res) => {
+  res.json({ enabled: await isEmailAutomationEnabled(), configured: EMAIL_CONFIGURED, jobs: Object.entries(DIGEST_JOBS).map(([id, j]) => ({ id, label: j.label })) });
+});
+
+app.post('/api/email/automation-status', authRequired, requireAdmin, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    await setEmailAutomationEnabled(!!enabled);
+    res.json({ enabled: !!enabled });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Runs one digest job immediately, once, redirected entirely to
+// testEmail — real recipients are never touched. Returns whether the run
+// completed so the control panel can confirm it went through.
+app.post('/api/email/run-digest-test/:jobId', authRequired, requireAdmin, async (req, res) => {
+  const job = DIGEST_JOBS[req.params.jobId];
+  if (!job) return res.status(400).json({ error: 'Unknown digest job: ' + req.params.jobId });
+  const testEmail = req.body && req.body.testEmail;
+  if (!testEmail) return res.status(400).json({ error: 'testEmail is required — this run always redirects to a test address, never real recipients' });
+  if (!EMAIL_CONFIGURED) return res.status(400).json({ error: 'Email is not configured yet — set the Microsoft 365 environment variables first' });
+  _testModeOverrideEmail = testEmail;
+  try {
+    await job.fn();
+    res.json({ ok: true, message: `${job.label} ran in test mode — check ${testEmail} for anything it would have sent.` });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  } finally {
+    _testModeOverrideEmail = null; // always clear, even if the job throws — real sends must never stay redirected by accident
+  }
+});
+
 app.use('/uploads', express.static(UPLOAD_DIR));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -1251,10 +1538,28 @@ initDB()
     app.listen(PORT, () => console.log(`BOS Dashboard running on port ${PORT}`));
     cleanupOldTaskPhotos();
     setInterval(cleanupOldTaskPhotos, 24 * 60 * 60 * 1000);
-    sendDailyOverdueTaskDigests();
-    setInterval(sendDailyOverdueTaskDigests, 24 * 60 * 60 * 1000);
-    sendDailyVisitLtlOverdueDigests();
-    setInterval(sendDailyVisitLtlOverdueDigests, 24 * 60 * 60 * 1000);
+
+    // Every recurring digest checks the master switch fresh, right before
+    // it would actually run — so turning automation off takes effect on
+    // the very next scheduled tick, no restart needed. Nothing here ever
+    // fires unless an admin has explicitly turned automation on from the
+    // control panel.
+    const runIfEnabled = async (fn, label) => {
+      if (await isEmailAutomationEnabled()) {
+        console.log(`Running scheduled digest: ${label}`);
+        await fn();
+      } else {
+        console.log(`Skipped scheduled digest (automation is off): ${label}`);
+      }
+    };
+    runIfEnabled(sendDailyOverdueTaskDigests, 'daily overdue tasks');
+    setInterval(() => runIfEnabled(sendDailyOverdueTaskDigests, 'daily overdue tasks'), 24 * 60 * 60 * 1000);
+    runIfEnabled(sendDailyVisitLtlOverdueDigests, 'daily visit/LTL overdue');
+    setInterval(() => runIfEnabled(sendDailyVisitLtlOverdueDigests, 'daily visit/LTL overdue'), 24 * 60 * 60 * 1000);
+    runIfEnabled(sendDailyCpaMilestoneDigests, 'daily CPA milestones');
+    setInterval(() => runIfEnabled(sendDailyCpaMilestoneDigests, 'daily CPA milestones'), 24 * 60 * 60 * 1000);
+    runIfEnabled(sendWeeklyCafeStatusDigests, 'weekly café status');
+    setInterval(() => runIfEnabled(sendWeeklyCafeStatusDigests, 'weekly café status'), 7 * 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
