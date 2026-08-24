@@ -1112,12 +1112,16 @@ function getStoresAndManagersData() {
   const bosData = bosMatch ? JSON.parse(bosMatch[1]) : { fsmStores: {}, managers: {} };
   const cafeData = cafeMatch ? JSON.parse(cafeMatch[1]) : { STORES: [] };
   const storesByName = {};
-  (cafeData.STORES || []).forEach(s => { storesByName[s.store_name] = s; });
+  const storesByAbbr = {};
+  (cafeData.STORES || []).forEach(s => {
+    storesByName[s.store_name] = s;
+    if (s.abbr && s.region) storesByAbbr[s.abbr + '_' + s.region] = s;
+  });
   const managerOfFsm = {};
   Object.entries(bosData.managers || {}).forEach(([mgr, fsmList]) => {
     (fsmList || []).forEach(fsm => { managerOfFsm[fsm] = mgr; });
   });
-  return { storesByName, managerOfFsm };
+  return { storesByName, storesByAbbr, managerOfFsm };
 }
 
 // Some manager keys used throughout BOS's data are short internal labels,
@@ -1388,8 +1392,10 @@ async function createServicingTasksForCurrentMonth() {
     const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
     const match = html.match(/<script id="service-schedule-data" type="application\/json">([\s\S]*?)<\/script>/);
     if (!match) return;
-    const serviceData = JSON.parse(match[1]).SERVICE_SCHEDULE_DATA || {};
-    const { storesByName } = getStoresAndManagersData();
+    const parsed = JSON.parse(match[1]);
+    const serviceDataByName = parsed.SERVICE_SCHEDULE_DATA || {};
+    const serviceDataByAbbr = parsed.SERVICE_SCHEDULE_DATA_BY_ABBR || {};
+    const { storesByName, storesByAbbr } = getStoresAndManagersData();
 
     const today = new Date();
     const currentYearMonth = today.toISOString().slice(0, 7); // e.g. "2026-09"
@@ -1401,25 +1407,29 @@ async function createServicingTasksForCurrentMonth() {
       existingActions.map(r => r.data).filter(a => a && a.servicingTaskFor).map(a => a.servicingTaskFor)
     );
 
-    for (const [storeName, sd] of Object.entries(serviceData)) {
-      if (!sd.next_service || sd.next_service.slice(0, 7) !== currentYearMonth) continue;
-      const trackingKey = storeName + '|' + currentYearMonth;
-      if (alreadyCreated.has(trackingKey)) continue;
-
-      const store = storesByName[storeName] || {};
+    async function maybeCreateTask(trackingKey, store, sd) {
+      if (!sd.next_service || sd.next_service.slice(0, 7) !== currentYearMonth) return;
+      if (alreadyCreated.has(trackingKey)) return;
       const actionRow = {
         id: newId('a'),
-        fsm: store.fsm || '',
-        store: storeName,
+        fsm: (store && store.fsm) || '',
+        store: (store && store.store_name) || trackingKey.split('|')[0],
         pillar: 'R&M',
         description: `Coffee equipment servicing due this month — follow up to confirm the service booking (next service was scheduled for ${sd.next_service}).`,
-        owner: store.fsm || 'BOS System',
+        owner: (store && store.fsm) || 'BOS System',
         dueDate,
         status: 'open',
         createdDate,
         servicingTaskFor: trackingKey,
       };
       await pool.query('INSERT INTO actions (id, data) VALUES ($1,$2)', [actionRow.id, actionRow]);
+    }
+
+    for (const [storeName, sd] of Object.entries(serviceDataByName)) {
+      await maybeCreateTask(storeName + '|' + currentYearMonth, storesByName[storeName], sd);
+    }
+    for (const [abbrKey, sd] of Object.entries(serviceDataByAbbr)) {
+      await maybeCreateTask(abbrKey + '|' + currentYearMonth, storesByAbbr[abbrKey], sd);
     }
   } catch (e) {
     console.error('createServicingTasksForCurrentMonth() error:', e.message);
