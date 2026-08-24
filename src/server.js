@@ -1374,6 +1374,58 @@ function calcCPAServer(store) {
 // many tasks are currently open — a single weekly rollup rather than
 // per-café alerts, using the exact same underlying data as the two daily
 // digests above.
+// ==================================================================
+// Coffee machine servicing — auto-creates a task the moment a café's
+// next-service date falls within the current calendar month, per
+// Franlo's spec: "for any café due for servicing in September, a task
+// will appear... with a 7 day due date." Runs daily; a tracking tag
+// (servicingTaskFor) on each created task prevents ever creating the
+// same café's servicing reminder twice for the same month, even though
+// this check runs every day throughout that month.
+// ==================================================================
+async function createServicingTasksForCurrentMonth() {
+  try {
+    const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    const match = html.match(/<script id="service-schedule-data" type="application\/json">([\s\S]*?)<\/script>/);
+    if (!match) return;
+    const serviceData = JSON.parse(match[1]).SERVICE_SCHEDULE_DATA || {};
+    const { storesByName } = getStoresAndManagersData();
+
+    const today = new Date();
+    const currentYearMonth = today.toISOString().slice(0, 7); // e.g. "2026-09"
+    const dueDate = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
+    const createdDate = today.toISOString().slice(0, 10);
+
+    const { rows: existingActions } = await pool.query('SELECT data FROM actions');
+    const alreadyCreated = new Set(
+      existingActions.map(r => r.data).filter(a => a && a.servicingTaskFor).map(a => a.servicingTaskFor)
+    );
+
+    for (const [storeName, sd] of Object.entries(serviceData)) {
+      if (!sd.next_service || sd.next_service.slice(0, 7) !== currentYearMonth) continue;
+      const trackingKey = storeName + '|' + currentYearMonth;
+      if (alreadyCreated.has(trackingKey)) continue;
+
+      const store = storesByName[storeName] || {};
+      const actionRow = {
+        id: newId('a'),
+        fsm: store.fsm || '',
+        store: storeName,
+        pillar: 'R&M',
+        description: `Coffee equipment servicing due this month — follow up to confirm the service booking (next service was scheduled for ${sd.next_service}).`,
+        owner: store.fsm || 'BOS System',
+        dueDate,
+        status: 'open',
+        createdDate,
+        servicingTaskFor: trackingKey,
+      };
+      await pool.query('INSERT INTO actions (id, data) VALUES ($1,$2)', [actionRow.id, actionRow]);
+    }
+  } catch (e) {
+    console.error('createServicingTasksForCurrentMonth() error:', e.message);
+  }
+}
+
 async function sendWeeklyCafeStatusDigests() {
   if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
   const summary = newDigestSummary();
@@ -1625,6 +1677,8 @@ initDB()
     setInterval(() => runIfEnabled(sendDailyCpaMilestoneDigests, 'daily CPA milestones'), 24 * 60 * 60 * 1000);
     runIfEnabled(sendWeeklyCafeStatusDigests, 'weekly café status');
     setInterval(() => runIfEnabled(sendWeeklyCafeStatusDigests, 'weekly café status'), 7 * 24 * 60 * 60 * 1000);
+    createServicingTasksForCurrentMonth();
+    setInterval(createServicingTasksForCurrentMonth, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
