@@ -3702,14 +3702,14 @@ Share the app URL with everyone. Each person signs in with their own username/pa
         <table class="data-table">
           <thead><tr><th>Username</th><th>Display Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
           <tbody>${users.map(u => {
-            const nameMismatch = u.display_name && canonicalNames.length && !canonicalNames.includes(u.display_name)
-              && canonicalNames.some(n => n.toLowerCase().split(' ')[0] === (u.display_name||'').toLowerCase().split(' ')[0]); // shares a first name with a known FSM/manager, but isn't an exact match
+            const suggestion = canonicalNames.find(n => n.toLowerCase().split(' ')[0] === (u.display_name||'').toLowerCase().split(' ')[0]);
+            const nameMismatch = u.display_name && canonicalNames.length && !canonicalNames.includes(u.display_name) && !!suggestion;
             return `
             <tr>
               <td>${u.username}</td>
               <td>
                 <input type="text" class="admDisplayNameField" list="admCanonicalNames" data-id="${u.id}" value="${escapeHtmlVR2(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid ${nameMismatch?'var(--red)':'var(--grey-300)'};">
-                ${nameMismatch ? `<div style="font-size:10px;color:var(--red);margin-top:2px;max-width:140px;">⚠ Doesn't exactly match a known FSM/manager name — emails sent to them may silently fail. Pick the suggested spelling from the list.</div>` : ''}
+                ${nameMismatch ? `<div style="font-size:10px;color:var(--red);margin-top:2px;max-width:160px;">⚠ Doesn't exactly match "${escapeHtmlVR2(suggestion)}" — emails may silently fail.<br><button class="btn btn-outline btn-mini admUseSuggestedNameBtn" data-id="${u.id}" data-suggested="${escapeHtmlVR2(suggestion)}" style="margin-top:3px;font-size:10px;padding:2px 6px;">Use "${escapeHtmlVR2(suggestion)}"</button></div>` : ''}
               </td>
               <td><input type="email" class="admEmailField" data-id="${u.id}" value="${escapeHtmlVR2(u.email || '')}" placeholder="name@bootlegger.co.za" style="width:180px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
               <td>
@@ -3730,6 +3730,13 @@ Share the app URL with everyone. Each person signs in with their own username/pa
       document.querySelectorAll('.admDisplayNameField').forEach(el => el.addEventListener('change', async () => {
         try { await apiFetchAdmin(el.dataset.id, { display_name: el.value.trim() }); toast('Display name updated'); }
         catch(e){ toast(e.message || 'Could not update display name'); loadUsers(); }
+      }));
+      document.querySelectorAll('.admUseSuggestedNameBtn').forEach(btn => btn.addEventListener('click', async () => {
+        try {
+          await apiFetchAdmin(btn.dataset.id, { display_name: btn.dataset.suggested });
+          toast(`Display name updated to "${btn.dataset.suggested}" — emails to them should now resolve correctly.`);
+          loadUsers();
+        } catch(e){ toast(e.message || 'Could not update display name'); }
       }));
       document.querySelectorAll('.admEmailField').forEach(el => el.addEventListener('change', async () => {
         const val = el.value.trim();
