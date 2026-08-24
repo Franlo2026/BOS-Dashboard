@@ -3214,8 +3214,8 @@ const UPLOAD_TYPES = [
     desc:'The "#1 [Brand]" sheet from the Google ratings export, as-is (Store, Live Page Score, Brand Review Avg.).',
     note:'This export doesn\'t include a review count, only the live star rating and the network brand average — a review-count tracker would need a different source.' },
   { key:'cspi', label:'CSPI (Customer Sentiment)', accept:'.csv,.xlsx,.xls', ready:true,
-    desc:'One row per store. Columns: store_name, category (all_day or xs_kiosk_petrol), month_label (e.g. "Jun"), score, ytd_score.',
-    note:'The source Performance Indicator workbook is multi-tab and too complex to parse in-browser — ask Claude: "generate this month\'s CSPI report and the BOS upload CSV" — it runs the cspi-report-bootlegger skill and hands you both the branded report and this flat CSV. Each upload is a single new month\'s snapshot; the 3-month rolling window (shown on Cafe Status) shifts forward automatically, same as Flow.' },
+    desc:'One row per store. Required: store_name, category (all_day or xs_kiosk_petrol), month_label (e.g. "Jul"), score, ytd_score. Optional (updates Google Rating & Mystery Diner KPIs too): cafe_visit, google, mystery_diner, complaints, cafe_visit_ytd, google_ytd, mystery_diner_ytd, complaints_ytd.',
+    note:'The source Performance Indicator workbook is multi-tab and too complex to parse in-browser — ask Claude: \"generate this month\'s CSPI report and the BOS upload CSV\" — it runs the cspi-report-bootlegger skill and hands you both the branded report and this flat CSV, including the component columns. Each upload is a single new month\'s snapshot; the 3-month rolling window (shown on Cafe Status) shifts forward automatically, same as Flow.' },
 ];
 const UPLOAD_META = {}; // key -> { uploadedAt, uploadedBy, rows }
 
@@ -3263,6 +3263,12 @@ async function loadDataUploadOverrides(){
       mutateReplace(CSPI_DATA, JSON.parse(r.value));
     }
   } catch (e) { /* keep embedded data if this fails */ }
+  try {
+    if (UPLOAD_META.cspi) {
+      const r = await apiGet('/api/storage/bos-upload-data-cspi-components');
+      mutateReplace(CSPI_COMPONENTS, JSON.parse(r.value));
+    }
+  } catch (e) { /* keep embedded data if this fails — e.g. an older upload made before this component breakdown existed */ }
 }
 
 function uploadSpi(sales, inv){ return inv ? Math.round((sales/inv)*100)/100 : null; }
@@ -3481,6 +3487,7 @@ function parseFlowUploadRows(aoa){
 // 3-month window shifts forward the same way Flow's does.
 function parseCspiUploadRows(rows){
   const CSPI_DATA_NEW = {};
+  const CSPI_COMPONENTS_NEW = {};
   rows.forEach(r => {
     const name = String(r.store_name || r.Store || r.Branch || '').trim();
     if (!name) return;
@@ -3497,8 +3504,19 @@ function parseCspiUploadRows(rows){
       ytd: ytd,
       type: type,
     };
+    // Component breakdown — only added to CSPI_COMPONENTS if the upload
+    // actually includes these columns (an older-format upload with just
+    // score/ytd_score still updates CSPI_DATA above, just not this).
+    const cafeVisit = num(r.cafe_visit); const google = num(r.google); const mysteryDiner = num(r.mystery_diner); const complaints = num(r.complaints);
+    const cafeVisitYtd = num(r.cafe_visit_ytd); const googleYtd = num(r.google_ytd); const mysteryDinerYtd = num(r.mystery_diner_ytd); const complaintsYtd = num(r.complaints_ytd);
+    if (google !== null || mysteryDiner !== null) {
+      CSPI_COMPONENTS_NEW[name] = {
+        cafeVisit_jul: cafeVisit, google_jul: google, mysteryDiner_jul: mysteryDiner, complaints_jul: complaints, score_jul: score,
+        cafeVisit_ytd: cafeVisitYtd, google_ytd: googleYtd, mysteryDiner_ytd: mysteryDinerYtd, complaints_ytd: complaintsYtd, score_ytd: ytd,
+      };
+    }
   });
-  return CSPI_DATA_NEW;
+  return { CSPI_DATA: CSPI_DATA_NEW, CSPI_COMPONENTS: CSPI_COMPONENTS_NEW };
 }
 
 function readWorkbookRows(file, opts){
@@ -3594,10 +3612,16 @@ async function handleDataUpload(key, file){
       const rows = await readWorkbookRows(file);
       if (!rows.length) { toast('No rows found in that file'); return; }
       const parsed = parseCspiUploadRows(rows);
-      if (!Object.keys(parsed).length) { toast('No café rows found — expected store_name, category, month_label, score, ytd_score columns'); return; }
-      mutateReplace(CSPI_DATA, parsed);
-      await fetch('/api/storage/bos-upload-data-cspi', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
-      meta.rows = Object.keys(parsed).length;
+      if (!Object.keys(parsed.CSPI_DATA).length) { toast('No café rows found — expected store_name, category, month_label, score, ytd_score columns'); return; }
+      mutateReplace(CSPI_DATA, parsed.CSPI_DATA);
+      await fetch('/api/storage/bos-upload-data-cspi', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed.CSPI_DATA) }) });
+      const hasComponents = Object.keys(parsed.CSPI_COMPONENTS).length > 0;
+      if (hasComponents) {
+        mutateReplace(CSPI_COMPONENTS, parsed.CSPI_COMPONENTS);
+        await fetch('/api/storage/bos-upload-data-cspi-components', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed.CSPI_COMPONENTS) }) });
+      }
+      meta.rows = Object.keys(parsed.CSPI_DATA).length;
+      meta.notes = hasComponents ? 'includes Google/Mystery Diner breakdown' : 'blended score only — Google Rating & Mystery Diner KPIs unchanged (add cafe_visit/google/mystery_diner/complaints columns to update those too)';
 
     } else {
       toast('This upload type isn\'t wired up yet — share a sample file and it can be added.');
