@@ -3691,13 +3691,26 @@ Share the app URL with everyone. Each person signs in with their own username/pa
         const activeNames = users.filter(u => u.active).map(u => u.display_name || u.username);
         await fetch('/api/storage/active-user-roster', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(activeNames) }) });
       } catch (e) { /* non-fatal — dropdowns just fall back to the static roster */ }
+      // Exact canonical spellings BOS actually matches against when
+      // resolving who to email — a display name that's close but not
+      // identical (e.g. "Charlene Van Heerden" vs the canonical
+      // "Charlene v Heerden") will silently fail to match anywhere emails
+      // are sent, even though the email itself is saved correctly.
+      const canonicalNames = Array.from(new Set([...FSM_LIST, 'Franlo Geldenhuys', 'Tarryn Palmer']));
       document.getElementById('admUserTable').innerHTML = `
+        <datalist id="admCanonicalNames">${canonicalNames.map(n => `<option value="${escapeHtmlVR2(n)}">`).join('')}</datalist>
         <table class="data-table">
           <thead><tr><th>Username</th><th>Display Name</th><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead>
-          <tbody>${users.map(u => `
+          <tbody>${users.map(u => {
+            const nameMismatch = u.display_name && canonicalNames.length && !canonicalNames.includes(u.display_name)
+              && canonicalNames.some(n => n.toLowerCase().split(' ')[0] === (u.display_name||'').toLowerCase().split(' ')[0]); // shares a first name with a known FSM/manager, but isn't an exact match
+            return `
             <tr>
               <td>${u.username}</td>
-              <td><input type="text" class="admDisplayNameField" data-id="${u.id}" value="${escapeHtmlVR2(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
+              <td>
+                <input type="text" class="admDisplayNameField" list="admCanonicalNames" data-id="${u.id}" value="${escapeHtmlVR2(u.display_name || '')}" style="width:140px;font-size:12px;padding:4px 6px;border:1px solid ${nameMismatch?'var(--red)':'var(--grey-300)'};">
+                ${nameMismatch ? `<div style="font-size:10px;color:var(--red);margin-top:2px;max-width:140px;">⚠ Doesn't exactly match a known FSM/manager name — emails sent to them may silently fail. Pick the suggested spelling from the list.</div>` : ''}
+              </td>
               <td><input type="email" class="admEmailField" data-id="${u.id}" value="${escapeHtmlVR2(u.email || '')}" placeholder="name@bootlegger.co.za" style="width:180px;font-size:12px;padding:4px 6px;border:1px solid var(--grey-300);"></td>
               <td>
                 <select class="admRoleSel" data-id="${u.id}" ${u.username===USERNAME?'disabled':''}>
@@ -3712,7 +3725,7 @@ Share the app URL with everyone. Each person signs in with their own username/pa
                 <button class="btn btn-outline btn-mini admResetPwBtn" data-id="${u.id}" data-username="${escapeHtmlVR2(u.username)}">Reset Password</button>
               </td>
             </tr>
-          `).join('')}</tbody>
+          `; }).join('')}</tbody>
         </table>`;
       document.querySelectorAll('.admDisplayNameField').forEach(el => el.addEventListener('change', async () => {
         try { await apiFetchAdmin(el.dataset.id, { display_name: el.value.trim() }); toast('Display name updated'); }
