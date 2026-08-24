@@ -1476,7 +1476,7 @@ async function sendDailyOverdueTaskDigests() {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const { rows } = await pool.query('SELECT data FROM actions');
-    const overdue = rows.map(r => r.data).filter(a => a && a.status !== 'closed' && a.dueDate && a.dueDate < today);
+    const overdue = rows.map(r => r.data).filter(a => a && a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < today);
     const byStore = {};
     overdue.forEach(a => { (byStore[a.store] = byStore[a.store] || []).push(a); });
     for (const [store, tasks] of Object.entries(byStore)) {
