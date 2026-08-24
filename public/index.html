@@ -3859,7 +3859,7 @@ function viewVisitReports(){
   // A manual override (archive early, or pull an old one back) is layered
   // on top via the generic KV storage endpoint, keyed by visit id, so this
   // doesn't need any backend schema change.
-  const AUTO_ARCHIVE_DAYS = 30;
+  const AUTO_ARCHIVE_HOURS = 48;
   let VR_TAB = 'open';
   let ARCHIVE_OVERRIDES = {};
   let overridesLoaded = false;
@@ -3878,6 +3878,19 @@ function viewVisitReports(){
       body: JSON.stringify({ value: JSON.stringify(ARCHIVE_OVERRIDES) }),
     });
   }
+  // Hours since this report was actually logged — prefers the precise
+  // submission timestamp (set the moment someone hits Submit in
+  // log-support-visit.html) over the visit date, since a date alone would
+  // round everything to midnight and make the 48-hour window inaccurate
+  // (e.g. a report logged at 11pm would look nearly a full day old
+  // immediately). Falls back to the visit date for any older record that
+  // predates this timestamp being captured.
+  function hoursSinceLogged(v){
+    const preciseTs = v.fullReport && v.fullReport.meta && v.fullReport.meta.endTime;
+    const d = preciseTs ? new Date(preciseTs) : new Date(v.date + 'T00:00:00');
+    if (isNaN(d)) return 0;
+    return (Date.now() - d.getTime()) / 3600000;
+  }
   function daysSince(dateStr){
     const d = new Date(dateStr + 'T00:00:00');
     if (isNaN(d)) return 0;
@@ -3889,10 +3902,10 @@ function viewVisitReports(){
   function isArchived(v){
     if (Object.prototype.hasOwnProperty.call(ARCHIVE_OVERRIDES, v.id)) return !!ARCHIVE_OVERRIDES[v.id];
     // A report with tasks still open shouldn't silently drop into Archived
-    // just because 30 days passed — it stays in Open Jobs until those
-    // tasks are actually closed (or someone archives it manually).
+    // just because time passed — it stays in Open Jobs until those tasks
+    // are actually closed (or someone archives it manually).
     if (linkedActionsFor(v).some(a => a.status !== 'closed')) return false;
-    return daysSince(v.date) >= AUTO_ARCHIVE_DAYS;
+    return hoursSinceLogged(v) >= AUTO_ARCHIVE_HOURS;
   }
   async function toggleArchive(v){
     ARCHIVE_OVERRIDES[v.id] = !isArchived(v);
