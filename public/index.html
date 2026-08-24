@@ -125,7 +125,7 @@ nav.topnav {
 .grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }
 .grid-4 { display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:16px; }
 .grid-6 { display:grid; grid-template-columns:repeat(6,1fr); gap:14px; }
-@media (max-width: 900px){ .grid-5, .grid-6, .grid-4 { grid-template-columns:repeat(2,1fr); } .grid-5>div{border-right:none;border-bottom:1px solid var(--grey-200);} .grid-2,.grid-2-1,.grid-3{grid-template-columns:1fr;} }
+@media (max-width: 900px){ .grid-5, .grid-6, .grid-4 { grid-template-columns:repeat(2,1fr); } .grid-5>div{border-right:none;border-bottom:1px solid var(--grey-200);} .grid-2,.grid-2-1,.grid-3{grid-template-columns:1fr;} #taskKpis{grid-template-columns:repeat(2,1fr) !important;} }
 
 .card { background:var(--white); border:1px solid var(--grey-200); padding:20px 22px; margin-bottom:16px; }
 .section-title { font-size:11px; font-weight:700; letter-spacing:0.08em; text-transform:uppercase; margin-bottom:14px; }
@@ -1055,14 +1055,14 @@ function actionsClosed(fsmFilter, range){
   const relevant = STATE.actions.filter(a => (!fsmFilter || a.fsm === fsmFilter) && taskInRange(a, range));
   if (!relevant.length) return { pct:null, closed:0, total:0, overdue:0 };
   const closed = relevant.filter(a => a.status === 'closed').length;
-  const overdue = relevant.filter(a => a.status !== 'closed' && a.dueDate && a.dueDate < todayISO()).length;
+  const overdue = relevant.filter(a => a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < todayISO()).length;
   return { pct: (closed/relevant.length)*100, closed, total: relevant.length, overdue };
 }
 function actionsClosedForFsms(fsms, range){
   const relevant = STATE.actions.filter(a => fsms.includes(a.fsm) && taskInRange(a, range));
   if (!relevant.length) return { pct:null, closed:0, total:0, overdue:0 };
   const closed = relevant.filter(a => a.status === 'closed').length;
-  const overdue = relevant.filter(a => a.status !== 'closed' && a.dueDate && a.dueDate < todayISO()).length;
+  const overdue = relevant.filter(a => a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < todayISO()).length;
   return { pct: (closed/relevant.length)*100, closed, total: relevant.length, overdue };
 }
 function bbetterForFsms(fsms){
@@ -1623,7 +1623,7 @@ function renderDrilldown(){
     var head = '<tr><th>Store</th><th>FSM</th><th>Status</th></tr>';
   } else if (metric === 'actions') {
     title = 'Overdue Open Tasks';
-    const overdue = STATE.actions.filter(a => fsms.includes(a.fsm) && a.status !== 'closed' && a.dueDate && a.dueDate < todayISO())
+    const overdue = STATE.actions.filter(a => fsms.includes(a.fsm) && a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < todayISO())
       .sort((a,b) => a.dueDate.localeCompare(b.dueDate));
     rows = overdue.map(a => `<tr><td>${a.store}</td><td>${a.fsm}</td><td>${a.description||''}</td><td class="rag-text red">${a.dueDate}</td></tr>`);
     var head = '<tr><th>Store</th><th>FSM</th><th>Action</th><th>Due Date</th></tr>';
@@ -2425,12 +2425,13 @@ function viewActions(){
       <div><div class="page-title">Task Tracker</div><div class="page-subtitle">Live actions from GRIND visits · Filterable by FSM / Pillar / Status</div></div>
       <div class="period-badge">TARGET ≥80% CLOSED</div>
     </div>
-    <div class="grid-4" id="taskKpis" style="margin-bottom:16px;"></div>
+    <div id="taskKpis" style="margin-bottom:16px;display:grid;grid-template-columns:repeat(5,1fr);gap:16px;"></div>
     <div id="taskOverdueBanner"></div>
     <div class="card">
       <div class="segmented" id="taskSubTab" style="margin-bottom:14px;">
         <button class="segmented-btn active" data-sub="open">Open Tasks</button>
         <button class="segmented-btn" data-sub="completed">Completed Tasks</button>
+        <button class="segmented-btn" data-sub="escalations">Escalations</button>
         <button class="segmented-btn" data-sub="nonconformance">Non-Conformances</button>
       </div>
       <div class="filter-row">
@@ -2533,13 +2534,16 @@ function viewActions(){
     return { text: Math.round(hrs/24) + 'd left', overdue: false };
   }
 
-  function isTaskOverdue(a){ return a.status !== 'closed' && a.dueDate && a.dueDate < todayISO(); }
+  function isTaskOverdue(a){ return a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < todayISO(); }
   function filteredRows(){
     const fsmF = document.getElementById('actFsm').value, pillarF = document.getElementById('actPillar').value, statusF = document.getElementById('actStatus').value;
     const regionF = document.getElementById('actRegion').value;
     const searchF = document.getElementById('actSearch').value.trim().toLowerCase();
     return [...STATE.actions, ...OPS_AS_TASKS].filter(a =>
-      (subTab==='completed' ? a.status==='closed' : subTab==='nonconformance' ? true : a.status!=='closed') &&
+      (subTab==='completed' ? a.status==='closed'
+        : subTab==='escalations' ? a.status==='escalated'
+        : subTab==='nonconformance' ? true
+        : (a.status!=='closed' && a.status!=='escalated')) &&
       (subTab!=='nonconformance' || a.isNonConformance) &&
       (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) &&
       (!statusF || (statusF==='overdue' ? isTaskOverdue(a) : a.status===statusF)) &&
@@ -2551,14 +2555,16 @@ function viewActions(){
 
   function render(){
     const rows = filteredRows();
-    const active = rows.filter(r=>r.status!=='closed');
+    const active = rows.filter(r=>r.status!=='closed' && r.status!=='escalated');
     const overdue = active.filter(r=>r.dueDate && r.dueDate<todayISO());
     const completed = rows.filter(r=>r.status==='closed');
+    const escalated = rows.filter(r=>r.status==='escalated');
 
     document.getElementById('taskKpis').innerHTML = `
       <div class="card" style="border-top:3px solid var(--gold);"><div class="card-value">${active.length}</div><div class="card-label">Active Tasks</div></div>
       <div class="card" style="border-top:3px solid var(--red);"><div class="card-value" style="color:var(--red);">${overdue.length}</div><div class="card-label">Overdue</div>${overdue.length?`<div class="card-sub" style="color:var(--red);">${overdue.length} need attention</div>`:''}</div>
       <div class="card" style="border-top:3px solid var(--green);"><div class="card-value" style="color:var(--green);">${completed.length}</div><div class="card-label">Completed</div></div>
+      <div class="card" style="border-top:3px solid #7c3aed;"><div class="card-value" style="color:#7c3aed;">${escalated.length}</div><div class="card-label">Escalated</div></div>
       <div class="card" style="border-top:3px solid #2563eb;"><div class="card-value" style="color:#2563eb;">${rows.length}</div><div class="card-label">Total Logged</div></div>
     `;
 
@@ -2611,7 +2617,7 @@ function viewActions(){
         return `<div class="card task-card" style="border-left:3px solid ${borderColor};margin-bottom:10px;">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;">
             <div>
-              <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span> ${a.status==='closed'?'<span class="badge green">CLOSED</span>':''} ${a.isNonConformance?'<span class="badge red" style="margin-left:4px;">⚠ NON-CONFORMANCE</span>':''} ${a._isOpsTask?'<span class="badge" style="background:var(--grey-100);color:var(--grey-500);margin-left:4px;">+ Add Task</span>':''}</div>
+              <div><b>${a.store}</b> <span class="badge" style="margin-left:6px;">${a.pillar}</span> ${a.status==='closed'?'<span class="badge green">CLOSED</span>':''} ${a.status==='escalated'?'<span class="badge" style="background:#ede9fe;color:#7c3aed;margin-left:4px;">⬆ ESCALATED</span>':''} ${a.isNonConformance?'<span class="badge red" style="margin-left:4px;">⚠ NON-CONFORMANCE</span>':''} ${a._isOpsTask?'<span class="badge" style="background:var(--grey-100);color:var(--grey-500);margin-left:4px;">+ Add Task</span>':''}</div>
               <div style="font-size:11px;color:var(--grey-500);margin-top:3px;">${a._isOpsTask?'Reported by':'FSM:'} ${a.fsm||a.owner} · by ${a.owner} · Logged ${a.createdDate||''}${a._isOpsTask&&a.responsiblePerson ? ' · Responsible: '+a.responsiblePerson : ''}</div>
               <div id="taskDesc_${editId}" style="background:var(--grey-100);padding:8px 10px;margin-top:8px;font-size:12px;border-left:2px solid var(--grey-300);">${a.description||''}</div>
               ${(a.photoUrls && a.photoUrls.length) ? a.photoUrls.map(u => `<img src="${u}" class="actOpsPhotoThumb" data-src="${u}" style="width:50px;height:50px;object-fit:cover;border-radius:4px;margin:8px 6px 0 0;cursor:pointer;">`).join('') : ''}
@@ -2625,6 +2631,9 @@ function viewActions(){
                 ${a.status!=='closed'
                   ? `<button class="btn btn-gold btn-mini ${completeBtnClass}" data-id="${completeId}">Complete</button>`
                   : (a._isOpsTask ? '' : `<button class="btn btn-outline btn-mini actReopenBtn" data-id="${a.id}">Reopen</button>`)}
+                ${(a.status!=='closed' && a.status!=='escalated' && !a._isOpsTask)
+                  ? `<button class="btn btn-outline btn-mini actEscalateBtn" data-id="${a.id}" style="color:#7c3aed;border-color:#7c3aed;">⬆ Escalate</button>`
+                  : ''}
               </div>
             </div>
           </div>
@@ -2792,6 +2801,14 @@ function viewActions(){
       btn.disabled = true;
       try { await apiPatch('/api/actions/' + btn.dataset.id, { status: 'open', comment: comment.trim() }); await refreshState(); render(); }
       catch(e) { toast(e.message || 'Could not reopen — check connection and try again'); btn.disabled = false; }
+    }));
+    document.querySelectorAll('.actEscalateBtn').forEach(btn => btn.addEventListener('click', async () => {
+      const comment = prompt('Why is this being escalated to Franlo / Tarryn?');
+      if (comment === null) return;
+      if (!comment.trim()) { toast('A comment is required to escalate a task'); return; }
+      btn.disabled = true;
+      try { await apiPatch('/api/actions/' + btn.dataset.id, { status: 'escalated', comment: comment.trim() }); await refreshState(); render(); toast('Escalated — this no longer counts against overdue, and now needs Franlo/Tarryn to action it.'); }
+      catch(e) { toast(e.message || 'Could not escalate — check connection and try again'); btn.disabled = false; }
     }));
     document.querySelectorAll('.actExtendBtn').forEach(btn => btn.addEventListener('click', async () => {
       const newDate = document.getElementById('extendDate_' + btn.dataset.id).value;
@@ -3833,8 +3850,6 @@ function viewVisitReports(){
       <select id="vrTypeFilter"><option value="">All Types</option><option value="Support Visit">Support Visit</option><option value="Trainer Visit">Trainer Visit</option></select>
     </div>
     ${renderDateRangeFilterHtml('visitreports')}
-    <div id="vrEmptyWrap"></div>
-    <div id="vrDupWrap"></div>
     <div id="vrTableWrap"></div>
     <div id="vrPrintArea" style="display:none;"></div>
   `;
@@ -4097,7 +4112,7 @@ function viewVisitReports(){
   document.querySelectorAll('.vrTabBtn').forEach(btn => btn.addEventListener('click', () => { VR_TAB = btn.dataset.tab; render(); }));
   wireDateRangeFilter('visitreports', render);
 
-  loadOverrides().then(() => { renderEmptyReportsFinder(); renderDuplicateFinder(); render(); });
+  loadOverrides().then(() => { render(); });
 
   async function deleteVisitReport(id){
     const v = STATE.visits.find(r => r.id === id);
