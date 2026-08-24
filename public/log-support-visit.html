@@ -116,6 +116,16 @@ body {
 .intro-step .num { color: var(--gold); font-weight: 800; font-size: 11px; margin-right: 3px; }
 .intro-step .ttl { font-weight: 700; text-transform: uppercase; display: block; margin-bottom: 2px; letter-spacing: 0.02em; }
 
+/* Simple, independent collapsible dropdown — separate from the form's own
+   accordion-style .section toggling (toggleSection), so opening/closing
+   these never affects which form section is currently expanded. */
+.mini-dropdown .intro-head { cursor: pointer; user-select: none; display: flex; align-items: center; justify-content: space-between; }
+.mini-dropdown .intro-head .mini-chev { font-size: 11px; transition: transform .2s; }
+.mini-dropdown.collapsed .mini-chev { transform: rotate(-90deg); }
+.mini-dropdown.collapsed .intro-body { display: none; }
+.priority-list { padding: 12px 16px; margin: 0; }
+.priority-list li { font-size: 11.5px; line-height: 1.7; padding-left: 4px; }
+
 /* progress bar overall */
 .progress-wrap {
   background: var(--white); border: 1px solid var(--grey-200); padding: 10px 16px; margin-bottom: 20px;
@@ -343,14 +353,39 @@ body {
     </div>
     <div class="timestamp-line" id="timestampLine">Visit Started: <b>—</b> &nbsp;·&nbsp; Visit Completed: <b>—</b></div>
 
-    <div class="intro-card">
-      <div class="intro-head">Visit Flow — At a Glance</div>
-      <div class="intro-steps">
-        <div class="intro-step"><span class="num">1</span><span class="ttl">G — Greet</span>Wait at door until greeted. Read the room first — feel before you check. Greet staff and management/franchisee first, set the tone with energy.</div>
-        <div class="intro-step"><span class="num">2</span><span class="ttl">R — Review</span>Figure-8 walk-through. Add observation notes for support — identify gaps, risks and issues in each section as you pass.</div>
-        <div class="intro-step"><span class="num">3</span><span class="ttl">I — Improve</span>Work through each section, addressing support observations, actioning retraining and coaching the skill on the spot. Add clear steps taken, or action required.</div>
-        <div class="intro-step"><span class="num">4</span><span class="ttl">N — Note</span>Quality check on menu items, unpacking café status, servicing records &amp; H&amp;S file, outstanding tasks/non-conformances. Document feedback and log next steps.</div>
-        <div class="intro-step"><span class="num">5</span><span class="ttl">D — Debrief</span>Full debrief and feedback session with senior management/franchisee on the report. Close the loop — learn and reset for next time.</div>
+    <div class="intro-card mini-dropdown collapsed" id="introFlowCard">
+      <div class="intro-head" onclick="document.getElementById('introFlowCard').classList.toggle('collapsed')">
+        <span>Visit Flow — At a Glance</span><span class="mini-chev">▾</span>
+      </div>
+      <div class="intro-body">
+        <div class="intro-steps">
+          <div class="intro-step"><span class="num">1</span><span class="ttl">G — Greet</span>Wait at door until greeted. Read the room first — feel before you check. Greet staff and management/franchisee first, set the tone with energy.</div>
+          <div class="intro-step"><span class="num">2</span><span class="ttl">R — Review</span>Figure-8 walk-through. Add observation notes for support — identify gaps, risks and issues in each section as you pass.</div>
+          <div class="intro-step"><span class="num">3</span><span class="ttl">I — Improve</span>Work through each section, addressing support observations, actioning retraining and coaching the skill on the spot. Add clear steps taken, or action required.</div>
+          <div class="intro-step"><span class="num">4</span><span class="ttl">N — Note</span>Quality check on menu items, unpacking café status, servicing records &amp; H&amp;S file, outstanding tasks/non-conformances. Document feedback and log next steps.</div>
+          <div class="intro-step"><span class="num">5</span><span class="ttl">D — Debrief</span>Full debrief and feedback session with senior management/franchisee on the report. Close the loop — learn and reset for next time.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="intro-card mini-dropdown collapsed" id="introPriorityCard">
+      <div class="intro-head" onclick="document.getElementById('introPriorityCard').classList.toggle('collapsed')">
+        <span>Priority Improvement Highlights</span><span class="mini-chev">▾</span>
+      </div>
+      <div class="intro-body">
+        <div style="padding:8px 16px 0;font-size:10.5px;color:var(--grey-500);font-style:italic;">Top-of-mind reminders — not a checklist, nothing here needs to be ticked off.</div>
+        <ul class="priority-list">
+          <li>Check all checklists</li>
+          <li>Spot check storage, dating &amp; labeling in all sections</li>
+          <li>Grill in operation</li>
+          <li>Frother present</li>
+          <li>Linked card test</li>
+          <li>Delivery devices switched on</li>
+          <li>Flow device switched on</li>
+          <li>Enough can glasses for Summer trade</li>
+          <li>Uniforms</li>
+          <li>B.Better Verification up to date</li>
+        </ul>
       </div>
     </div>
 
