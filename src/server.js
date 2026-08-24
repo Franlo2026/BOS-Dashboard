@@ -1113,6 +1113,42 @@ function getStoresAndManagersData() {
   return { storesByName, managerOfFsm };
 }
 
+// Some manager keys used throughout BOS's data are short internal labels,
+// not the person's real name as it'll appear in the users table (Tarryn's
+// key already happens to be her full name, but Franlo's isn't) — this is
+// a known, permanent convention difference, not a typo, so it's handled
+// as an explicit alias rather than by fuzzy matching.
+const MANAGER_NAME_ALIASES = { Franlo: 'Franlo Geldenhuys' };
+
+function normalizePersonName(s) {
+  return String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+}
+
+// Looks up a user's email by name, tolerating minor real-world spelling
+// drift between the canonical FSM/manager name used in BOS's data and
+// whatever got typed into that person's Display Name in Admin — e.g.
+// "Charlene v Heerden" (canonical) vs "Charlene Van Heerden" (as entered).
+// Tries an exact match first (fast path, no ambiguity), then an explicit
+// alias, then falls back to a normalized comparison against every active
+// user. If more than one user normalizes to the same thing, this
+// deliberately returns nothing rather than guessing which one is right.
+async function findUserEmailByName(name) {
+  if (!name) return null;
+  const exact = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [name]);
+  if (exact.rows[0]) return exact.rows[0].email;
+
+  const aliased = MANAGER_NAME_ALIASES[name];
+  if (aliased) {
+    const aliasMatch = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [aliased]);
+    if (aliasMatch.rows[0]) return aliasMatch.rows[0].email;
+  }
+
+  const target = normalizePersonName(name);
+  const all = await pool.query('SELECT display_name, email FROM users WHERE email IS NOT NULL');
+  const matches = all.rows.filter(u => normalizePersonName(u.display_name) === target);
+  return matches.length === 1 ? matches[0].email : null;
+}
+
 // Recipients for a given café + its FSM: the café's own mailbox, the
 // FSM's email (looked up in the users table by matching display name),
 // their regional manager's email, and the franchisee's email once that's
@@ -1129,13 +1165,9 @@ async function resolveStoreNotificationRecipientsLabeled(storeName, fsmName) {
   add('Franchisee' + (store.franchisee_name ? ` (${store.franchisee_name})` : ''), store.franchisee_email);
   add('Operator' + (store.operator_name ? ` (${store.operator_name})` : ''), store.operator_email);
   if (fsmName) {
-    const { rows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [fsmName]);
-    add(`FSM (${fsmName})`, rows[0] && rows[0].email);
+    add(`FSM (${fsmName})`, await findUserEmailByName(fsmName));
     const mgrName = managerOfFsm[fsmName];
-    if (mgrName) {
-      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
-      add(`Regional Manager (${mgrName})`, mrows[0] && mrows[0].email);
-    }
+    if (mgrName) add(`Regional Manager (${mgrName})`, await findUserEmailByName(mgrName));
   }
   return out;
 }
@@ -1158,13 +1190,9 @@ async function resolveStoreNotificationRecipientsForModal(storeName, fsmName) {
   if (store.franchisee_name || store.franchisee_email) add(`Franchisee${store.franchisee_name ? ` (${store.franchisee_name})` : ''}`, store.franchisee_email, 'No franchisee email on file');
   if (store.operator_name || store.operator_email) add(`Operator${store.operator_name ? ` (${store.operator_name})` : ''}`, store.operator_email, 'No operator email on file');
   if (fsmName) {
-    const { rows } = await pool.query('SELECT email FROM users WHERE display_name = $1', [fsmName]);
-    add(`FSM (${fsmName})`, rows[0] && rows[0].email, `${fsmName} has no email set — add it in Admin \u2192 User Management`);
+    add(`FSM (${fsmName})`, await findUserEmailByName(fsmName), `${fsmName} has no email set, or their Admin display name doesn't match "${fsmName}" closely enough — check Admin \u2192 User Management`);
     const mgrName = managerOfFsm[fsmName];
-    if (mgrName) {
-      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1', [mgrName]);
-      add(`Regional Manager (${mgrName})`, mrows[0] && mrows[0].email, `${mgrName} has no email set — add it in Admin \u2192 User Management`);
-    }
+    if (mgrName) add(`Regional Manager (${mgrName})`, await findUserEmailByName(mgrName), `${mgrName} has no email set, or their Admin display name doesn't match closely enough — check Admin \u2192 User Management`);
   }
   return out;
 }
