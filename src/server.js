@@ -1056,7 +1056,7 @@ let _testModeOverrideEmail = null;
 async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   if (!EMAIL_CONFIGURED) {
     console.warn('sendEmail() called but Microsoft 365 email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway.');
-    return false;
+    return { ok: false, error: 'Email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway' };
   }
   let actualTo = to, actualCc = cc, actualSubject = subject, actualHtml = html;
   if (_testModeOverrideEmail) {
@@ -1068,6 +1068,7 @@ async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   }
   const toList = (Array.isArray(actualTo) ? actualTo : [actualTo]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } }));
   const ccList = actualCc ? (Array.isArray(actualCc) ? actualCc : [actualCc]).filter(Boolean).map(addr => ({ emailAddress: { address: addr } })) : [];
+  if (!toList.length) return { ok: false, error: 'No recipients to send to' };
   try {
     const token = await getGraphAccessToken();
     const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_SENDER_EMAIL)}/sendMail`, {
@@ -1080,13 +1081,19 @@ async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
     });
     if (!res.ok) {
       const errBody = await res.text();
-      throw new Error(`Graph sendMail failed: ${res.status} ${errBody}`);
+      // Graph's error body is JSON with a nested error.message — pull the
+      // human-readable part out so the frontend can show something useful
+      // like "Access is denied" or "mailbox not found", not a raw dump.
+      let friendly = errBody;
+      try { friendly = JSON.parse(errBody).error?.message || errBody; } catch (e) { /* leave as raw text */ }
+      throw new Error(`Graph sendMail failed (${res.status}): ${friendly}`);
     }
-    return true;
+    return { ok: true };
   } catch (e) {
     console.error('sendEmail() error:', e.message);
     if (throwOnError) throw e;
-    return false;
+    return { ok: false, error: e.message };
+
 
   }
 }
@@ -1216,8 +1223,22 @@ async function resolveStoreNotificationRecipients(storeName, fsmName) {
 // report — this KPI counts both) in the last 28 days, and LTL-at-risk if
 // its latest score is below 85% AND it has a non-conformance open for
 // more than 7 days. Same recipient set as the task digest above.
+// Shared by every digest below — tracks real send outcomes (not just
+// "the function ran without throwing") so the manual test-run endpoint
+// can report accurately whether things actually sent, rather than
+// silently swallowing Graph API failures the way fire-and-forget calls
+// would.
+function newDigestSummary() { return { attempted: 0, sent: 0, failed: 0, errors: [] }; }
+async function sendAndTrack(summary, emailArgs) {
+  summary.attempted++;
+  const result = await sendEmail(emailArgs);
+  if (result.ok) summary.sent++;
+  else { summary.failed++; if (!summary.errors.includes(result.error)) summary.errors.push(result.error); }
+}
+
 async function sendDailyVisitLtlOverdueDigests() {
-  if (!EMAIL_CONFIGURED) return;
+  if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
+  const summary = newDigestSummary();
   try {
     const { storesByName } = getStoresAndManagersData();
     const today = new Date();
@@ -1257,11 +1278,13 @@ async function sendDailyVisitLtlOverdueDigests() {
       if (ltlAtRisk) issues.push(`LTL score is ${latestLtl.score}%, below the 85% target, with ${latestLtl.ncRaised - latestLtl.ncClosed} non-conformance(s) open for more than 7 days.`);
 
       const html = `<h3>Café Needs Attention — ${storeName}</h3><ul>${issues.map(i => `<li>${i}</li>`).join('')}</ul>`;
-      await sendEmail({ to: recipients, subject: `BOS: ${storeName} — visit/LTL follow-up needed`, html });
+      await sendAndTrack(summary, { to: recipients, subject: `BOS: ${storeName} — visit/LTL follow-up needed`, html });
     }
   } catch (e) {
     console.error('sendDailyVisitLtlOverdueDigests() error:', e.message);
+    summary.errors.push(e.message);
   }
+  return summary;
 }
 // ==================================================================
 // CPA milestone calculation — ported from New Café Ops' calcCPA(), kept
@@ -1352,7 +1375,8 @@ function calcCPAServer(store) {
 // per-café alerts, using the exact same underlying data as the two daily
 // digests above.
 async function sendWeeklyCafeStatusDigests() {
-  if (!EMAIL_CONFIGURED) return;
+  if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
+  const summary = newDigestSummary();
   try {
     const { storesByName, managerOfFsm } = getStoresAndManagersData();
     const today = new Date();
@@ -1386,8 +1410,7 @@ async function sendWeeklyCafeStatusDigests() {
     });
 
     for (const [mgrName, stores] of Object.entries(storesByManager)) {
-      const { rows: mrows } = await pool.query('SELECT email FROM users WHERE display_name = $1 AND email IS NOT NULL', [mgrName]);
-      const mgrEmail = mrows[0] && mrows[0].email;
+      const mgrEmail = await findUserEmailByName(mgrName);
       if (!mgrEmail) continue; // no email on file — nothing to send to
 
       const tableRows = stores.map(store => {
@@ -1400,15 +1423,18 @@ async function sendWeeklyCafeStatusDigests() {
       }).join('');
       const html = `<h3>Weekly Café Status — ${mgrName}'s Region</h3>
         <table border="1" cellpadding="6" style="border-collapse:collapse;"><tr><th>Café</th><th>FSM</th><th>Last Visit</th><th>Latest LTL</th><th>Open Tasks</th></tr>${tableRows}</table>`;
-      await sendEmail({ to: mgrEmail, subject: `BOS: Weekly Café Status — ${mgrName}'s Region`, html });
+      await sendAndTrack(summary, { to: mgrEmail, subject: `BOS: Weekly Café Status — ${mgrName}'s Region`, html });
     }
   } catch (e) {
     console.error('sendWeeklyCafeStatusDigests() error:', e.message);
+    summary.errors.push(e.message);
   }
+  return summary;
 }
 
 async function sendDailyCpaMilestoneDigests() {
-  if (!EMAIL_CONFIGURED) return;
+  if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
+  const summary = newDigestSummary();
   try {
     const { rows: storeRows } = await pool.query("SELECT value FROM storage WHERE key = 'dashboard-stores-v1'");
     const { rows: confRows } = await pool.query("SELECT value FROM storage WHERE key = 'cpa-confirmations-v1'");
@@ -1436,14 +1462,17 @@ async function sendDailyCpaMilestoneDigests() {
 
       const section = (title, list) => list.length ? `<h4>${title}</h4><ul>${list.map(m => `<li>${m.label} — ${m.date}</li>`).join('')}</ul>` : '';
       const html = `<h3>New Café Opening — ${store.name}</h3>${section('Missed milestones', missed)}${section('Due within 2 days', upcoming)}`;
-      await sendEmail({ to: recipients, subject: `BOS: ${store.name} — CPA milestone update`, html });
+      await sendAndTrack(summary, { to: recipients, subject: `BOS: ${store.name} — CPA milestone update`, html });
     }
   } catch (e) {
     console.error('sendDailyCpaMilestoneDigests() error:', e.message);
+    summary.errors.push(e.message);
   }
+  return summary;
 }
 async function sendDailyOverdueTaskDigests() {
-  if (!EMAIL_CONFIGURED) return;
+  if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
+  const summary = newDigestSummary();
   try {
     const today = new Date().toISOString().slice(0, 10);
     const { rows } = await pool.query('SELECT data FROM actions');
@@ -1455,11 +1484,13 @@ async function sendDailyOverdueTaskDigests() {
       const recipients = await resolveStoreNotificationRecipients(store, fsm);
       if (!recipients.length) continue;
       const html = `<h3>Overdue Tasks — ${store}</h3><p>${tasks.length} task(s) past their due date, as of ${today}:</p><ul>${tasks.map(t => `<li>${t.description || '(no description)'} — due ${t.dueDate}</li>`).join('')}</ul>`;
-      await sendEmail({ to: recipients, subject: `BOS: ${tasks.length} overdue task(s) at ${store}`, html });
+      await sendAndTrack(summary, { to: recipients, subject: `BOS: ${tasks.length} overdue task(s) at ${store}`, html });
     }
   } catch (e) {
     console.error('sendDailyOverdueTaskDigests() error:', e.message);
+    summary.errors.push(e.message);
   }
+  return summary;
 }
 
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
@@ -1471,9 +1502,9 @@ app.get('/api/email/status', authRequired, (req, res) => res.json({ configured: 
 app.post('/api/email/test', authRequired, requireAdmin, async (req, res) => {
   const to = req.body && req.body.to;
   if (!to) return res.status(400).json({ error: 'to address required' });
-  const ok = await sendEmail({ to, subject: 'BOS Dashboard — test email', html: '<p>This is a test email from BOS Dashboard, sent via Microsoft Graph.</p><p>If you\'re reading this, the Microsoft 365 email setup is working correctly.</p>' });
-  if (ok) res.json({ ok: true });
-  else res.status(500).json({ error: EMAIL_CONFIGURED ? 'Send failed — check server logs' : 'Email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway' });
+  const result = await sendEmail({ to, subject: 'BOS Dashboard — test email', html: '<p>This is a test email from BOS Dashboard, sent via Microsoft Graph.</p><p>If you\'re reading this, the Microsoft 365 email setup is working correctly.</p>' });
+  if (result.ok) res.json({ ok: true });
+  else res.status(500).json({ error: result.error });
 });
 
 // Returns who a manual "Send Update Email" button should offer as
@@ -1502,9 +1533,9 @@ app.post('/api/email/send', authRequired, requireEditor, async (req, res) => {
     const { to, cc, subject, html } = req.body;
     if (!to || (Array.isArray(to) && !to.length)) return res.status(400).json({ error: 'at least one recipient required' });
     if (!subject || !html) return res.status(400).json({ error: 'subject and html body required' });
-    const ok = await sendEmail({ to, cc, subject, html });
-    if (ok) res.json({ ok: true });
-    else res.status(500).json({ error: EMAIL_CONFIGURED ? 'Send failed — check server logs' : 'Email is not configured yet' });
+    const result = await sendEmail({ to, cc, subject, html });
+    if (result.ok) res.json({ ok: true });
+    else res.status(500).json({ error: result.error });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -1548,8 +1579,14 @@ app.post('/api/email/run-digest-test/:jobId', authRequired, requireAdmin, async 
   if (!EMAIL_CONFIGURED) return res.status(400).json({ error: 'Email is not configured yet — set the Microsoft 365 environment variables first' });
   _testModeOverrideEmail = testEmail;
   try {
-    await job.fn();
-    res.json({ ok: true, message: `${job.label} ran in test mode — check ${testEmail} for anything it would have sent.` });
+    const summary = await job.fn();
+    if (!summary || summary.attempted === 0) {
+      res.json({ ok: true, message: `${job.label}: nothing to send right now — no cafés currently match this digest's conditions.` });
+    } else if (summary.failed > 0) {
+      res.json({ ok: false, message: `${job.label}: attempted ${summary.attempted}, ${summary.sent} sent, ${summary.failed} FAILED. Error: ${summary.errors[0]}` });
+    } else {
+      res.json({ ok: true, message: `${job.label}: ${summary.sent} email(s) sent successfully — check ${testEmail}.` });
+    }
   } catch (e) {
     res.status(500).json({ error: e.message });
   } finally {
