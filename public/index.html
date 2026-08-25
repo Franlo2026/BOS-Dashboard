@@ -520,7 +520,8 @@ const THRESH = {
   cspi:     { green: 85, amber: 70 },
   ltl:      { green: 85, amber: 70 },
   google:   { green: 92, amber: 80 }, // 92% per Franlo's instruction — percentage stays as-is, no star-rating conversion
-  mysteryDiner: { green: 87, amber: 70 } // per OKR O4-KR3
+  mysteryDiner: { green: 87, amber: 70 }, // per OKR O4-KR3
+  servicing: { green: 100, amber: 85 } // % of cafés currently IN their service cycle — any drop below 100% means at least one café needs attention
 };
 
 /* ---------- Ops Tasks config (folded in from the standalone tracker) ---------- */
@@ -1073,6 +1074,25 @@ function taskInRange(a, range){
   if (range.to && a.createdDate > range.to) return false;
   return true;
 }
+// Coffee equipment servicing cycle — "out of cycle" uses the exact same
+// definition as the server-side task-creation trigger (due this month or
+// already overdue), so this KPI and the tasks it generates always agree
+// with each other.
+function servicingCycleHealth(storesList){
+  const today = todayISO();
+  const currentYearMonth = today.slice(0, 7);
+  let inCycle = 0, outOfCycle = 0, noSchedule = 0;
+  storesList.forEach(storeName => {
+    const store = STORES.find(s => s.store_name === storeName);
+    const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(storeName);
+    if (!sd || !sd.next_service) { noSchedule++; return; }
+    if (sd.next_service.slice(0, 7) <= currentYearMonth) outOfCycle++;
+    else inCycle++;
+  });
+  const total = inCycle + outOfCycle;
+  return { inCycle, outOfCycle, noSchedule, total, pct: total ? (inCycle / total) * 100 : null };
+}
+
 function ltlHealth(fsms){
   const audits = fsms ? STATE.ltlAudits.filter(a => fsms.includes(a.fsm)) : STATE.ltlAudits;
   if (!audits.length) return { pct: null, withData: 0 };
@@ -1119,7 +1139,8 @@ function scopedKPIs(scope, range){
     cspi: cspiScore(stores),
     ltl: ltlHealth(fsms),
     google: googleMysteryDinerHealth(stores, 'google'),
-    mysteryDiner: googleMysteryDinerHealth(stores, 'mysteryDiner')
+    mysteryDiner: googleMysteryDinerHealth(stores, 'mysteryDiner'),
+    servicing: servicingCycleHealth(stores)
   };
 }
 
@@ -1527,7 +1548,8 @@ function renderKpiStrip(){
   const rTrade = ragOf(k.trade.pct, THRESH.trade), rStd = ragOf(k.standards.pct, THRESH.standards),
         rBB = ragOf(k.bbetter.pct, THRESH.bbetter), rVisit = ragOf(k.visit.pct, THRESH.visit), rAct = ragOf(k.actions.pct, THRESH.actions),
         rCspi = ragOf(k.cspi.pct, THRESH.cspi), rLtl = ragOf(k.ltl.pct, THRESH.ltl),
-        rGoogle = ragOf(k.google.pct, THRESH.google), rMd = ragOf(k.mysteryDiner.pct, THRESH.mysteryDiner);
+        rGoogle = ragOf(k.google.pct, THRESH.google), rMd = ragOf(k.mysteryDiner.pct, THRESH.mysteryDiner),
+        rServicing = ragOf(k.servicing.pct, THRESH.servicing);
   document.getElementById('kpiStripWrap').innerHTML = `
     <div class="kpi-strip">
       <div class="kpi-clickable ${DASH_DRILLDOWN==='trade'?'kpi-active':''}" data-metric="trade">
@@ -1588,6 +1610,12 @@ function renderKpiStrip(){
         <div class="card-value">${fmtPct(k.ltl.pct,0)}</div>
         <div class="card-sub">${k.ltl.withData} audit(s) logged</div>
         ${ragStatusPill(rLtl)}
+      </div>
+      <div class="kpi-clickable ${DASH_DRILLDOWN==='servicing'?'kpi-active':''}" data-metric="servicing">
+        <div class="card-label">Coffee Servicing Cycle</div>
+        <div class="card-value">${fmtPct(k.servicing.pct,0)}</div>
+        <div class="card-sub">${k.servicing.inCycle} in cycle · ${k.servicing.outOfCycle} out of cycle</div>
+        ${ragStatusPill(rServicing)}
       </div>
       <div class="kpi-clickable" id="kpiPipelineCard">
         <div class="card-label">Cafés Opening</div>
@@ -1668,6 +1696,17 @@ function renderDrilldown(){
       .sort((a,b) => Number(a.score) - Number(b.score));
     rows = belowTarget.map(a => `<tr><td>${a.store}</td><td>${a.fsm}</td><td>${a.date}</td><td class="rag-text red">${fmtPct(Number(a.score),0)}</td></tr>`);
     var head = '<tr><th>Store</th><th>FSM</th><th>Audit Date</th><th>Score</th></tr>';
+  } else if (metric === 'servicing') {
+    title = 'Cafés Out of Coffee Servicing Cycle';
+    const today = todayISO();
+    const outOfCycle = stores.map(r => {
+      const store = STORES.find(x => x.store_name === r.store);
+      const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(r.store);
+      return { store: r.store, fsm: r.fsm, sd };
+    }).filter(r => r.sd && r.sd.next_service && r.sd.next_service.slice(0,7) <= today.slice(0,7))
+      .sort((a,b) => a.sd.next_service.localeCompare(b.sd.next_service));
+    rows = outOfCycle.map(r => `<tr><td>${r.store}</td><td>${r.fsm}</td><td class="rag-text red">${r.sd.next_service}</td></tr>`);
+    var head = '<tr><th>Store</th><th>FSM</th><th>Next Service Was Due</th></tr>';
   } else if (metric === 'google' || metric === 'mysteryDiner') {
     const field = metric === 'google' ? 'google' : 'mysteryDiner';
     const thresh = THRESH[metric];
