@@ -1407,15 +1407,27 @@ async function createServicingTasksForCurrentMonth() {
       existingActions.map(r => r.data).filter(a => a && a.servicingTaskFor).map(a => a.servicingTaskFor)
     );
 
-    async function maybeCreateTask(trackingKey, store, sd) {
-      if (!sd.next_service || sd.next_service.slice(0, 7) !== currentYearMonth) return;
+    async function maybeCreateTask(nameKey, store, sd) {
+      // Due this month OR already overdue from an earlier month — a plain
+      // string comparison works correctly here since YYYY-MM sorts the
+      // same lexicographically as chronologically.
+      if (!sd.next_service || sd.next_service.slice(0, 7) > currentYearMonth) return;
+      // Keyed on the specific next_service date, not the creation month —
+      // so an overdue café gets exactly one task for this servicing
+      // cycle, not a fresh duplicate every month it stays unresolved.
+      // Once Franlo records the café as actually serviced (a new
+      // next_service date), that becomes a new, distinct key.
+      const trackingKey = nameKey + '|' + sd.next_service;
       if (alreadyCreated.has(trackingKey)) return;
+      const isOverdue = sd.next_service.slice(0, 7) < currentYearMonth;
       const actionRow = {
         id: newId('a'),
         fsm: (store && store.fsm) || '',
-        store: (store && store.store_name) || trackingKey.split('|')[0],
+        store: (store && store.store_name) || nameKey.split('_')[0],
         pillar: 'R&M',
-        description: `Coffee equipment servicing due this month — follow up to confirm the service booking (next service was scheduled for ${sd.next_service}).`,
+        description: isOverdue
+          ? `Coffee equipment servicing is OVERDUE — was scheduled for ${sd.next_service}. Follow up urgently to confirm the service booking.`
+          : `Coffee equipment servicing due this month — follow up to confirm the service booking (next service was scheduled for ${sd.next_service}).`,
         owner: (store && store.fsm) || 'BOS System',
         dueDate,
         status: 'open',
@@ -1426,10 +1438,10 @@ async function createServicingTasksForCurrentMonth() {
     }
 
     for (const [storeName, sd] of Object.entries(serviceDataByName)) {
-      await maybeCreateTask(storeName + '|' + currentYearMonth, storesByName[storeName], sd);
+      await maybeCreateTask(storeName, storesByName[storeName], sd);
     }
     for (const [abbrKey, sd] of Object.entries(serviceDataByAbbr)) {
-      await maybeCreateTask(abbrKey + '|' + currentYearMonth, storesByAbbr[abbrKey], sd);
+      await maybeCreateTask(abbrKey, storesByAbbr[abbrKey], sd);
     }
   } catch (e) {
     console.error('createServicingTasksForCurrentMonth() error:', e.message);
