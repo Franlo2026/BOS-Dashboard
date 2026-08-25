@@ -1377,12 +1377,15 @@ function wireSendUpdateEmailButtons(){
       const subject = btn.dataset.subject || `BOS Update — ${store}`;
       const body = btn.dataset.body || '';
       let detailedReportHtml = null;
-      if (btn.dataset.detailType === 'visit') {
-        const v = STATE.visits.find(x => x.id === btn.dataset.detailId);
-        if (v) detailedReportHtml = buildVisitReportHtml(v);
-      } else if (btn.dataset.detailType === 'cafestatus') {
-        const s = STORES.find(x => x.store_name === btn.dataset.detailId);
-        if (s) detailedReportHtml = buildStatusDetailHtml(s);
+      // The actual report builders (buildVisitReportHtml, buildStatusDetailHtml)
+      // are scoped inside their own tab's render function, not accessible
+      // from here — so the caller attaches a small callback directly on
+      // the button (right where those builders ARE in scope) and we just
+      // invoke it, wrapped in a try/catch so a rendering hiccup in the
+      // detailed report never blocks the modal itself from opening.
+      if (typeof btn._getDetailedReportHtml === 'function') {
+        try { detailedReportHtml = btn._getDetailedReportHtml(); }
+        catch (e) { console.error('Could not build detailed report for email:', e.message); }
       }
       openSendEmailModal(store, subject, body, detailedReportHtml);
     });
@@ -4232,6 +4235,10 @@ function viewVisitReports(){
         }).join('')}</tbody>
       </table>` : `<div class="empty-state">No ${VR_TAB==='archived'?'archived':'open'} visit reports match this filter.</div>`;
 
+    document.querySelectorAll('.sendUpdateEmailBtn[data-detail-type="visit"]').forEach(btn => {
+      const v = rows.find(r => r.id === btn.dataset.detailId);
+      if (v) btn._getDetailedReportHtml = () => buildVisitReportHtml(v);
+    });
     wireSendUpdateEmailButtons();
     document.querySelectorAll('.vrViewBtn').forEach(btn => btn.addEventListener('click', () => openVisitReport(btn.dataset.id, rows)));
     document.querySelectorAll('.vrEditBtn').forEach(btn => btn.addEventListener('click', () => {
@@ -6878,6 +6885,10 @@ function viewCafeStatus2(){
       window.print();
       document.getElementById('csPrintArea').style.display = 'none';
     }));
+    document.querySelectorAll('.sendUpdateEmailBtn[data-detail-type="cafestatus"]').forEach(btn => {
+      const s = STORES.find(x => x.store_name === btn.dataset.detailId);
+      if (s) btn._getDetailedReportHtml = () => buildStatusDetailHtml(s);
+    });
     wireSendUpdateEmailButtons();
   }
 
