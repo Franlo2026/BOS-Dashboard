@@ -1261,7 +1261,40 @@ function applyRoleLock(){
 // Status, Task Tracker, Visit Reports/LTL, and New Café Ops (CPA), so
 // there's one consistent way to manually escalate an update by email
 // rather than waiting for the automated daily digests.
-async function openSendEmailModal(storeName, defaultSubject, defaultBody){
+// Most email clients strip <style> blocks and ignore CSS classes, so any
+// HTML built for on-screen viewing (which leans on page-level classes like
+// .data-table, .rag-text, .badge) needs those styles flattened into
+// inline style="" attributes before it can go in an email body. Building
+// this via the DOM (rather than string/regex replacement) means we don't
+// have to worry about malformed markup or edge cases in the HTML — the
+// browser's own parser handles that.
+function makeEmailSafeHtml(htmlString){
+  const container = document.createElement('div');
+  container.innerHTML = htmlString;
+
+  container.querySelectorAll('table.data-table').forEach(t => {
+    t.setAttribute('style', 'width:100%;border-collapse:collapse;font-size:12px;' + (t.getAttribute('style')||''));
+    t.querySelectorAll('thead th').forEach(th => th.setAttribute('style', 'font-weight:700;font-size:10px;letter-spacing:0.06em;text-transform:uppercase;padding:8px 10px;border-bottom:1px solid #1a1a1a;text-align:left;color:#1a1a1a;'));
+    t.querySelectorAll('tbody td').forEach(td => td.setAttribute('style', 'padding:9px 10px;border-bottom:1px solid #ebebeb;vertical-align:middle;' + (td.getAttribute('style')||'')));
+  });
+  const ragColors = { green: '#2e7d32', amber: '#e65100', red: '#c62828', na: '#999999' };
+  container.querySelectorAll('.rag-text').forEach(el => {
+    const color = Object.keys(ragColors).find(c => el.classList.contains(c));
+    if (color) el.setAttribute('style', `color:${ragColors[color]};font-weight:${color==='na'?400:700};` + (el.getAttribute('style')||''));
+  });
+  container.querySelectorAll('.section-title').forEach(el => {
+    el.setAttribute('style', 'font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin:14px 0 10px;' + (el.getAttribute('style')||''));
+  });
+  const badgeColors = { green: ['#e8f5e9','#2e7d32'], red: ['#ffebee','#c62828'], amber: ['#fff3e0','#e65100'] };
+  container.querySelectorAll('.badge').forEach(el => {
+    const color = Object.keys(badgeColors).find(c => el.classList.contains(c));
+    const [bg, fg] = color ? badgeColors[color] : ['#ebebeb','#1a1a1a'];
+    el.setAttribute('style', `font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;padding:3px 8px;background:${bg};color:${fg};border-radius:3px;` + (el.getAttribute('style')||''));
+  });
+  return container.innerHTML;
+}
+
+async function openSendEmailModal(storeName, defaultSubject, defaultBody, detailedReportHtml){
   let recipients = [];
   try {
     const r = await apiGet('/api/email/recipients?store=' + encodeURIComponent(storeName));
@@ -1286,6 +1319,7 @@ async function openSendEmailModal(storeName, defaultSubject, defaultBody){
       <input type="text" id="semSubject" value="${escapeHtmlVR2(defaultSubject||'')}" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--grey-300);margin-bottom:10px;">
       <label style="font-size:11px;color:var(--grey-500);">Message</label>
       <textarea id="semBody" rows="6" style="width:100%;font-size:12px;padding:6px;border:1px solid var(--grey-300);margin-bottom:14px;">${defaultBody||''}</textarea>
+      ${detailedReportHtml ? `<label style="display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:14px;"><input type="checkbox" id="semIncludeReport" checked> Include the full report in the email body</label>` : ''}
       <div style="display:flex;justify-content:flex-end;gap:8px;">
         <button class="btn btn-outline" id="semCancelBtn">Cancel</button>
         <button class="btn btn-black" id="semSendBtn">Send</button>
@@ -1305,10 +1339,23 @@ async function openSendEmailModal(storeName, defaultSubject, defaultBody){
     sendBtn.disabled = true; sendBtn.textContent = 'Sending…';
     try {
       const token = localStorage.getItem('bos_token');
+      const bulletLines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
+      const includeReport = detailedReportHtml && modal.querySelector('#semIncludeReport') && modal.querySelector('#semIncludeReport').checked;
+      const reportSection = includeReport
+        ? `<div style="margin-top:18px;padding-top:14px;border-top:2px solid #ebebeb;">${makeEmailSafeHtml(detailedReportHtml)}</div>`
+        : '';
+      const standardHtml = `
+        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5;">
+          <p>Good day,</p>
+          <p>Please see below or attached a notification from the Bootlegger Franchise Support &amp; Brand Standards team.</p>
+          <ul style="padding-left:20px;margin-top:0;">${bulletLines.map(l => `<li style="margin-bottom:6px;">${escapeHtmlVR2(l)}</li>`).join('')}</ul>
+          <p>Kind regards,<br>Bootlegger Franchise Support team</p>
+          ${reportSection}
+        </div>`;
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
-        body: JSON.stringify({ to: checked, subject, html: '<p>' + escapeHtmlVR2(bodyText).replace(/\n/g,'<br>') + '</p>' }),
+        body: JSON.stringify({ to: checked, subject, html: standardHtml }),
       });
       const data = await res.json();
       if (res.ok && data.ok) { toast('Email sent'); modal.remove(); }
@@ -1329,7 +1376,15 @@ function wireSendUpdateEmailButtons(){
       const store = btn.dataset.store;
       const subject = btn.dataset.subject || `BOS Update — ${store}`;
       const body = btn.dataset.body || '';
-      openSendEmailModal(store, subject, body);
+      let detailedReportHtml = null;
+      if (btn.dataset.detailType === 'visit') {
+        const v = STATE.visits.find(x => x.id === btn.dataset.detailId);
+        if (v) detailedReportHtml = buildVisitReportHtml(v);
+      } else if (btn.dataset.detailType === 'cafestatus') {
+        const s = STORES.find(x => x.store_name === btn.dataset.detailId);
+        if (s) detailedReportHtml = buildStatusDetailHtml(s);
+      }
+      openSendEmailModal(store, subject, body, detailedReportHtml);
     });
   });
 }
@@ -4168,7 +4223,7 @@ function viewVisitReports(){
             <td>${linkedActions.length}${open ? ` <span class="badge amber">${open} open</span>` : ''}</td>
             <td style="white-space:nowrap;">
               <button class="btn btn-outline vrViewBtn" data-id="${v.id}">View / PDF</button>
-              <button class="btn btn-outline sendUpdateEmailBtn" data-store="${escapeHtmlVR2(v.store)}" data-subject="BOS Visit Report Update — ${escapeHtmlVR2(v.store)}" data-body="Regarding the ${escapeHtmlVR2(v.type||'visit')} report logged on ${v.date}${open ? ' — '+open+' task(s) still open from this visit.' : '.'}" style="margin-left:4px;">✉</button>
+              <button class="btn btn-outline sendUpdateEmailBtn" data-store="${escapeHtmlVR2(v.store)}" data-subject="BOS Visit Report Update — ${escapeHtmlVR2(v.store)}" data-body="Regarding the ${escapeHtmlVR2(v.type||'visit')} report logged on ${v.date}${open ? ' — '+open+' task(s) still open from this visit.' : '.'}" data-detail-type="visit" data-detail-id="${escapeHtmlVR2(v.id)}" style="margin-left:4px;">✉</button>
               ${isEditor() && fr ? `<button class="btn btn-outline vrEditBtn" data-id="${v.id}" style="margin-left:4px;">Edit</button>` : ''}
               ${isEditor() ? `<button class="btn btn-outline vrArchiveBtn" data-id="${v.id}" style="margin-left:4px;">${VR_TAB==='archived' ? 'Restore' : 'Archive'}</button>` : ''}
               ${isAdmin() ? `<button class="btn btn-outline vrDeleteBtn" data-id="${v.id}" style="color:var(--red);border-color:var(--red);margin-left:4px;">Delete</button>` : ''}
@@ -6799,7 +6854,7 @@ function viewCafeStatus2(){
         </div>
         ${isExp ? `<div style="border-top:1px solid var(--grey-200);padding:16px;font-size:12px;">
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;" class="no-print">
-            <button class="btn btn-outline sendUpdateEmailBtn" data-store="${escapeHtmlVR2(s.store_name)}" data-subject="BOS Update — ${escapeHtmlVR2(s.store_name)}" style="white-space:nowrap;">✉ Send Update Email</button>
+            <button class="btn btn-outline sendUpdateEmailBtn" data-store="${escapeHtmlVR2(s.store_name)}" data-subject="BOS Update — ${escapeHtmlVR2(s.store_name)}" data-detail-type="cafestatus" data-detail-id="${escapeHtmlVR2(s.store_name)}" style="white-space:nowrap;">✉ Send Update Email</button>
             <button class="btn btn-outline csExportOne" data-key="${key}" style="white-space:nowrap;">🖨 Save PDF — ${s.store_name}</button>
           </div>
           ${buildStatusDetailHtml(s)}
