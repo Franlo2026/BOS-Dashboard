@@ -1399,8 +1399,14 @@ async function createServicingTasksForCurrentMonth() {
 
     const today = new Date();
     const currentYearMonth = today.toISOString().slice(0, 7); // e.g. "2026-09"
-    const dueDate = new Date(today.getTime() + 7 * 86400000).toISOString().slice(0, 10);
     const createdDate = today.toISOString().slice(0, 10);
+
+    // Last calendar day of the month a given "YYYY-MM-DD" falls in — day 0
+    // of the *next* month is the last day of *this* month in JS Date math.
+    function lastDayOfServiceMonth(dateStr) {
+      const d = new Date(dateStr + 'T00:00:00');
+      return new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    }
 
     const { rows: existingActions } = await pool.query('SELECT data FROM actions');
     const alreadyCreated = new Set(
@@ -1420,6 +1426,12 @@ async function createServicingTasksForCurrentMonth() {
       const trackingKey = nameKey + '|' + sd.next_service;
       if (alreadyCreated.has(trackingKey)) return;
       const isOverdue = sd.next_service.slice(0, 7) < currentYearMonth;
+      // Due date = the last day of the ORIGINAL servicing month. A café
+      // due this month gets a due date at this month's end (so it turns
+      // overdue exactly when the month closes without action, per
+      // Franlo's spec); an already-overdue café gets a due date already
+      // in the past, so it shows as overdue immediately.
+      const dueDate = lastDayOfServiceMonth(sd.next_service);
       const actionRow = {
         id: newId('a'),
         fsm: (store && store.fsm) || '',
@@ -1427,7 +1439,7 @@ async function createServicingTasksForCurrentMonth() {
         pillar: 'R&M',
         description: isOverdue
           ? `Coffee equipment servicing is OVERDUE — was scheduled for ${sd.next_service}. Follow up urgently to confirm the service booking.`
-          : `Coffee equipment servicing due this month — follow up to confirm the service booking (next service was scheduled for ${sd.next_service}).`,
+          : `Coffee equipment servicing due this month — follow up to confirm the service booking, and close this task once proof of service is submitted (next service was scheduled for ${sd.next_service}).`,
         owner: (store && store.fsm) || 'BOS System',
         dueDate,
         status: 'open',
