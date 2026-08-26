@@ -1053,6 +1053,38 @@ async function getGraphAccessToken() {
 // so a failed notification never takes down whatever triggered it —
 // pass throwOnError:true if a specific caller genuinely needs to know.
 let _testModeOverrideEmail = null;
+// ==================================================================
+// Letterhead email template — matches Franlo's trimmed spec exactly:
+// To:/café name/Attention header, subject title + café name repeated,
+// a generic greeting (not personalized to the recipient), the body
+// content, a generic team sign-off (not an individual's name/title/
+// phone), and the full head-office footer with registration details.
+// Deliberately has NO company address header, NO date line, and NO
+// divider rules — those were cut as too much boilerplate for routine
+// notifications.
+// ==================================================================
+function buildLetterheadEmailHtml({ cafeName, attentionName, subjectTitle, bodyHtml }) {
+  const f = (s) => s || '';
+  return `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1a1a1a;line-height:1.5;max-width:640px;">
+      <p style="margin:0;">To:</p>
+      <p style="margin:0 0 4px;">Bootlegger ${f(cafeName)}</p>
+      ${attentionName ? `<p style="margin:0 0 14px;">Attention: ${f(attentionName)}</p>` : ''}
+      <p style="font-weight:700;color:#c8ae79;text-transform:uppercase;margin:0 0 2px;">${f(subjectTitle)}</p>
+      <p style="margin:0 0 14px;">Bootlegger ${f(cafeName)}</p>
+      <p>Good day team</p>
+      ${bodyHtml}
+      <p style="margin-top:18px;">Regards,</p>
+      <p style="margin:0 0 18px;">Bootlegger Franchise Support Team</p>
+      <p style="font-weight:700;margin:0;">Bootlegger Head Office</p>
+      <p style="margin:0;">1st floor, Silo Building, The Coffee Depot, 47 Morningside Road, Ndabeni, 7405</p>
+      <p style="margin:0 0 10px;">+27 21 433 2599</p>
+      <p style="font-weight:700;margin:0;">Bootlegger Franchise (Pty) Ltd.</p>
+      <p style="margin:0;">Reg No: 2017/428048/07</p>
+      <p style="margin:0;">VAT No: 4110284793</p>
+    </div>`;
+}
+
 async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   if (!EMAIL_CONFIGURED) {
     console.warn('sendEmail() called but Microsoft 365 email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway.');
@@ -1281,7 +1313,17 @@ async function sendDailyVisitLtlOverdueDigests() {
       if (visitOverdue) issues.push(lastVisit ? `No café visit logged in the last 28 days (last visit: ${lastVisit}).` : 'No café visit has ever been logged.');
       if (ltlAtRisk) issues.push(`LTL score is ${latestLtl.score}%, below the 85% target, with ${latestLtl.ncRaised - latestLtl.ncClosed} non-conformance(s) open for more than 7 days.`);
 
-      const html = `<h3>Café Needs Attention — ${storeName}</h3><ul>${issues.map(i => `<li>${i}</li>`).join('')}</ul>`;
+      const bodyHtml = `
+        <p>The following item(s) at Bootlegger ${storeName} require follow-up:</p>
+        <ul style="padding-left:20px;">${issues.map(i => `<li style="margin-bottom:6px;">${i}</li>`).join('')}</ul>
+        <p>Please action the above and update your FSM with confirmation once completed.</p>
+        <p>Please contact your Franchise Support Manager should you require assistance in resolving these matters.</p>`;
+      const html = buildLetterheadEmailHtml({
+        cafeName: storeName,
+        attentionName: store.franchisee_name,
+        subjectTitle: 'CAFÉ FOLLOW-UP NOTIFICATION',
+        bodyHtml,
+      });
       await sendAndTrack(summary, { to: recipients, subject: `BOS: ${storeName} — visit/LTL follow-up needed`, html });
     }
   } catch (e) {
@@ -1499,16 +1541,23 @@ async function sendWeeklyCafeStatusDigests() {
       const mgrEmail = await findUserEmailByName(mgrName);
       if (!mgrEmail) continue; // no email on file — nothing to send to
 
-      const tableRows = stores.map(store => {
+      const bullets = stores.map(store => {
         const lastVisit = lastVisitByStore[store.store_name];
         const visitCol = lastVisit ? `${daysAgo(lastVisit)}d ago` : 'Never';
         const ltl = latestLtlByStore[store.store_name];
         const ltlCol = ltl ? `${ltl.score}%` : '—';
         const openCount = openTasksByStore[store.store_name] || 0;
-        return `<tr><td>${store.store_name}</td><td>${store.fsm||'—'}</td><td>${visitCol}</td><td>${ltlCol}</td><td>${openCount}</td></tr>`;
+        return `<li style="margin-bottom:6px;">${store.store_name} (FSM: ${store.fsm||'—'}) — last visit ${visitCol}, latest LTL ${ltlCol}, ${openCount} open task(s)</li>`;
       }).join('');
-      const html = `<h3>Weekly Café Status — ${mgrName}'s Region</h3>
-        <table border="1" cellpadding="6" style="border-collapse:collapse;"><tr><th>Café</th><th>FSM</th><th>Last Visit</th><th>Latest LTL</th><th>Open Tasks</th></tr>${tableRows}</table>`;
+      const bodyHtml = `
+        <p>Please find below this week's café status summary for your region:</p>
+        <ul style="padding-left:20px;">${bullets}</ul>`;
+      const html = buildLetterheadEmailHtml({
+        cafeName: `${mgrName}'s Region`,
+        attentionName: null,
+        subjectTitle: 'WEEKLY CAFÉ STATUS REPORT',
+        bodyHtml,
+      });
       await sendAndTrack(summary, { to: mgrEmail, subject: `BOS: Weekly Café Status — ${mgrName}'s Region`, html });
     }
   } catch (e) {
@@ -1546,8 +1595,21 @@ async function sendDailyCpaMilestoneDigests() {
       const recipients = await resolveStoreNotificationRecipients(store.name, store.fsm);
       if (!recipients.length) continue;
 
-      const section = (title, list) => list.length ? `<h4>${title}</h4><ul>${list.map(m => `<li>${m.label} — ${m.date}</li>`).join('')}</ul>` : '';
-      const html = `<h3>New Café Opening — ${store.name}</h3>${section('Missed milestones', missed)}${section('Due within 2 days', upcoming)}`;
+      const bullets = [
+        ...missed.map(m => `MISSED — ${m.label} (was due ${m.date})`),
+        ...upcoming.map(m => `Due within 2 days — ${m.label} (${m.date})`),
+      ];
+      const bodyHtml = `
+        <p>The following CPA milestone(s) for the opening of Bootlegger ${store.name} require attention:</p>
+        <ul style="padding-left:20px;">${bullets.map(b => `<li style="margin-bottom:6px;">${b}</li>`).join('')}</ul>
+        <p>Please action the above and update your FSM with confirmation once completed.</p>
+        <p>Please contact your Franchise Support Manager should you require assistance in resolving these matters.</p>`;
+      const html = buildLetterheadEmailHtml({
+        cafeName: store.name,
+        attentionName: store.fsm,
+        subjectTitle: 'NEW CAFÉ OPENING — MILESTONE UPDATE',
+        bodyHtml,
+      });
       await sendAndTrack(summary, { to: recipients, subject: `BOS: ${store.name} — CPA milestone update`, html });
     }
   } catch (e) {
@@ -1565,11 +1627,24 @@ async function sendDailyOverdueTaskDigests() {
     const overdue = rows.map(r => r.data).filter(a => a && a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < today);
     const byStore = {};
     overdue.forEach(a => { (byStore[a.store] = byStore[a.store] || []).push(a); });
+    const { storesByName } = getStoresAndManagersData();
     for (const [store, tasks] of Object.entries(byStore)) {
       const fsm = tasks[0].fsm;
       const recipients = await resolveStoreNotificationRecipients(store, fsm);
       if (!recipients.length) continue;
-      const html = `<h3>Overdue Tasks — ${store}</h3><p>${tasks.length} task(s) past their due date, as of ${today}:</p><ul>${tasks.map(t => `<li>${t.description || '(no description)'} — due ${t.dueDate}</li>`).join('')}</ul>`;
+      const storeInfo = storesByName[store] || {};
+      const bodyHtml = `
+        <p>The following outstanding task(s) at Bootlegger ${store} are now overdue and require corrective action:</p>
+        <ul style="padding-left:20px;">${tasks.map(t => `<li style="margin-bottom:6px;">${t.description || '(no description)'} — was due ${t.dueDate}</li>`).join('')}</ul>
+        <p>Please action the above and update your FSM with confirmation once completed.</p>
+        <p>Failure to remedy these items within a reasonable timeframe may result in further escalation.</p>
+        <p>Please contact your Franchise Support Manager should you require assistance in resolving these matters.</p>`;
+      const html = buildLetterheadEmailHtml({
+        cafeName: store,
+        attentionName: storeInfo.franchisee_name,
+        subjectTitle: 'OVERDUE TASK NOTIFICATION',
+        bodyHtml,
+      });
       await sendAndTrack(summary, { to: recipients, subject: `BOS: ${tasks.length} overdue task(s) at ${store}`, html });
     }
   } catch (e) {
