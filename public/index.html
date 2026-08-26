@@ -1268,6 +1268,32 @@ function applyRoleLock(){
 // this via the DOM (rather than string/regex replacement) means we don't
 // have to worry about malformed markup or edge cases in the HTML — the
 // browser's own parser handles that.
+// Matches Franlo's trimmed spec exactly — no company header/date, no
+// dividers, generic greeting, generic team sign-off. Kept identical to
+// server.js's buildLetterheadEmailHtml so manual and automated emails
+// look the same.
+function buildLetterheadEmailHtml({ cafeName, attentionName, subjectTitle, bodyHtml }){
+  const f = (s) => s || '';
+  return `
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#1a1a1a;line-height:1.5;max-width:640px;">
+      <p style="margin:0;">To:</p>
+      <p style="margin:0 0 4px;">Bootlegger ${f(cafeName)}</p>
+      ${attentionName ? `<p style="margin:0 0 14px;">Attention: ${f(attentionName)}</p>` : ''}
+      <p style="font-weight:700;color:#c8ae79;text-transform:uppercase;margin:0 0 2px;">${f(subjectTitle)}</p>
+      <p style="margin:0 0 14px;">Bootlegger ${f(cafeName)}</p>
+      <p>Good day team</p>
+      ${bodyHtml}
+      <p style="margin-top:18px;">Regards,</p>
+      <p style="margin:0 0 18px;">Bootlegger Franchise Support Team</p>
+      <p style="font-weight:700;margin:0;">Bootlegger Head Office</p>
+      <p style="margin:0;">1st floor, Silo Building, The Coffee Depot, 47 Morningside Road, Ndabeni, 7405</p>
+      <p style="margin:0 0 10px;">+27 21 433 2599</p>
+      <p style="font-weight:700;margin:0;">Bootlegger Franchise (Pty) Ltd.</p>
+      <p style="margin:0;">Reg No: 2017/428048/07</p>
+      <p style="margin:0;">VAT No: 4110284793</p>
+    </div>`;
+}
+
 function makeEmailSafeHtml(htmlString){
   const container = document.createElement('div');
   container.innerHTML = htmlString;
@@ -1342,20 +1368,19 @@ async function openSendEmailModal(storeName, defaultSubject, defaultBody, detail
       const bulletLines = bodyText.split('\n').map(l => l.trim()).filter(Boolean);
       const includeReport = detailedReportHtml && modal.querySelector('#semIncludeReport') && modal.querySelector('#semIncludeReport').checked;
       const reportSection = includeReport
-        ? `<div style="margin-top:18px;padding-top:14px;border-top:2px solid #ebebeb;">${makeEmailSafeHtml(detailedReportHtml)}</div>`
+        ? `<div style="margin-top:18px;padding-top:14px;">${makeEmailSafeHtml(detailedReportHtml)}</div>`
         : '';
-      const standardHtml = `
-        <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#1a1a1a;line-height:1.5;">
-          <p>Good day,</p>
-          <p>Please see below or attached a notification from the Bootlegger Franchise Support &amp; Brand Standards team.</p>
-          <ul style="padding-left:20px;margin-top:0;">${bulletLines.map(l => `<li style="margin-bottom:6px;">${escapeHtmlVR2(l)}</li>`).join('')}</ul>
-          <p>Kind regards,<br>Bootlegger Franchise Support team</p>
-          ${reportSection}
-        </div>`;
+      const store = STORES.find(s => s.store_name === storeName);
+      const html = buildLetterheadEmailHtml({
+        cafeName: storeName,
+        attentionName: (store && store.franchisee_name) || null,
+        subjectTitle: subject.toUpperCase(),
+        bodyHtml: `<ul style="padding-left:20px;margin-top:0;">${bulletLines.map(l => `<li style="margin-bottom:6px;">${escapeHtmlVR2(l)}</li>`).join('')}</ul>${reportSection}`,
+      });
       const res = await fetch('/api/email/send', {
         method: 'POST',
         headers: Object.assign({ 'Content-Type': 'application/json' }, token ? { 'Authorization': 'Bearer ' + token } : {}),
-        body: JSON.stringify({ to: checked, subject, html: standardHtml }),
+        body: JSON.stringify({ to: checked, subject, html }),
       });
       const data = await res.json();
       if (res.ok && data.ok) { toast('Email sent'); modal.remove(); }
