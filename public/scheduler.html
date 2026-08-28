@@ -925,9 +925,18 @@ function exportToPdf(title, subtitle, tableHtml) {
       <div style="font-size:11px;color:#999;margin-bottom:16px;">Exported ${today}</div>
       ${tableHtml}
     </div>`;
+  // Everything else currently in #app (page header, tab bar, and the
+  // whole tabBody — filters, tables, the weekly calendar, whatever's on
+  // screen) needs hiding for the print, or it prints right alongside the
+  // summary above. Only #printArea itself should ever be visible during
+  // print.
+  const app = document.getElementById('app');
+  const siblingsToHide = Array.from(app.children).filter(el => el.id !== 'printArea');
+  siblingsToHide.forEach(el => { el.dataset.pdfHiddenDisplay = el.style.display || 'unset'; el.style.display = 'none'; });
   document.getElementById('printArea').style.display = 'block';
   window.print();
   document.getElementById('printArea').style.display = 'none';
+  siblingsToHide.forEach(el => { el.style.display = el.dataset.pdfHiddenDisplay === 'unset' ? '' : el.dataset.pdfHiddenDisplay; delete el.dataset.pdfHiddenDisplay; });
 }
 
 function render() {
@@ -938,7 +947,7 @@ function render() {
       <div class="period-badge">${window.__ME.displayName || window.__ME.username}</div>
     </div>
     <div class="segmented" id="mainTabs">
-      <button class="segmented-btn ${ACTIVE_TAB==='weekly'?'active':''}" data-tab="weekly">Weekly Schedule</button>
+      <button class="segmented-btn ${ACTIVE_TAB==='weekly'?'active':''}" data-tab="weekly">Monthly View</button>
       <button class="segmented-btn ${ACTIVE_TAB==='opening'?'active':''}" data-tab="opening">New Café Opening Support</button>
       <button class="segmented-btn ${ACTIVE_TAB==='directory'?'active':''}" data-tab="directory">Café Directory</button>
       <button class="segmented-btn ${ACTIVE_TAB==='franchisees'?'active':''}" data-tab="franchisees">Franchisee Directory</button>
