@@ -1175,7 +1175,7 @@ function monthlyStatsFor(mgrKey) {
     const stats = cafeVisitStats(site);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const confirmedThisMonth = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
-      .filter(c => isThisMonth(new Date(c.confirmedAt)));
+      .filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
@@ -1596,7 +1596,10 @@ function confirmedVisitsForFranchisee(franchisee, managerKey) {
   const marker = '🤝 ' + franchisee.name + ' (at ';
   return Object.entries(CONFIRM_LOG)
     .filter(([k]) => k.startsWith(prefix) && k.split('|').slice(3).join('|').startsWith(marker))
-    .map(([k, v]) => v);
+    .map(([k, v]) => {
+      const slot = k.split('|')[2];
+      return Object.assign({}, v, { scheduledDate: slotToDate(slot) });
+    });
 }
 // Same month-anchored logic as the café directory's isAtRisk() — at risk
 // means no confirmed visit yet this month AND no remaining scheduled
@@ -1669,7 +1672,7 @@ function renderFrTable() {
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
-    const confirmedThisMonth = confirmed.filter(c => isThisMonth(new Date(c.confirmedAt)));
+    const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       if (!stats.managerKey) return false;
       const entries = getCellEntriesByAbsDay(stats.managerKey, MANAGER_LABEL, d, MANAGER_COMBINED_PLANS[stats.managerKey]);
@@ -1808,11 +1811,32 @@ function absDayToInputValue(absDay) {
   const d = absDayToDate(absDay);
   return d.toISOString().slice(0, 10);
 }
+// Converts a CONFIRM_LOG slot key back to the actual calendar date that
+// visit was SCHEDULED for — needed because "confirmedAt" only records
+// when someone clicked the confirm button, which can genuinely differ
+// from the scheduled date (a late confirmation, or someone catching up
+// on several weeks of confirmations in one sitting). Using confirmedAt
+// alone let "confirmed this month" include visits scheduled in earlier
+// months, which is how confirmed could end up exceeding scheduled and
+// produce a >100% completion figure.
+function slotToDate(slot) {
+  const weekendMatch = /^W(\d+)-(SAT|SUN)$/.exec(slot);
+  if (weekendMatch) {
+    const weekNum = Number(weekendMatch[1]);
+    const d = weekStartDate(weekNum);
+    d.setDate(d.getDate() + (weekendMatch[2] === 'SAT' ? 5 : 6));
+    return d;
+  }
+  return absDayToDate(Number(slot));
+}
 function confirmedVisitsForSite(site, managerKey, personLabel) {
   const prefix = managerKey + '|' + personLabel + '|';
   return Object.entries(CONFIRM_LOG)
     .filter(([k]) => k.startsWith(prefix) && k.endsWith('|' + site.name))
-    .map(([k, v]) => v);
+    .map(([k, v]) => {
+      const slot = k.slice(prefix.length, k.length - ('|' + site.name).length);
+      return Object.assign({}, v, { scheduledDate: slotToDate(slot) });
+    });
 }
 function currentMonthStart() {
   const now = new Date();
@@ -1978,7 +2002,7 @@ function renderDirTable() {
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= periodStart && dt <= periodEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
-    const confirmedThisMonth = confirmed.filter(c => isThisPeriod(new Date(c.confirmedAt)));
+    const confirmedThisMonth = confirmed.filter(c => isThisPeriod(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
