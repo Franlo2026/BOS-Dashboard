@@ -1545,6 +1545,19 @@ function viewHome(){
 // Regional Report all use this same control/state pattern)
 // ==================================================================
 const DATE_RANGE_STATE = {}; // tabKey -> {from, to}
+// Task Tracker defaults to the current month — showing an unscoped
+// all-time total (every task ever logged) isn't a meaningful "performance"
+// figure. The From/To fields below still work exactly the same way to
+// check any other period; this just gives a sensible starting point
+// instead of defaulting to no filter at all.
+(function seedTaskTrackerDefaultRange(){
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const monthStart = `${now.getFullYear()}-${pad(now.getMonth()+1)}-01`;
+  const monthEnd = new Date(now.getFullYear(), now.getMonth()+1, 0);
+  const monthEndStr = `${monthEnd.getFullYear()}-${pad(monthEnd.getMonth()+1)}-${pad(monthEnd.getDate())}`;
+  DATE_RANGE_STATE['tasks'] = { from: monthStart, to: monthEndStr };
+})();
 function getDateRange(tabKey){ return DATE_RANGE_STATE[tabKey] || { from:'', to:'' }; }
 function setDateRange(tabKey, from, to){ DATE_RANGE_STATE[tabKey] = { from, to }; }
 function dateInRange(dateStr, tabKey){
