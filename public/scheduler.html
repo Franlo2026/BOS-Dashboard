@@ -892,6 +892,7 @@ let DIR_FILTER_FSM = '';
 let DIR_SEARCH = '';
 let DIR_EXPANDED = null;
 let DIR_PERIOD = 'month'; // 'month' or 'quarter'
+let DIR_STATUS_FILTER = ''; // '', 'ontrack', 'atrisk', 'outofcycle'
 let OS_REGION = 'all'; // 'all' | 'Franlo' | 'Tarryn'
 let OS_MONTH = new Date().getMonth();
 let OS_YEAR = new Date().getFullYear();
@@ -1766,10 +1767,20 @@ function cafeVisitStats(site) {
       // visitor here (not just the FSM bucket owner) is what lets the
       // Directory's "Confirmed" column actually add those up correctly.
       const visitors = [{ managerKey: mgrKey, personLabel: person.label }];
+      const supportDays = [];
       (SUPPORT_TEAM_PLANS[mgrKey] || []).forEach(sp => {
-        if (sp.sites.some(s => s.id === site.id)) visitors.push({ managerKey: mgrKey, personLabel: sp.label });
+        if (sp.sites.some(s => s.id === site.id)) {
+          visitors.push({ managerKey: mgrKey, personLabel: sp.label });
+          // A support-team member's own scheduled days for this café must
+          // be counted here too — otherwise their confirmed visits (which
+          // DO get counted, via visitors above) could exceed "scheduled",
+          // since scheduledDays previously only reflected the FSM bucket
+          // owner's and manager's plans, not each support member's own.
+          const spPlan = getEffectivePlan(mgrKey, sp.label, sp.plan);
+          spPlan.forEach((names, absDay) => { if (names.includes(site.name)) supportDays.push(absDay); });
+        }
       });
-      const allDays = Array.from(new Set([...scheduledDays, ...managerDays])).sort((a, b) => a - b);
+      const allDays = Array.from(new Set([...scheduledDays, ...managerDays, ...supportDays])).sort((a, b) => a - b);
       return { managerKey: mgrKey, personLabel: person.label, scheduledDays: allDays, visitors };
     }
   }
@@ -1879,6 +1890,16 @@ function isThisQuarter(date) {
 function isAtRisk(confirmedThisMonthCount, remainingScheduledThisMonthCount) {
   return confirmedThisMonthCount === 0 && remainingScheduledThisMonthCount === 0;
 }
+// A non-outlying café should get a scheduled visit every single month —
+// if it has ZERO scheduled days for the current period at all (not just
+// "hasn't happened yet", genuinely never put on the schedule), that's a
+// deeper problem than "at risk" and gets flagged distinctly. Outlying
+// cafés run a longer (~6 week) cadence, so a zero-scheduled month is
+// sometimes expected for them and never counts as out of cycle.
+function isOutOfCycle(site, scheduledThisPeriodCount) {
+  if (site.outlying) return false;
+  return scheduledThisPeriodCount === 0;
+}
 
 function fsmOptionsFor(managerFilter) {
   const keys = managerFilter ? [managerFilter] : Object.keys(REGION_GROUPS);
@@ -1922,6 +1943,12 @@ function renderDirectoryTab() {
         <option value="Tarryn" ${DIR_FILTER_MANAGER==='Tarryn'?'selected':''}>Tarryn's Team (GP/LP/MP/FS/KZN/NC/NW)</option>
       </select>
       <select id="dirFsmFilter"><option value="">All Support Members</option></select>
+      <select id="dirStatusFilter">
+        <option value="">All Statuses</option>
+        <option value="ontrack" ${DIR_STATUS_FILTER==='ontrack'?'selected':''}>On Track</option>
+        <option value="atrisk" ${DIR_STATUS_FILTER==='atrisk'?'selected':''}>At Risk</option>
+        <option value="outofcycle" ${DIR_STATUS_FILTER==='outofcycle'?'selected':''}>Out of Cycle</option>
+      </select>
       <input type="text" id="dirSearch" placeholder="Search café..." value="${DIR_SEARCH.replace(/"/g,'&quot;')}">
       <select id="dirCafeSelect" style="min-width:220px;">
         <option value="">— Jump to a café —</option>
@@ -1953,6 +1980,7 @@ function renderDirectoryTab() {
     exportToPdf('Café Directory', `${periodLabel} · ${filterLabel}`, tableHtml);
   });
   document.getElementById('dirFsmFilter').addEventListener('change', (e) => { DIR_FILTER_FSM = e.target.value; renderDirTable(); });
+  document.getElementById('dirStatusFilter').addEventListener('change', (e) => { DIR_STATUS_FILTER = e.target.value; renderDirTable(); });
   document.getElementById('dirSearch').addEventListener('input', (e) => { DIR_SEARCH = e.target.value; renderDirTable(); });
   document.getElementById('dirCafeSelect').addEventListener('change', (e) => {
     DIR_EXPANDED = e.target.value || null;
@@ -1991,7 +2019,7 @@ function renderDirTable() {
   const periodEnd = DIR_PERIOD === 'quarter' ? currentQuarterEnd() : currentMonthEnd();
   const isThisPeriod = DIR_PERIOD === 'quarter' ? isThisQuarter : isThisMonth;
 
-  let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
+  let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0, kpiOutOfCycle = 0;
   const rows = sites.map(site => {
     const stats = cafeVisitStats(site);
     const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of period
@@ -2007,13 +2035,15 @@ function renderDirTable() {
       const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
-    const atRisk = isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
+    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
     kpiScheduled += scheduledThisMonth.length;
     kpiConfirmed += confirmedThisMonth.length;
     kpiRescheduled += rescheduledThisMonth.length;
     if (atRisk) kpiAtRisk++;
+    if (outOfCycle) kpiOutOfCycle++;
     const nextDay = upcoming.length ? upcoming[0] : null;
-    return { site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk };
+    return { site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk, outOfCycle };
   });
 
   document.getElementById('dirKpiStrip').innerHTML = `
@@ -2021,6 +2051,7 @@ function renderDirTable() {
     <div><div class="card-label">Confirmed (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
     <div><div class="card-label">Rescheduled (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
+    <div><div class="card-label">Out of Cycle (non-outlying, zero scheduled)</div><div class="card-value" style="color:#b71c1c;">${kpiOutOfCycle}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
 
@@ -2040,15 +2071,18 @@ function renderDirTable() {
       <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${combinedFranlo.confirmed}/${combinedFranlo.scheduled} · Tarryn: ${combinedTarryn.confirmed}/${combinedTarryn.scheduled})</div>
     </div>`;
 
-  tbody.innerHTML = rows.map(({ site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk }) => {
-    const row = `<tr data-site="${site.id}" style="${atRisk ? 'background:var(--red-bg);' : ''}">
+  const statusFilteredRows = DIR_STATUS_FILTER
+    ? rows.filter(r => DIR_STATUS_FILTER === 'outofcycle' ? r.outOfCycle : DIR_STATUS_FILTER === 'atrisk' ? r.atRisk : (!r.atRisk && !r.outOfCycle))
+    : rows;
+  tbody.innerHTML = statusFilteredRows.map(({ site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk, outOfCycle }) => {
+    const row = `<tr data-site="${site.id}" style="${outOfCycle ? 'background:#ffcdd2;' : atRisk ? 'background:var(--red-bg);' : ''}">
       <td><b>${site.name}</b></td>
       <td>${site.region}${site.outlying ? ' <span class="badge amber" style="margin-left:4px;">outlying</span>' : ''}</td>
       <td>${stats.personLabel ? (stats.managerKey + ' · ' + displayLabel(stats.managerKey, stats.personLabel)) : '—'}</td>
       <td>${scheduledThisMonth.length}</td>
       <td>${confirmedThisMonth.length ? `<span class="badge green">${confirmedThisMonth.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
       <td>${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
-      <td>${atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
+      <td>${outOfCycle ? '<span class="badge" style="background:#b71c1c;color:#fff;">OUT OF CYCLE</span>' : atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
     </tr>`;
     const detailRow = String(DIR_EXPANDED) === String(site.id) ? `<tr><td colspan="7" style="padding:0;background:var(--grey-100);">${buildDirExpandedHtml(site, stats)}</td></tr>` : '';
     return row + detailRow;
