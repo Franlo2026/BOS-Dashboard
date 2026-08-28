@@ -98,6 +98,10 @@ table.data-table { width:100%; border-collapse:collapse; font-size:12px; }
   .container { padding: 16px 12px 50px; }
   .kpi-strip { grid-template-columns: repeat(2,1fr); }
 }
+@media print {
+  nav.topnav, .no-print { display:none !important; }
+  #printArea { display:block !important; }
+}
 </style>
 </head>
 <body>
@@ -901,6 +905,25 @@ function startApp() {
     .then(render);
 }
 
+// Shared PDF export — builds a clean, letterhead-style print layout and
+// triggers the browser's print dialog (same window.print() pattern used
+// elsewhere in BOS). Callers supply a title and ready-made table HTML;
+// respects whatever filters are currently active on that tab, since it
+// exports exactly what's already computed and on screen.
+function exportToPdf(title, subtitle, tableHtml) {
+  const today = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
+  document.getElementById('printArea').innerHTML = `
+    <div style="padding:24px;font-family:Arial,Helvetica,sans-serif;">
+      <div style="font-size:20px;font-weight:700;margin-bottom:2px;">${title}</div>
+      ${subtitle ? `<div style="font-size:12px;color:#666;margin-bottom:4px;">${subtitle}</div>` : ''}
+      <div style="font-size:11px;color:#999;margin-bottom:16px;">Exported ${today}</div>
+      ${tableHtml}
+    </div>`;
+  document.getElementById('printArea').style.display = 'block';
+  window.print();
+  document.getElementById('printArea').style.display = 'none';
+}
+
 function render() {
   const app = document.getElementById('app');
   app.innerHTML = `
@@ -915,6 +938,7 @@ function render() {
       <button class="segmented-btn ${ACTIVE_TAB==='franchisees'?'active':''}" data-tab="franchisees">Franchisee Directory</button>
     </div>
     <div id="tabBody"></div>
+    <div id="printArea" style="display:none;"></div>
   `;
   document.querySelectorAll('#mainTabs .segmented-btn').forEach(b => b.addEventListener('click', () => { ACTIVE_TAB = b.dataset.tab; render(); }));
   if (ACTIVE_TAB === 'weekly') renderWeeklyTab();
@@ -992,6 +1016,9 @@ function renderOpeningSupportTab() {
   const activeRoster = osActiveRosterByManager();
 
   body.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <button class="btn btn-outline no-print" id="osExportPdfBtn">⬇ Export to PDF</button>
+    </div>
     <div class="card" style="margin-bottom:16px;">
       <div class="section-title">Support Team — linked to a live café opening</div>
       <div style="font-size:10px;color:var(--grey-500);margin-bottom:10px;">Only the FSM and support members actually assigned to a café currently inside its opening-support window (Handover → end of Week 4) show here — set who's assigned on the New Café dashboard.</div>
@@ -1105,6 +1132,11 @@ function renderOpeningSupportTab() {
   document.getElementById('osPrevMonth').addEventListener('click', () => { OS_MONTH--; if (OS_MONTH < 0) { OS_MONTH = 11; OS_YEAR--; } renderOpeningSupportTab(); });
   document.getElementById('osNextMonth').addEventListener('click', () => { OS_MONTH++; if (OS_MONTH > 11) { OS_MONTH = 0; OS_YEAR++; } renderOpeningSupportTab(); });
   document.getElementById('osRegionFilter').addEventListener('change', (e) => { OS_REGION = e.target.value; renderOpeningSupportTab(); });
+  document.getElementById('osExportPdfBtn').addEventListener('click', () => {
+    const supportCard = document.querySelector('#tabBody .card').outerHTML;
+    const calendarHtml = document.getElementById('osCalendarWrap').innerHTML;
+    exportToPdf('New Café Opening Support', osMonthLabel(), supportCard + calendarHtml);
+  });
 
   document.querySelectorAll('[data-os-editname]').forEach(el => {
     el.addEventListener('click', () => {
@@ -1222,6 +1254,9 @@ function renderWeeklyTab() {
   const groupSites = SITES.filter(s => group.regions.includes(s.region));
 
   body.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <button class="btn btn-outline no-print" id="weeklyExportPdfBtn">⬇ Export to PDF</button>
+    </div>
     ${monthlyDashboardHtml}
     <div class="card" style="padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Week</div>
@@ -1256,6 +1291,12 @@ function renderWeeklyTab() {
     <div style="font-size:10px;color:var(--grey-500);padding:8px 2px;">Local cafés ≈ monthly · outlying ≈ every 6 weeks (minimum 3 consecutive days per outlying trip) · franchisee check-ins ≈ quarterly. Click any café to confirm, reschedule, or remove it. Changes save automatically.</div>
   `;
   document.querySelectorAll('#mgrTabs .segmented-btn').forEach(b => b.addEventListener('click', () => { ACTIVE_MANAGER = b.dataset.mgr; VIEW_WEEK = currentWeekNum(); render(); }));
+  document.getElementById('weeklyExportPdfBtn').addEventListener('click', () => {
+    const dashboardHtml = document.querySelector('#tabBody .card').outerHTML; // monthly dashboard card
+    const gridHtml = document.getElementById('weekGrid').outerHTML;
+    const weekLabel = `Week of ${weekStart.toLocaleDateString('en-ZA', { day:'numeric', month:'short', year:'numeric' })}`;
+    exportToPdf(`Weekly Schedule — ${REGION_GROUPS[ACTIVE_MANAGER].label}`, weekLabel, dashboardHtml + gridHtml);
+  });
   document.getElementById('prevWeekBtn').addEventListener('click', () => { VIEW_WEEK--; renderWeeklyTab(); });
   document.getElementById('thisWeekBtn').addEventListener('click', () => { VIEW_WEEK = currentWeekNum(); renderWeeklyTab(); });
   document.getElementById('nextWeekBtn').addEventListener('click', () => { VIEW_WEEK++; renderWeeklyTab(); });
@@ -1568,6 +1609,9 @@ function renderFranchiseeTab() {
   const body = document.getElementById('tabBody');
   const allFranchisees = FRANCHISEES.slice().sort((a, b) => a.name.localeCompare(b.name));
   body.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+      <button class="btn btn-outline no-print" id="frExportPdfBtn">⬇ Export to PDF</button>
+    </div>
     <div id="frKpiStrip" class="kpi-strip"></div>
     <div class="filter-row">
       <select id="frMgrFilter">
@@ -1589,6 +1633,11 @@ function renderFranchiseeTab() {
     </div>
   `;
   document.getElementById('frMgrFilter').addEventListener('change', (e) => { FR_FILTER_MANAGER = e.target.value; renderFrTable(); });
+  document.getElementById('frExportPdfBtn').addEventListener('click', () => {
+    const tableHtml = document.querySelector('#tabBody table.data-table').outerHTML;
+    const filterLabel = FR_FILTER_MANAGER ? (FR_FILTER_MANAGER === 'Franlo' ? "Franlo's Team" : "Tarryn's Team") : 'All Regions';
+    exportToPdf('Franchisee Directory', filterLabel, tableHtml);
+  });
   document.getElementById('frSearch').addEventListener('input', (e) => { FR_SEARCH = e.target.value; renderFrTable(); });
   document.getElementById('frSelect').addEventListener('change', (e) => {
     FR_EXPANDED = e.target.value || null;
@@ -1833,9 +1882,12 @@ function renderDirectoryTab() {
   const qStart = currentQuarterStart(), qEnd = currentQuarterEnd();
   const qLabel = `${qStart.toLocaleDateString('en-ZA',{month:'short'})}–${qEnd.toLocaleDateString('en-ZA',{month:'short'})} ${qEnd.getFullYear()}`;
   body.innerHTML = `
-    <div class="segmented" id="dirPeriodToggle" style="margin-bottom:12px;max-width:280px;">
-      <button class="segmented-btn ${DIR_PERIOD==='month'?'active':''}" data-period="month">This Month</button>
-      <button class="segmented-btn ${DIR_PERIOD==='quarter'?'active':''}" data-period="quarter">This Quarter (${qLabel})</button>
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
+      <div class="segmented" id="dirPeriodToggle" style="max-width:280px;">
+        <button class="segmented-btn ${DIR_PERIOD==='month'?'active':''}" data-period="month">This Month</button>
+        <button class="segmented-btn ${DIR_PERIOD==='quarter'?'active':''}" data-period="quarter">This Quarter (${qLabel})</button>
+      </div>
+      <button class="btn btn-outline no-print" id="dirExportPdfBtn">⬇ Export to PDF</button>
     </div>
     <div id="dirKpiStrip" class="kpi-strip"></div>
     <div id="dirCombinedRegion" style="margin-bottom:12px;"></div>
@@ -1870,6 +1922,12 @@ function renderDirectoryTab() {
     DIR_PERIOD = btn.dataset.period;
     renderDirectoryTab();
   }));
+  document.getElementById('dirExportPdfBtn').addEventListener('click', () => {
+    const tableHtml = document.querySelector('#tabBody table.data-table').outerHTML;
+    const periodLabel = DIR_PERIOD === 'quarter' ? `This Quarter (${qLabel})` : 'This Month';
+    const filterLabel = DIR_FILTER_MANAGER ? (DIR_FILTER_MANAGER === 'Franlo' ? "Franlo's Team" : "Tarryn's Team") : 'All Regions';
+    exportToPdf('Café Directory', `${periodLabel} · ${filterLabel}`, tableHtml);
+  });
   document.getElementById('dirFsmFilter').addEventListener('change', (e) => { DIR_FILTER_FSM = e.target.value; renderDirTable(); });
   document.getElementById('dirSearch').addEventListener('input', (e) => { DIR_SEARCH = e.target.value; renderDirTable(); });
   document.getElementById('dirCafeSelect').addEventListener('change', (e) => {
