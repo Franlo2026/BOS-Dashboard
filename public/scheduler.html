@@ -1128,6 +1128,45 @@ function renderOpeningSupportTab() {
   renderCalendar();
 }
 
+// Monthly café-level stats for one manager's region, this calendar
+// month — same scheduled/confirmed/rescheduled definitions as the fixed
+// Café Directory logic (scheduled = all days this month regardless of
+// past/future, confirmed = confirmed visits this month). Global scope —
+// used by both the Weekly tab's Monthly Dashboard and the Café
+// Directory's combined-regions figure.
+function monthlyStatsFor(mgrKey) {
+  const monthStart = currentMonthStart(), monthEnd = currentMonthEnd();
+  const mgrSites = SITES.filter(s => s.manager === mgrKey);
+  let scheduled = 0, confirmed = 0, rescheduled = 0;
+  mgrSites.forEach(site => {
+    const stats = cafeVisitStats(site);
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const confirmedThisMonth = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+      .filter(c => isThisMonth(new Date(c.confirmedAt)));
+    const rescheduledThisMonth = scheduledThisMonth.filter(d => {
+      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      return entries.some(e => e.text === site.name && e.status === 'rescheduled');
+    });
+    scheduled += scheduledThisMonth.length;
+    confirmed += confirmedThisMonth.length;
+    rescheduled += rescheduledThisMonth.length;
+  });
+  return { scheduled, confirmed, rescheduled };
+}
+function monthMetricCard(label, s) {
+  const pct = s.scheduled ? Math.round((s.confirmed / s.scheduled) * 100) : null;
+  const pctColor = pct===null ? 'var(--grey-500)' : pct>=80 ? 'var(--green)' : pct>=50 ? 'var(--gold)' : 'var(--red)';
+  return `<div class="card" style="padding:10px 14px;">
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--grey-500);margin-bottom:6px;">${label}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:baseline;">
+      <div><span style="font-size:18px;font-weight:700;">${s.scheduled}</span> <span style="font-size:10px;color:var(--grey-500);">scheduled</span></div>
+      <div><span style="font-size:18px;font-weight:700;color:var(--green);">${s.confirmed}</span> <span style="font-size:10px;color:var(--grey-500);">confirmed</span></div>
+      <div><span style="font-size:18px;font-weight:700;color:var(--amber);">${s.rescheduled}</span> <span style="font-size:10px;color:var(--grey-500);">rescheduled</span></div>
+      <div><span style="font-size:18px;font-weight:700;color:${pctColor};">${pct===null?'—':pct+'%'}</span> <span style="font-size:10px;color:var(--grey-500);">completion</span></div>
+    </div>
+  </div>`;
+}
+
 function renderWeeklyTab() {
 
   const body = document.getElementById('tabBody');
@@ -1136,6 +1175,22 @@ function renderWeeklyTab() {
   const days = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; });
   const roster = ROSTER[ACTIVE_MANAGER].concat(SUPPORT_TEAM_PLANS[ACTIVE_MANAGER] || []).concat(VIRTUAL_ROSTER_ROWS[ACTIVE_MANAGER] || []);
   const franchisePlan = MANAGER_COMBINED_PLANS[ACTIVE_MANAGER];
+
+  const monthlyFranlo = monthlyStatsFor('Franlo');
+  const monthlyTarryn = monthlyStatsFor('Tarryn');
+  const monthlyNational = { scheduled: monthlyFranlo.scheduled + monthlyTarryn.scheduled, confirmed: monthlyFranlo.confirmed + monthlyTarryn.confirmed, rescheduled: monthlyFranlo.rescheduled + monthlyTarryn.rescheduled };
+  const monthLabel = new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+  const monthlyDashboardHtml = `
+    <div class="card" style="padding:12px 16px;margin-bottom:16px;">
+      <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--grey-500);margin-bottom:10px;">Monthly Metric Dashboard — ${monthLabel}</div>
+      <div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px;">
+        ${monthMetricCard('National', monthlyNational)}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        ${monthMetricCard("Franlo's Team (WC · EC · Namibia)", monthlyFranlo)}
+        ${monthMetricCard("Tarryn's Team (GP · LP · MP · FS · KZN · NC · NW)", monthlyTarryn)}
+      </div>
+    </div>`;
 
   // Reusable so the same scheduled/confirmed math backs both this region's
   // KPI strip and the always-visible both-regions-combined summary below.
@@ -1166,6 +1221,7 @@ function renderWeeklyTab() {
   const groupSites = SITES.filter(s => group.regions.includes(s.region));
 
   body.innerHTML = `
+    ${monthlyDashboardHtml}
     <div class="card" style="padding:10px 16px;margin-bottom:12px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Week</div>
       <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
@@ -1500,9 +1556,11 @@ function confirmedVisitsForFranchisee(franchisee, managerKey) {
     .filter(([k]) => k.startsWith(prefix) && k.split('|').slice(3).join('|').startsWith(marker))
     .map(([k, v]) => v);
 }
-function isFranchiseeAtRisk(upcomingDays, nowAbsDay) {
-  if (!upcomingDays.length) return true;
-  return (upcomingDays[0] - nowAbsDay) > FRANCHISEE_PERIOD;
+// Same month-anchored logic as the café directory's isAtRisk() — at risk
+// means no confirmed visit yet this month AND no remaining scheduled
+// visit left this month to still get it done.
+function isFranchiseeAtRisk(confirmedThisMonthCount, remainingScheduledThisMonthCount) {
+  return confirmedThisMonthCount === 0 && remainingScheduledThisMonthCount === 0;
 }
 
 function renderFranchiseeTab() {
@@ -1551,13 +1609,15 @@ function renderFrTable() {
   franchisees.sort((a, b) => a.name.localeCompare(b.name));
 
   const nowAbsDay = nowAbsDayIndex();
+  const monthStart = currentMonthStart();
   const monthEnd = currentMonthEnd();
 
   let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
   const rows = franchisees.map(f => {
     const stats = franchiseeVisitStats(f);
-    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay);
-    const scheduledThisMonth = upcoming.filter(d => absDayToDate(d) <= monthEnd);
+    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of month
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
     const confirmedThisMonth = confirmed.filter(c => isThisMonth(new Date(c.confirmedAt)));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
@@ -1565,13 +1625,13 @@ function renderFrTable() {
       const entries = getCellEntriesByAbsDay(stats.managerKey, MANAGER_LABEL, d, MANAGER_COMBINED_PLANS[stats.managerKey]);
       return entries.some(e => e.text.startsWith('🤝 ' + f.name + ' (at ') && e.status === 'rescheduled');
     });
-    const atRisk = isFranchiseeAtRisk(upcoming, nowAbsDay);
+    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
     kpiScheduled += scheduledThisMonth.length;
     kpiConfirmed += confirmedThisMonth.length;
     kpiRescheduled += rescheduledThisMonth.length;
     if (atRisk) kpiAtRisk++;
     const nextDay = upcoming.length ? upcoming[0] : null;
-    return { f, stats, scheduledThisMonth, confirmed, nextDay, atRisk };
+    return { f, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk };
   });
 
   document.getElementById('frKpiStrip').innerHTML = `
@@ -1582,14 +1642,14 @@ function renderFrTable() {
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
 
-  tbody.innerHTML = rows.map(({ f, stats, scheduledThisMonth, confirmed, nextDay, atRisk }) => {
+  tbody.innerHTML = rows.map(({ f, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk }) => {
     const cafeNames = f.sites.map(id => { const s = SITES.find(x => x.id === id); return s ? s.name : id; }).join(', ');
     const row = `<tr data-franchisee="${f.id}" style="${atRisk ? 'background:var(--red-bg);' : ''}">
       <td><b>${f.name}</b></td>
       <td>${cafeNames}</td>
       <td>${stats.managerKey || '—'}</td>
       <td>${scheduledThisMonth.length}</td>
-      <td>${confirmed.length ? `<span class="badge green">${confirmed.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
+      <td>${confirmedThisMonth.length ? `<span class="badge green">${confirmedThisMonth.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
       <td>${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
       <td>${atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
     </tr>`;
@@ -1704,6 +1764,10 @@ function confirmedVisitsForSite(site, managerKey, personLabel) {
     .filter(([k]) => k.startsWith(prefix) && k.endsWith('|' + site.name))
     .map(([k, v]) => v);
 }
+function currentMonthStart() {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+}
 function currentMonthEnd() {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
@@ -1712,15 +1776,15 @@ function isThisMonth(date) {
   const now = new Date();
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
-// "At risk of not being visited in cycle" — the next scheduled visit is
-// further away than this café's own cadence allows (outlying ≈ 6 weeks,
-// everything else ≈ monthly), or there's no upcoming visit at all. This
-// only happens if a manual remove/reschedule has left a genuine gap, since
-// the rotation engine itself never lets a café go this long unvisited.
-function isAtRisk(site, upcomingDays, nowAbsDay) {
-  const cadence = site.outlying ? CADENCE.outlying : CADENCE.local;
-  if (!upcomingDays.length) return true;
-  return (upcomingDays[0] - nowAbsDay) > cadence;
+// A café is "at risk" if it has NOT been confirmed-visited this month AND
+// has no scheduled visit remaining this month to still get it done.
+// Deliberately anchored to actual monthly confirmation status (not a
+// forward-looking cadence check) — a café with a confirmed visit already
+// this month is on track regardless of when its NEXT visit is scheduled,
+// and a café with zero confirmed visits is at risk even if a future visit
+// is scheduled next month, since that doesn't help this month's cycle.
+function isAtRisk(confirmedThisMonthCount, remainingScheduledThisMonthCount) {
+  return confirmedThisMonthCount === 0 && remainingScheduledThisMonthCount === 0;
 }
 
 function fsmOptionsFor(managerFilter) {
@@ -1748,6 +1812,7 @@ function renderDirectoryTab() {
   const allSiteNames = SITES.slice().sort((a, b) => a.name.localeCompare(b.name));
   body.innerHTML = `
     <div id="dirKpiStrip" class="kpi-strip"></div>
+    <div id="dirCombinedRegion" style="margin-bottom:12px;"></div>
     <div class="filter-row">
       <select id="dirMgrFilter">
         <option value="">All Regions</option>
@@ -1810,26 +1875,32 @@ function renderDirTable() {
   sites.sort((a, b) => a.name.localeCompare(b.name));
 
   const nowAbsDay = nowAbsDayIndex();
+  const monthStart = currentMonthStart();
   const monthEnd = currentMonthEnd();
 
   let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
   const rows = sites.map(site => {
     const stats = cafeVisitStats(site);
-    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay);
-    const scheduledThisMonth = upcoming.filter(d => absDayToDate(d) <= monthEnd);
+    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of month
+    // Scheduled this month = every day scheduled that falls within the
+    // current calendar month, whether that date has already passed or
+    // not — matching "Scheduled = current month" rather than only
+    // counting visits still in the future.
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
     const confirmedThisMonth = confirmed.filter(c => isThisMonth(new Date(c.confirmedAt)));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
-    const atRisk = isAtRisk(site, upcoming, nowAbsDay);
+    const atRisk = isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
     kpiScheduled += scheduledThisMonth.length;
     kpiConfirmed += confirmedThisMonth.length;
     kpiRescheduled += rescheduledThisMonth.length;
     if (atRisk) kpiAtRisk++;
     const nextDay = upcoming.length ? upcoming[0] : null;
-    return { site, stats, scheduledThisMonth, confirmed, nextDay, atRisk };
+    return { site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk };
   });
 
   document.getElementById('dirKpiStrip').innerHTML = `
@@ -1840,13 +1911,29 @@ function renderDirTable() {
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
 
-  tbody.innerHTML = rows.map(({ site, stats, scheduledThisMonth, confirmed, nextDay, atRisk }) => {
+  // Both-regions-combined figure — independent of whatever region/FSM
+  // filter is currently applied above, always reflecting the full
+  // national picture for the month, per Franlo's request that this sit
+  // in the same view as the matrix rather than the weekly tab.
+  const combinedFranlo = monthlyStatsFor('Franlo');
+  const combinedTarryn = monthlyStatsFor('Tarryn');
+  const combinedScheduled = combinedFranlo.scheduled + combinedTarryn.scheduled;
+  const combinedConfirmed = combinedFranlo.confirmed + combinedTarryn.confirmed;
+  const combinedPct = combinedScheduled ? Math.round((combinedConfirmed / combinedScheduled) * 100) : null;
+  document.getElementById('dirCombinedRegion').innerHTML = `
+    <div class="card" style="padding:10px 16px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Month</div>
+      <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
+      <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${combinedFranlo.confirmed}/${combinedFranlo.scheduled} · Tarryn: ${combinedTarryn.confirmed}/${combinedTarryn.scheduled})</div>
+    </div>`;
+
+  tbody.innerHTML = rows.map(({ site, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk }) => {
     const row = `<tr data-site="${site.id}" style="${atRisk ? 'background:var(--red-bg);' : ''}">
       <td><b>${site.name}</b></td>
       <td>${site.region}${site.outlying ? ' <span class="badge amber" style="margin-left:4px;">outlying</span>' : ''}</td>
       <td>${stats.personLabel ? (stats.managerKey + ' · ' + displayLabel(stats.managerKey, stats.personLabel)) : '—'}</td>
       <td>${scheduledThisMonth.length}</td>
-      <td>${confirmed.length ? `<span class="badge green">${confirmed.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
+      <td>${confirmedThisMonth.length ? `<span class="badge green">${confirmedThisMonth.length} confirmed</span>` : '<span class="badge grey">0 confirmed</span>'}</td>
       <td>${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
       <td>${atRisk ? '<span class="badge red">AT RISK</span>' : '<span class="badge green">ON TRACK</span>'}</td>
     </tr>`;
