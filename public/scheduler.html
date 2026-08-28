@@ -913,6 +913,97 @@ function startApp() {
 // respects whatever filters are currently active on that tab, since it
 // exports exactly what's already computed and on screen.
 const BOOTLEGGER_LOGO_DATA_URI = 'data:image/jpeg;base64,' + document.getElementById('bootlegger-logo-data').textContent.trim();
+// Combined Summary Report — pulls the Monthly Dashboard, Café Directory,
+// and Franchisee Directory into one PDF, always showing the full national
+// picture regardless of whatever tab/filters are currently active
+// elsewhere on screen. New Café Opening Support isn't included — it's a
+// different kind of workflow (onboarding checklist, not a
+// scheduled/confirmed performance metric), so it doesn't fit this
+// particular summary's shape.
+function exportCombinedSummaryPdf() {
+  const monthlyFranlo = monthlyStatsFor('Franlo');
+  const monthlyTarryn = monthlyStatsFor('Tarryn');
+  const monthlyNational = { scheduled: monthlyFranlo.scheduled + monthlyTarryn.scheduled, confirmed: monthlyFranlo.confirmed + monthlyTarryn.confirmed, rescheduled: monthlyFranlo.rescheduled + monthlyTarryn.rescheduled };
+  const monthLabel = new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+  const monthlySectionHtml = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">1. Monthly Metric Dashboard — ${monthLabel}</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
+        ${monthMetricCard('National', monthlyNational)}
+        ${monthMetricCard("Franlo's Team", monthlyFranlo)}
+        ${monthMetricCard("Tarryn's Team", monthlyTarryn)}
+      </div>
+    </div>`;
+
+  // Café Directory — national totals, this month, using the exact same
+  // scheduled/confirmed/rescheduled/at-risk/out-of-cycle logic as the
+  // Café Directory tab itself.
+  const nowAbsDay = nowAbsDayIndex();
+  const monthStart = currentMonthStart(), monthEnd = currentMonthEnd();
+  let cafeScheduled = 0, cafeConfirmed = 0, cafeRescheduled = 0, cafeAtRisk = 0, cafeOutOfCycle = 0;
+  SITES.forEach(site => {
+    const stats = cafeVisitStats(site);
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
+    const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
+    const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
+    const rescheduledThisMonth = scheduledThisMonth.filter(d => {
+      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      return entries.some(e => e.text === site.name && e.status === 'rescheduled');
+    });
+    const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
+    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    cafeScheduled += scheduledThisMonth.length; cafeConfirmed += confirmedThisMonth.length; cafeRescheduled += rescheduledThisMonth.length;
+    if (atRisk) cafeAtRisk++; if (outOfCycle) cafeOutOfCycle++;
+  });
+  const cafeCompletionPct = cafeScheduled ? Math.round((cafeConfirmed/cafeScheduled)*100) : null;
+  const cafeSectionHtml = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">2. Café Directory — This Month, National</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <tr><td style="padding:4px 0;">Scheduled</td><td style="text-align:right;font-weight:700;">${cafeScheduled}</td></tr>
+        <tr><td style="padding:4px 0;">Confirmed</td><td style="text-align:right;font-weight:700;color:#2e7d32;">${cafeConfirmed}</td></tr>
+        <tr><td style="padding:4px 0;">Rescheduled</td><td style="text-align:right;font-weight:700;color:#e65100;">${cafeRescheduled}</td></tr>
+        <tr><td style="padding:4px 0;">At Risk of Missing Cycle</td><td style="text-align:right;font-weight:700;color:#c62828;">${cafeAtRisk}</td></tr>
+        <tr><td style="padding:4px 0;">Out of Cycle (monthly missed visit)</td><td style="text-align:right;font-weight:700;color:#b71c1c;">${cafeOutOfCycle}</td></tr>
+        <tr><td style="padding:4px 0;">Completion %</td><td style="text-align:right;font-weight:700;">${cafeCompletionPct===null?'—':cafeCompletionPct+'%'}</td></tr>
+      </table>
+    </div>`;
+
+  // Franchisee Directory — national totals, this month, same logic as
+  // the Franchisee Directory tab.
+  let frScheduled = 0, frConfirmed = 0, frRescheduled = 0, frAtRisk = 0;
+  FRANCHISEES.forEach(f => {
+    const stats = franchiseeVisitStats(f);
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
+    const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
+    const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
+    const rescheduledThisMonth = scheduledThisMonth.filter(d => {
+      if (!stats.managerKey) return false;
+      const entries = getCellEntriesByAbsDay(stats.managerKey, MANAGER_LABEL, d, MANAGER_COMBINED_PLANS[stats.managerKey]);
+      return entries.some(e => e.text.startsWith('🤝 ' + f.name + ' (at ') && e.status === 'rescheduled');
+    });
+    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    frScheduled += scheduledThisMonth.length; frConfirmed += confirmedThisMonth.length; frRescheduled += rescheduledThisMonth.length;
+    if (atRisk) frAtRisk++;
+  });
+  const frCompletionPct = frScheduled ? Math.round((frConfirmed/frScheduled)*100) : null;
+  const frSectionHtml = `
+    <div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">3. Franchisee Directory — This Month, National</div>
+      <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <tr><td style="padding:4px 0;">Scheduled</td><td style="text-align:right;font-weight:700;">${frScheduled}</td></tr>
+        <tr><td style="padding:4px 0;">Confirmed</td><td style="text-align:right;font-weight:700;color:#2e7d32;">${frConfirmed}</td></tr>
+        <tr><td style="padding:4px 0;">Rescheduled</td><td style="text-align:right;font-weight:700;color:#e65100;">${frRescheduled}</td></tr>
+        <tr><td style="padding:4px 0;">At Risk of Missing Cycle</td><td style="text-align:right;font-weight:700;color:#c62828;">${frAtRisk}</td></tr>
+        <tr><td style="padding:4px 0;">Completion %</td><td style="text-align:right;font-weight:700;">${frCompletionPct===null?'—':frCompletionPct+'%'}</td></tr>
+      </table>
+    </div>`;
+
+  exportToPdf('Combined Summary Report', 'Monthly Dashboard · Café Directory · Franchisee Directory — National', monthlySectionHtml + cafeSectionHtml + frSectionHtml);
+}
+
 function exportToPdf(title, subtitle, tableHtml) {
   const today = new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' });
   document.getElementById('printArea').innerHTML = `
@@ -944,7 +1035,10 @@ function render() {
   app.innerHTML = `
     <div class="page-header">
       <div><div class="page-title">Support Schedule</div><div class="page-subtitle">Regional support team rosters &amp; café coverage</div></div>
-      <div class="period-badge">${window.__ME.displayName || window.__ME.username}</div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button class="btn btn-outline no-print" id="combinedSummaryPdfBtn">⬇ Combined Summary Report</button>
+        <div class="period-badge">${window.__ME.displayName || window.__ME.username}</div>
+      </div>
     </div>
     <div class="segmented" id="mainTabs">
       <button class="segmented-btn ${ACTIVE_TAB==='weekly'?'active':''}" data-tab="weekly">Monthly View</button>
@@ -956,6 +1050,7 @@ function render() {
     <div id="printArea" style="display:none;"></div>
   `;
   document.querySelectorAll('#mainTabs .segmented-btn').forEach(b => b.addEventListener('click', () => { ACTIVE_TAB = b.dataset.tab; render(); }));
+  document.getElementById('combinedSummaryPdfBtn').addEventListener('click', exportCombinedSummaryPdf);
   if (ACTIVE_TAB === 'weekly') renderWeeklyTab();
   else if (ACTIVE_TAB === 'opening') renderOpeningSupportTab();
   else if (ACTIVE_TAB === 'franchisees') renderFranchiseeTab();
