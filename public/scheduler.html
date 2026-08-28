@@ -887,6 +887,7 @@ let DIR_FILTER_MANAGER = '';
 let DIR_FILTER_FSM = '';
 let DIR_SEARCH = '';
 let DIR_EXPANDED = null;
+let DIR_PERIOD = 'month'; // 'month' or 'quarter'
 let OS_REGION = 'all'; // 'all' | 'Franlo' | 'Tarryn'
 let OS_MONTH = new Date().getMonth();
 let OS_YEAR = new Date().getFullYear();
@@ -1776,6 +1777,25 @@ function isThisMonth(date) {
   const now = new Date();
   return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
 }
+// Bootlegger's fiscal year runs March–February (established elsewhere in
+// BOS), so fiscal quarters are Mar–May, Jun–Aug, Sep–Nov, Dec–Feb —
+// NOT calendar-year quarters. currentQuarterStart/End give the bounds of
+// whichever fiscal quarter today falls in.
+function currentQuarterStart() {
+  const now = new Date();
+  const fiscalMonthIndex = (now.getMonth() + 10) % 12; // shift so March = 0
+  const quarterStartMonth = now.getMonth() - (fiscalMonthIndex % 3);
+  const d = new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0);
+  return d;
+}
+function currentQuarterEnd() {
+  const start = currentQuarterStart();
+  return new Date(start.getFullYear(), start.getMonth() + 3, 0, 23, 59, 59);
+}
+function isThisQuarter(date) {
+  const start = currentQuarterStart(), end = currentQuarterEnd();
+  return date >= start && date <= end;
+}
 // A café is "at risk" if it has NOT been confirmed-visited this month AND
 // has no scheduled visit remaining this month to still get it done.
 // Deliberately anchored to actual monthly confirmation status (not a
@@ -1810,7 +1830,13 @@ function fsmOptionsFor(managerFilter) {
 function renderDirectoryTab() {
   const body = document.getElementById('tabBody');
   const allSiteNames = SITES.slice().sort((a, b) => a.name.localeCompare(b.name));
+  const qStart = currentQuarterStart(), qEnd = currentQuarterEnd();
+  const qLabel = `${qStart.toLocaleDateString('en-ZA',{month:'short'})}–${qEnd.toLocaleDateString('en-ZA',{month:'short'})} ${qEnd.getFullYear()}`;
   body.innerHTML = `
+    <div class="segmented" id="dirPeriodToggle" style="margin-bottom:12px;max-width:280px;">
+      <button class="segmented-btn ${DIR_PERIOD==='month'?'active':''}" data-period="month">This Month</button>
+      <button class="segmented-btn ${DIR_PERIOD==='quarter'?'active':''}" data-period="quarter">This Quarter (${qLabel})</button>
+    </div>
     <div id="dirKpiStrip" class="kpi-strip"></div>
     <div id="dirCombinedRegion" style="margin-bottom:12px;"></div>
     <div class="filter-row">
@@ -1828,7 +1854,7 @@ function renderDirectoryTab() {
     </div>
     <div class="card" style="padding:0;">
       <table class="data-table">
-        <thead><tr><th>Café</th><th>Region</th><th>Support Member</th><th>Scheduled (this month)</th><th>Confirmed / Actual</th><th>Next Visit</th><th>Status</th></tr></thead>
+        <thead><tr><th>Café</th><th>Region</th><th>Support Member</th><th>Scheduled (${DIR_PERIOD==='quarter'?'this quarter':'this month'})</th><th>Confirmed / Actual</th><th>Next Visit</th><th>Status</th></tr></thead>
         <tbody id="dirTableBody"></tbody>
       </table>
     </div>
@@ -1840,6 +1866,10 @@ function renderDirectoryTab() {
   }
   refreshFsmOptions();
   document.getElementById('dirMgrFilter').addEventListener('change', (e) => { DIR_FILTER_MANAGER = e.target.value; DIR_FILTER_FSM = ''; refreshFsmOptions(); renderDirTable(); });
+  document.querySelectorAll('#dirPeriodToggle .segmented-btn').forEach(btn => btn.addEventListener('click', () => {
+    DIR_PERIOD = btn.dataset.period;
+    renderDirectoryTab();
+  }));
   document.getElementById('dirFsmFilter').addEventListener('change', (e) => { DIR_FILTER_FSM = e.target.value; renderDirTable(); });
   document.getElementById('dirSearch').addEventListener('input', (e) => { DIR_SEARCH = e.target.value; renderDirTable(); });
   document.getElementById('dirCafeSelect').addEventListener('change', (e) => {
@@ -1875,21 +1905,22 @@ function renderDirTable() {
   sites.sort((a, b) => a.name.localeCompare(b.name));
 
   const nowAbsDay = nowAbsDayIndex();
-  const monthStart = currentMonthStart();
-  const monthEnd = currentMonthEnd();
+  const periodStart = DIR_PERIOD === 'quarter' ? currentQuarterStart() : currentMonthStart();
+  const periodEnd = DIR_PERIOD === 'quarter' ? currentQuarterEnd() : currentMonthEnd();
+  const isThisPeriod = DIR_PERIOD === 'quarter' ? isThisQuarter : isThisMonth;
 
   let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
   const rows = sites.map(site => {
     const stats = cafeVisitStats(site);
-    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of month
-    // Scheduled this month = every day scheduled that falls within the
-    // current calendar month, whether that date has already passed or
-    // not — matching "Scheduled = current month" rather than only
+    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of period
+    // Scheduled this period = every day scheduled that falls within the
+    // current month/quarter, whether that date has already passed or
+    // not — matching "Scheduled = current period" rather than only
     // counting visits still in the future.
-    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
+    const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= periodStart && dt <= periodEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
-    const confirmedThisMonth = confirmed.filter(c => isThisMonth(new Date(c.confirmedAt)));
+    const confirmedThisMonth = confirmed.filter(c => isThisPeriod(new Date(c.confirmedAt)));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
@@ -1904,9 +1935,9 @@ function renderDirTable() {
   });
 
   document.getElementById('dirKpiStrip').innerHTML = `
-    <div><div class="card-label">Scheduled (This Month)</div><div class="card-value">${kpiScheduled}</div></div>
-    <div><div class="card-label">Confirmed (This Month)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
-    <div><div class="card-label">Rescheduled (This Month)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
+    <div><div class="card-label">Scheduled (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value">${kpiScheduled}</div></div>
+    <div><div class="card-label">Confirmed (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
+    <div><div class="card-label">Rescheduled (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
