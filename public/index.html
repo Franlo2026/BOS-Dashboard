@@ -1087,12 +1087,24 @@ function servicingCycleHealth(storesList){
   const today = todayISO();
   const currentYearMonth = today.slice(0, 7);
   let inCycle = 0, outOfCycle = 0, noSchedule = 0;
-  storesList.forEach(storeName => {
-    const store = STORES.find(s => s.store_name === storeName);
-    const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(storeName);
-    if (!sd || !sd.next_service) { noSchedule++; return; }
-    if (sd.next_service.slice(0, 7) <= currentYearMonth) outOfCycle++;
-    else inCycle++;
+  // A handful of café names (Paarl Mall, Durbanville) are shared by two
+  // genuinely distinct cafés, distinguished only by their `abbr` field —
+  // a plain name lookup (STORES.find by name) can only ever resolve to
+  // one of them, silently dropping the other's servicing status from
+  // this KPI entirely regardless of how overdue it actually is. Expand
+  // each name to every matching STORES entry (.filter, not .find), and
+  // dedupe the input list first so a name already appearing twice in
+  // storesList doesn't get double-counted once expanded.
+  const uniqueNames = Array.from(new Set(storesList));
+  uniqueNames.forEach(storeName => {
+    const matches = STORES.filter(s => s.store_name === storeName);
+    const targets = matches.length ? matches : [null];
+    targets.forEach(store => {
+      const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(storeName);
+      if (!sd || !sd.next_service) { noSchedule++; return; }
+      if (sd.next_service.slice(0, 7) <= currentYearMonth) outOfCycle++;
+      else inCycle++;
+    });
   });
   const total = inCycle + outOfCycle;
   return { inCycle, outOfCycle, noSchedule, total, pct: total ? (inCycle / total) * 100 : null };
@@ -1800,10 +1812,18 @@ function renderDrilldown(){
   } else if (metric === 'servicing') {
     title = 'Cafés Out of Coffee Servicing Cycle';
     const today = todayISO();
-    const outOfCycle = stores.map(r => {
-      const store = STORES.find(x => x.store_name === r.store);
-      const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(r.store);
-      return { store: r.store, fsm: r.fsm, sd };
+    // Same name-collision handling as servicingCycleHealth() — Paarl Mall
+    // and Durbanville each cover two distinct cafés, so this expands to
+    // every matching STORES entry rather than the first name match only.
+    const uniqueStoreNames = Array.from(new Set(stores.map(r => r.store)));
+    const outOfCycle = uniqueStoreNames.flatMap(storeName => {
+      const matches = STORES.filter(x => x.store_name === storeName);
+      const targets = matches.length ? matches : [null];
+      return targets.map(store => {
+        const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(storeName);
+        const fsm = store ? store.fsm : (stores.find(r => r.store === storeName) || {}).fsm;
+        return { store: storeName, fsm, sd };
+      });
     }).filter(r => r.sd && r.sd.next_service && r.sd.next_service.slice(0,7) <= today.slice(0,7))
       .sort((a,b) => a.sd.next_service.localeCompare(b.sd.next_service));
     rows = outOfCycle.map(r => `<tr><td>${r.store}</td><td>${r.fsm}</td><td class="rag-text red">${r.sd.next_service}</td></tr>`);
