@@ -1618,6 +1618,177 @@ async function sendDailyCpaMilestoneDigests() {
   }
   return summary;
 }
+// ==================================================================
+// Daily Silo turnover refresh — direct BigQuery connection to the
+// brand-scoped Silo Data Platform dataset (bootlegger_curated), per the
+// platform team's build guide. Replaces the manual "generate a CSV via
+// the MCP connector, then upload it" workflow with a genuine daily
+// automatic refresh. Inert until GOOGLE_APPLICATION_CREDENTIALS_JSON is
+// actually set in Railway — the server boots and runs fine without it,
+// this job just skips itself and logs why.
+// ==================================================================
+const SILO_CONFIGURED = !!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON;
+let bigquery = null;
+if (SILO_CONFIGURED) {
+  try {
+    const { BigQuery } = require('@google-cloud/bigquery');
+    bigquery = new BigQuery({
+      projectId: 'silo-data-platform',
+      credentials: JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON),
+    });
+  } catch (e) {
+    console.error('Failed to initialise Silo BigQuery client:', e.message);
+  }
+}
+
+function uploadSpi(sales, inv) { return inv ? Math.round((sales / inv) * 100) / 100 : null; }
+function uploadGrowth(cur, py) { return (cur == null || py == null || py === 0) ? null : Math.round(((cur - py) / py) * 10000) / 10000; }
+
+// Same MTD/last-month/FYTD boundary logic as the manual trade-upload
+// process — fiscal year starts 1 March, computed fresh from whatever
+// "today" actually is rather than hardcoded.
+function computeTradePeriods(latestDate) {
+  const d = new Date(latestDate + 'T00:00:00');
+  const Y = d.getFullYear(), M = d.getMonth(); // 0-indexed
+  const iso = (dt) => dt.toISOString().slice(0, 10);
+  const mtdStart = iso(new Date(Y, M, 1));
+  const mtdEnd = latestDate;
+  const mtdStartPy = iso(new Date(Y - 1, M, 1));
+  const mtdEndPy = iso(new Date(Y - 1, M, d.getDate()));
+  const lastMonthStart = iso(new Date(Y, M - 1, 1));
+  const lastMonthEnd = iso(new Date(Y, M, 0));
+  const lastMonthStartPy = iso(new Date(Y - 1, M - 1, 1));
+  const lastMonthEndPy = iso(new Date(Y - 1, M, 0));
+  const fyStartYear = M < 2 ? Y - 1 : Y; // fiscal year starts March; Jan/Feb belong to the prior FY
+  const fytdStart = iso(new Date(fyStartYear, 2, 1));
+  // In the first days/weeks of a new fiscal year (March), "last complete
+  // month" is still February — which belongs to the PREVIOUS fiscal year.
+  // Using it as fytdEnd would invert the range (fytdStart > fytdEnd) and
+  // silently return zero rows. Clamp so fytdEnd is never before fytdStart.
+  const fytdEnd = lastMonthEnd < fytdStart ? fytdStart : lastMonthEnd;
+  const fytdStartPy = iso(new Date(fyStartYear - 1, 2, 1));
+  const fytdEndPy = lastMonthEndPy;
+  return { mtdStart, mtdEnd, mtdStartPy, mtdEndPy, lastMonthStart, lastMonthEnd, lastMonthStartPy, lastMonthEndPy, fytdStart, fytdEnd, fytdStartPy, fytdEndPy };
+}
+
+async function refreshSiloTurnoverData() {
+  if (!SILO_CONFIGURED || !bigquery) {
+    console.log('Skipped Silo turnover refresh — GOOGLE_APPLICATION_CREDENTIALS_JSON not set yet.');
+    return { skipped: true };
+  }
+  try {
+    const [latestRows] = await bigquery.query({
+      query: `SELECT MAX(date) as latest_date FROM \`silo-data-platform.bootlegger_curated.turnover_daily\``,
+      location: 'europe-west1',
+    });
+    const latestDate = latestRows[0] && latestRows[0].latest_date && latestRows[0].latest_date.value;
+    if (!latestDate) { console.error('Silo turnover refresh: no data returned for MAX(date).'); return { error: 'no data' }; }
+    const p = computeTradePeriods(latestDate);
+
+    // Single pass covering all three current-year windows in one
+    // contiguous range, plus the two prior-year windows — mirrors the
+    // manual process's query shape. A defensive GROUP BY dedup is kept
+    // even though bootlegger_curated is described as pre-curated, since
+    // this hasn't been verified against live data yet.
+    const [rows] = await bigquery.query({
+      query: `
+        WITH dedup AS (
+          SELECT node, date, branch,
+            ANY_VALUE(store_type) as store_type,
+            MAX(turnover_exclusive) as turnover_exclusive,
+            MAX(invoices) as invoices
+          FROM \`silo-data-platform.bootlegger_curated.turnover_daily\`
+          WHERE (date BETWEEN @fytdStartPy AND @lastMonthEndPy)
+             OR (date BETWEEN @fytdStart AND @mtdEnd)
+             OR (date BETWEEN @mtdStartPy AND @mtdEndPy)
+          GROUP BY node, date, branch
+        )
+        SELECT branch as store_name, store_type, date, turnover_exclusive, invoices FROM dedup
+        ORDER BY branch, date`,
+      params: { fytdStartPy: p.fytdStartPy, lastMonthEndPy: p.lastMonthEndPy, fytdStart: p.fytdStart, mtdEnd: p.mtdEnd, mtdStartPy: p.mtdStartPy, mtdEndPy: p.mtdEndPy },
+      location: 'europe-west1',
+    });
+
+    // Aggregate each store's rows into the three period windows, both
+    // years — same shape parseTurnoverUploadRows() builds client-side
+    // from an uploaded CSV.
+    const byStore = {};
+    rows.forEach(r => {
+      const name = r.store_name;
+      if (!byStore[name]) byStore[name] = { store_type: r.store_type || 'Full Store', sales_mtd: 0, inv_mtd: 0, sales_mtd_py: 0, inv_mtd_py: 0, sales_lastmonth: 0, inv_lastmonth: 0, sales_lastmonth_py: 0, inv_lastmonth_py: 0, sales_fytd: 0, inv_fytd: 0, sales_fytd_py: 0, inv_fytd_py: 0 };
+      const s = byStore[name];
+      const date = r.date.value || r.date;
+      const sales = Number(r.turnover_exclusive) || 0, inv = Number(r.invoices) || 0;
+      if (date >= p.mtdStart && date <= p.mtdEnd) { s.sales_mtd += sales; s.inv_mtd += inv; }
+      if (date >= p.mtdStartPy && date <= p.mtdEndPy) { s.sales_mtd_py += sales; s.inv_mtd_py += inv; }
+      if (date >= p.lastMonthStart && date <= p.lastMonthEnd) { s.sales_lastmonth += sales; s.inv_lastmonth += inv; }
+      if (date >= p.lastMonthStartPy && date <= p.lastMonthEndPy) { s.sales_lastmonth_py += sales; s.inv_lastmonth_py += inv; }
+      if (date >= p.fytdStart && date <= p.fytdEnd) { s.sales_fytd += sales; s.inv_fytd += inv; }
+      if (date >= p.fytdStartPy && date <= p.fytdEndPy) { s.sales_fytd_py += sales; s.inv_fytd_py += inv; }
+    });
+
+    // FSM comes from BOS's own store roster, not Silo — the new
+    // brand-scoped schema doesn't expose an fsm column the way the old
+    // gaap_curated query did.
+    const { rows: storeRows } = await pool.query("SELECT value FROM storage WHERE key = 'dashboard-stores-v1'");
+    let fsmByStoreName = {};
+    try {
+      const { storesByName } = getStoresAndManagersData();
+      Object.entries(storesByName).forEach(([name, s]) => { fsmByStoreName[name] = s.fsm || ''; });
+    } catch (e) { /* fsm lookup is best-effort; blank fsm is acceptable, not fatal */ }
+
+    const TURNOVER_DATA = {};
+    const typeGroups = {};
+    Object.entries(byStore).forEach(([name, d]) => {
+      d.fsm = fsmByStoreName[name] || '';
+      d.is_new_store = false; // Silo doesn't flag this — matches manual-upload default when unspecified
+      d.sales_mtd_growth = uploadGrowth(d.sales_mtd, d.sales_mtd_py);
+      d.inv_mtd_growth = uploadGrowth(d.inv_mtd, d.inv_mtd_py);
+      d.sales_lastmonth_growth = uploadGrowth(d.sales_lastmonth, d.sales_lastmonth_py);
+      d.inv_lastmonth_growth = uploadGrowth(d.inv_lastmonth, d.inv_lastmonth_py);
+      d.sales_fytd_growth = uploadGrowth(d.sales_fytd, d.sales_fytd_py);
+      d.inv_fytd_growth = uploadGrowth(d.inv_fytd, d.inv_fytd_py);
+      d.sales_fytd_avg_monthly = Math.round((d.sales_fytd / 4) * 100) / 100;
+      d.inv_fytd_avg_monthly = Math.round((d.inv_fytd / 4) * 10) / 10;
+      d.spi_mtd = uploadSpi(d.sales_mtd, d.inv_mtd);
+      d.spi_mtd_py = uploadSpi(d.sales_mtd_py, d.inv_mtd_py);
+      d.spi_mtd_growth = uploadGrowth(d.spi_mtd, d.spi_mtd_py);
+      d.spi_lastmonth = uploadSpi(d.sales_lastmonth, d.inv_lastmonth);
+      d.spi_lastmonth_py = uploadSpi(d.sales_lastmonth_py, d.inv_lastmonth_py);
+      d.spi_lastmonth_growth = uploadGrowth(d.spi_lastmonth, d.spi_lastmonth_py);
+      d.spi_fytd = uploadSpi(d.sales_fytd, d.inv_fytd);
+      d.spi_fytd_py = uploadSpi(d.sales_fytd_py, d.inv_fytd_py);
+      d.spi_fytd_growth = uploadGrowth(d.spi_fytd, d.spi_fytd_py);
+      TURNOVER_DATA[name] = d;
+      const g = typeGroups[d.store_type] || (typeGroups[d.store_type] = { sales_mtd: 0, inv_mtd: 0, sales_lastmonth: 0, inv_lastmonth: 0, sales_fytd: 0, inv_fytd: 0, n: 0 });
+      g.sales_mtd += d.sales_mtd; g.inv_mtd += d.inv_mtd;
+      g.sales_lastmonth += d.sales_lastmonth; g.inv_lastmonth += d.inv_lastmonth;
+      g.sales_fytd += d.sales_fytd; g.inv_fytd += d.inv_fytd; g.n++;
+    });
+    const BRAND_AVGS = {};
+    Object.entries(typeGroups).forEach(([st, g]) => {
+      if (!g.n) return;
+      BRAND_AVGS[st] = {
+        n_stores: g.n,
+        sales_mtd: Math.round((g.sales_mtd / g.n) * 100) / 100, inv_mtd: Math.round((g.inv_mtd / g.n) * 10) / 10, spi_mtd: uploadSpi(g.sales_mtd, g.inv_mtd),
+        sales_lastmonth: Math.round((g.sales_lastmonth / g.n) * 100) / 100, inv_lastmonth: Math.round((g.inv_lastmonth / g.n) * 10) / 10, spi_lastmonth: uploadSpi(g.sales_lastmonth, g.inv_lastmonth),
+        sales_fytd: Math.round(((g.sales_fytd / g.n) / 4) * 100) / 100, inv_fytd: Math.round(((g.inv_fytd / g.n) / 4) * 10) / 10, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
+      };
+    });
+
+    const payload = JSON.stringify({ TURNOVER_DATA, BRAND_AVGS });
+    await pool.query(
+      `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      ['bos-upload-data-turnover', payload]
+    );
+    console.log(`Silo turnover refresh complete — ${Object.keys(TURNOVER_DATA).length} stores, latest Silo date ${latestDate}.`);
+    return { ok: true, storeCount: Object.keys(TURNOVER_DATA).length, latestDate };
+  } catch (e) {
+    console.error('Silo turnover refresh failed:', e.message);
+    return { error: e.message };
+  }
+}
+
 async function sendDailyOverdueTaskDigests() {
   if (!EMAIL_CONFIGURED) return { attempted: 0, sent: 0, failed: 0, errors: ['Email is not configured yet'] };
   const summary = newDigestSummary();
@@ -1732,6 +1903,13 @@ app.post('/api/email/automation-status', authRequired, requireAdmin, async (req,
 // Runs one digest job immediately, once, redirected entirely to
 // testEmail — real recipients are never touched. Returns whether the run
 // completed so the control panel can confirm it went through.
+app.post('/api/admin/run-silo-refresh', authRequired, requireAdmin, async (req, res) => {
+  const result = await refreshSiloTurnoverData();
+  if (result.skipped) return res.status(400).json({ error: 'GOOGLE_APPLICATION_CREDENTIALS_JSON is not set in Railway yet — nothing to run.' });
+  if (result.error) return res.status(500).json({ error: result.error });
+  res.json({ ok: true, message: `Refreshed ${result.storeCount} stores from Silo (latest date: ${result.latestDate}).` });
+});
+
 app.post('/api/email/run-digest-test/:jobId', authRequired, requireAdmin, async (req, res) => {
   const job = DIGEST_JOBS[req.params.jobId];
   if (!job) return res.status(400).json({ error: 'Unknown digest job: ' + req.params.jobId });
@@ -1788,6 +1966,8 @@ initDB()
     setInterval(() => runIfEnabled(sendWeeklyCafeStatusDigests, 'weekly café status'), 7 * 24 * 60 * 60 * 1000);
     createServicingTasksForCurrentMonth();
     setInterval(createServicingTasksForCurrentMonth, 24 * 60 * 60 * 1000);
+    refreshSiloTurnoverData();
+    setInterval(refreshSiloTurnoverData, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
