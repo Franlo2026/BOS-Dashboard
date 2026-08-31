@@ -948,7 +948,7 @@ function exportCombinedSummaryPdf() {
     const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
     const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
-      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
     const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
@@ -1287,7 +1287,7 @@ function monthlyStatsFor(mgrKey) {
     const confirmedThisMonth = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
       .filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
-      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
     scheduled += scheduledThisMonth.length;
@@ -1905,6 +1905,24 @@ function cafeVisitStats(site) {
       return { managerKey: mgrKey, personLabel: person.label, scheduledDays: allDays, visitors };
     }
   }
+  // A café with no FSM assigned in either roster still belongs to a
+  // manager's region (via site.manager) and can still be personally
+  // confirmed by that manager — a café falling through the FSM bucket
+  // match above must NOT also fall through to checking nobody's
+  // confirmations at all, or a real confirmed visit silently vanishes
+  // and the café gets permanently stuck showing "out of cycle."
+  if (site.manager && ROSTER[site.manager]) {
+    const mgrKey = site.manager;
+    const managerPlan = getEffectivePlan(mgrKey, MANAGER_LABEL, MANAGER_COMBINED_PLANS[mgrKey]);
+    const managerDays = [];
+    managerPlan.forEach((names, absDay) => { if (names.includes(site.name)) managerDays.push(absDay); });
+    const visitors = [{ managerKey: mgrKey, personLabel: MANAGER_LABEL }];
+    const confirmedDays = visitors.flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+      .map(c => slotToAbsDay(c.scheduledSlot))
+      .filter(d => d !== null);
+    const allDays = Array.from(new Set([...managerDays, ...confirmedDays])).sort((a, b) => a - b);
+    return { managerKey: mgrKey, personLabel: null, scheduledDays: allDays, visitors };
+  }
   return { managerKey: null, personLabel: null, scheduledDays: [], visitors: [] };
 }
 function absDayToDate(absDay) {
@@ -2160,7 +2178,7 @@ function renderDirTable() {
     const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
     const confirmedThisMonth = confirmed.filter(c => isThisPeriod(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
-      const entries = stats.managerKey ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
+      const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
     const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
