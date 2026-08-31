@@ -732,6 +732,7 @@ function fmtDayDate(d) { return d.toLocaleDateString('en-ZA', { weekday: 'short'
    ============================================================ */
 let OVERRIDES = {};   // cellKey -> [{id, text, status}]   status: '' | 'confirmed' | 'rescheduled'
 let CONFIRM_LOG = {}; // visitKey -> { confirmedAt, confirmedBy }
+let UNOPENED_CAFE_IDS = new Set(); // site.id -> excluded from directory metrics (still in the opening journey, hasn't opened yet)
 let NAME_OVERRIDES = {}; // "managerKey|FSM label" -> assigned person's name
 let NEWCAFE_STORES = [];      // extraStores from New Café Ops (Handover/Opening dates)
 let NEWCAFE_ALLOCATIONS = {}; // storeName -> [assigned support member real names]
@@ -739,6 +740,7 @@ let NEWCAFE_SEEDED_TRIPLES = []; // "date|cafeId|managerKey|personLabel" — eve
 async function loadState() {
   try { const r = await window.storage.get('support-schedule-overrides-v1'); OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { OVERRIDES = {}; }
   try { const r = await window.storage.get('support-schedule-confirmations-v1'); CONFIRM_LOG = JSON.parse((r && r.value) || '{}'); } catch (e) { CONFIRM_LOG = {}; }
+  try { const r = await window.storage.get('support-schedule-unopened-cafes-v1'); UNOPENED_CAFE_IDS = new Set(JSON.parse((r && r.value) || '[]')); } catch (e) { UNOPENED_CAFE_IDS = new Set(); }
   try { const r = await window.storage.get('support-schedule-names-v1'); NAME_OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { NAME_OVERRIDES = {}; }
   try { const r = await window.storage.get('opening-support-schedule-v1'); OPENING_SUPPORT = JSON.parse((r && r.value) || '{}'); } catch (e) { OPENING_SUPPORT = {}; }
   try { const r = await window.storage.get('dashboard-stores-v1'); NEWCAFE_STORES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_STORES = []; }
@@ -941,7 +943,7 @@ function exportCombinedSummaryPdf() {
   const nowAbsDay = nowAbsDayIndex();
   const monthStart = currentMonthStart(), monthEnd = currentMonthEnd();
   let cafeScheduled = 0, cafeConfirmed = 0, cafeRescheduled = 0, cafeAtRisk = 0, cafeOutOfCycle = 0;
-  SITES.forEach(site => {
+  SITES.filter(site => !isCafeNotYetOpen(site)).forEach(site => {
     const stats = cafeVisitStats(site);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
@@ -973,7 +975,7 @@ function exportCombinedSummaryPdf() {
   // Franchisee Directory — national totals, this month, same logic as
   // the Franchisee Directory tab.
   let frScheduled = 0, frConfirmed = 0, frRescheduled = 0, frAtRisk = 0;
-  FRANCHISEES.forEach(f => {
+  FRANCHISEES.filter(f => !(f.sites.length && f.sites.every(id => { const s = SITES.find(x => x.id === id); return s && isCafeNotYetOpen(s); }))).forEach(f => {
     const stats = franchiseeVisitStats(f);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
@@ -1279,7 +1281,7 @@ function renderOpeningSupportTab() {
 // Directory's combined-regions figure.
 function monthlyStatsFor(mgrKey) {
   const monthStart = currentMonthStart(), monthEnd = currentMonthEnd();
-  const mgrSites = SITES.filter(s => s.manager === mgrKey);
+  const mgrSites = SITES.filter(s => s.manager === mgrKey && !isCafeNotYetOpen(s));
   let scheduled = 0, confirmed = 0, rescheduled = 0;
   mgrSites.forEach(site => {
     const stats = cafeVisitStats(site);
@@ -1725,6 +1727,7 @@ function renderFranchiseeTab() {
       <button class="btn btn-outline no-print" id="frExportPdfBtn">⬇ Export to PDF</button>
     </div>
     <div id="frKpiStrip" class="kpi-strip"></div>
+    <div id="frUnopenedNote"></div>
     <div class="filter-row">
       <select id="frMgrFilter">
         <option value="">All Regions</option>
@@ -1766,6 +1769,8 @@ function renderFrTable() {
   const tbody = document.getElementById('frTableBody');
   const q = FR_SEARCH.trim().toLowerCase();
   let franchisees = FRANCHISEES.slice();
+  const frUnopenedExcludedCount = franchisees.filter(f => f.sites.length && f.sites.every(id => { const s = SITES.find(x => x.id === id); return s && isCafeNotYetOpen(s); })).length;
+  franchisees = franchisees.filter(f => !(f.sites.length && f.sites.every(id => { const s = SITES.find(x => x.id === id); return s && isCafeNotYetOpen(s); })));
   if (FR_FILTER_MANAGER) franchisees = franchisees.filter(f => franchiseeManagerKey(f) === FR_FILTER_MANAGER);
   if (q) franchisees = franchisees.filter(f => f.name.toLowerCase().includes(q) || f.sites.some(id => { const s = SITES.find(x => x.id === id); return s && s.name.toLowerCase().includes(q); }));
   franchisees.sort((a, b) => a.name.localeCompare(b.name));
@@ -1803,6 +1808,7 @@ function renderFrTable() {
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
+  document.getElementById('frUnopenedNote').innerHTML = frUnopenedExcludedCount ? `<div class="no-print" style="font-size:11px;color:var(--grey-500);padding:6px 2px;">${frUnopenedExcludedCount} franchisee(s) excluded — every one of their cafés is not yet open</div>` : '';
 
   tbody.innerHTML = rows.map(({ f, stats, scheduledThisMonth, confirmed, confirmedThisMonth, nextDay, atRisk }) => {
     const cafeNames = f.sites.map(id => { const s = SITES.find(x => x.id === id); return s ? s.name : id; }).join(', ');
@@ -1854,6 +1860,24 @@ function buildFrExpandedHtml(f, stats) {
 /* ============================================================
    TAB: CAFÉ DIRECTORY
    ============================================================ */
+// A café is "not yet open" if either (a) it has a manual override in
+// UNOPENED_CAFE_IDS, or (b) the New Café Opening tracker has a real
+// openDate for it that's still in the future. Automatic detection means
+// a café stops being excluded the moment its tracked open date passes —
+// no one has to remember to un-exclude it. Manual overrides exist for
+// edge cases: a café not yet in the opening tracker at all, or one whose
+// tracked date needs correcting.
+function isCafeNotYetOpen(site) {
+  if (UNOPENED_CAFE_IDS.has(site.id)) return true;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const store = NEWCAFE_STORES.find(s => s.name === site.name);
+  if (store && store.openDate) {
+    const openDate = new Date(store.openDate + 'T00:00:00');
+    if (!isNaN(openDate) && openDate > today) return true;
+  }
+  return false;
+}
+
 function cafeVisitStats(site) {
   // Find which roster bucket (if any) this site belongs to, across both managers
   for (const mgrKey of Object.keys(ROSTER)) {
@@ -2143,6 +2167,8 @@ function renderDirTable() {
   const tbody = document.getElementById('dirTableBody');
   const q = DIR_SEARCH.trim().toLowerCase();
   let sites = SITES.slice();
+  const unopenedExcludedCount = sites.filter(s => isCafeNotYetOpen(s)).length;
+  sites = sites.filter(s => !isCafeNotYetOpen(s));
   if (DIR_FILTER_MANAGER) sites = sites.filter(s => s.manager === DIR_FILTER_MANAGER);
   if (DIR_FILTER_FSM) {
     const [fmgr, flabel] = DIR_FILTER_FSM.split('|');
@@ -2215,7 +2241,9 @@ function renderDirTable() {
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Month</div>
       <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
       <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${combinedFranlo.confirmed}/${combinedFranlo.scheduled} · Tarryn: ${combinedTarryn.confirmed}/${combinedTarryn.scheduled})</div>
-    </div>`;
+    </div>
+    ${unopenedExcludedCount ? `<div class="no-print" style="font-size:11px;color:var(--grey-500);padding:6px 2px;">${unopenedExcludedCount} café(s) not yet open excluded from these figures — <a href="#" id="dirShowUnopenedLink" style="color:var(--gold);">view list</a></div>` : ''}
+  `;
 
   const statusFilteredRows = DIR_STATUS_FILTER
     ? rows.filter(r => DIR_STATUS_FILTER === 'outofcycle' ? r.outOfCycle : DIR_STATUS_FILTER === 'atrisk' ? r.atRisk : (!r.atRisk && !r.outOfCycle))
@@ -2241,6 +2269,28 @@ function renderDirTable() {
       if (sel) sel.value = DIR_EXPANDED || '';
       renderDirTable();
     });
+  });
+  const toggleUnopenedBtn = document.getElementById('dirToggleUnopenedBtn');
+  if (toggleUnopenedBtn) toggleUnopenedBtn.addEventListener('click', async (e) => {
+    e.stopPropagation(); // don't also trigger the row's own expand/collapse
+    const siteId = toggleUnopenedBtn.dataset.siteId;
+    if (UNOPENED_CAFE_IDS.has(siteId)) UNOPENED_CAFE_IDS.delete(siteId);
+    else UNOPENED_CAFE_IDS.add(siteId);
+    try {
+      await window.storage.set('support-schedule-unopened-cafes-v1', JSON.stringify(Array.from(UNOPENED_CAFE_IDS)));
+      toast('Saved');
+    } catch (err) { toast('Could not save — check your connection'); }
+    renderDirTable();
+  });
+  const showUnopenedLink = document.getElementById('dirShowUnopenedLink');
+  if (showUnopenedLink) showUnopenedLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    const excluded = SITES.filter(s => isCafeNotYetOpen(s)).map(s => {
+      const store = NEWCAFE_STORES.find(x => x.name === s.name);
+      const manual = UNOPENED_CAFE_IDS.has(s.id);
+      return `${s.name}${store && store.openDate ? ' (opens ' + store.openDate + ')' : manual ? ' (manually marked)' : ''}`;
+    });
+    alert('Cafés excluded as not yet open:\n\n' + excluded.join('\n'));
   });
 }
 
@@ -2282,6 +2332,10 @@ function buildDirExpandedHtml(site, stats) {
         </div>
       </div>
       ${openingSupportHtml}
+      <div class="no-print" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--grey-200);">
+        <button class="btn btn-outline btn-mini" id="dirToggleUnopenedBtn" data-site-id="${site.id}">${UNOPENED_CAFE_IDS.has(site.id) ? '✓ Mark as opened (re-include in metrics)' : 'Mark as not yet open (exclude from metrics)'}</button>
+        <div style="font-size:10px;color:var(--grey-500);margin-top:4px;">Use this only if the café isn't yet showing a correct open date on the New Café Opening tracker — once it has a tracked open date there, exclusion happens automatically.</div>
+      </div>
       <div style="margin-top:10px;font-size:10px;color:var(--grey-500);">Assigned to: ${stats.managerKey || '—'} team · ${stats.personLabel ? displayLabel(stats.managerKey, stats.personLabel) : '—'} · Zone: ${site.zone} · Franchisee: ${site.franchisee || '—'}</div>
     </div>
   `;
