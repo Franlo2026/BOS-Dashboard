@@ -489,6 +489,11 @@ const MONTHLY_TRADE_DATA = MONTHLY_TRADE_RAW.MONTHLY_TRADE_DATA;
 // yet wired into an ongoing upload pipeline — this is a one-time pull;
 // extending it to grow with each future month is a separate piece of work.
 const MONTHLY_TRADE_MONTHS = ['mar', 'apr', 'may', 'jun', 'jul', 'aug'];
+// The month Trade View reports on — defaults to the latest month actually
+// present in the data, but can be changed via the dropdown to look at any
+// earlier month instead (e.g. explicitly re-selecting August later, once
+// a newer month has been added and become the new default).
+let TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
 const MONTHLY_TRADE_MONTH_LABELS = { mar: 'Mar', apr: 'Apr', may: 'May', jun: 'Jun', jul: 'Jul', aug: 'Aug (MTD)' };
 function monthlyTradeRange(storeName, fromMonth, toMonth){
   const rec = MONTHLY_TRADE_DATA[resolveAlias(storeName)];
@@ -1915,14 +1920,22 @@ function metricRow(label, m, isMoney, fmtVal){
 }
 
 function viewTrade(){
+  if (!MONTHLY_TRADE_MONTHS.includes(TRADE_SELECTED_MONTH)) TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+  const selIdx = MONTHLY_TRADE_MONTHS.indexOf(TRADE_SELECTED_MONTH);
+  const priorMonth = selIdx > 0 ? MONTHLY_TRADE_MONTHS[selIdx - 1] : null;
+  const cap = (m) => m ? m.charAt(0).toUpperCase() + m.slice(1) : '—';
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <div><div class="page-title">Trade View</div><div class="page-subtitle">Turnover, SPI &amp; Invoice Count · MTD Jul 2026 (1\u201323) vs Jun 2026 vs YoY vs FYTD Mar\u2013Jun Avg vs Format Avg</div></div>
-      <div class="period-badge">TRADE HEALTH TARGET ≥75%</div>
+      <div><div class="page-title">Trade View</div><div class="page-subtitle">Turnover, SPI &amp; Invoice Count · Reporting on ${cap(TRADE_SELECTED_MONTH)} 2026${priorMonth ? ' vs ' + cap(priorMonth) + ' 2026' : ''} vs YoY vs FYTD vs Format Avg</div></div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <label style="font-size:11px;color:var(--grey-500);">Reporting Month</label>
+        <select id="tradeMonthSelect" class="no-print">${MONTHLY_TRADE_MONTHS.map(m => `<option value="${m}" ${m===TRADE_SELECTED_MONTH?'selected':''}>${cap(m)} 2026</option>`).join('')}</select>
+        <div class="period-badge">TRADE HEALTH TARGET ≥75%</div>
+      </div>
     </div>
     <div class="card" style="margin-bottom:16px;">
       <div class="section-title">Brand Overview — Turnover, SPI &amp; Invoice Count</div>
-      <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;">Pulled directly from Silo/GAAP — Current Month (Aug MTD), Previous Full Month (Jul), and YTD (Mar\u2013Jul), each vs the same period last year. Uses the Format/FSM/Region filters below.</div>
+      <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;">Pulled directly from Silo/GAAP — Current Month (${cap(TRADE_SELECTED_MONTH)} MTD), Previous Full Month (${cap(priorMonth)}), and YTD (Mar–${cap(priorMonth)}), each vs the same period last year. Uses the Format/FSM/Region filters below.</div>
       <div id="tradeBrandOverview"></div>
     </div>
     <div class="filter-row no-print">
@@ -1959,19 +1972,23 @@ function viewTrade(){
   `;
 
   document.getElementById('tradeExportPdf').addEventListener('click', () => window.print());
+  document.getElementById('tradeMonthSelect').addEventListener('change', (e) => { TRADE_SELECTED_MONTH = e.target.value; viewTrade(); });
 
   function renderTradeBrandOverview(){
     const wrap = document.getElementById('tradeBrandOverview');
     const rows = storeRows(); // already respects Format/FSM/Region/search filters
+    const selIdx = MONTHLY_TRADE_MONTHS.indexOf(TRADE_SELECTED_MONTH);
+    const priorMonth = selIdx > 0 ? MONTHLY_TRADE_MONTHS[selIdx - 1] : null;
+    const cap = (m) => m ? m.charAt(0).toUpperCase() + m.slice(1) : '—';
     const periods = [
-      { key: 'aug', label: 'Current Month (Aug MTD)' },
-      { key: 'jul', label: 'Previous Full Month (Jul)' },
-      { key: 'ytd', label: 'YTD (Mar\u2013Jul)' },
+      { key: TRADE_SELECTED_MONTH, label: `Current Month (${cap(TRADE_SELECTED_MONTH)} MTD)` },
+      { key: priorMonth, label: `Previous Full Month (${cap(priorMonth)})` },
+      { key: 'ytd', label: `YTD (Mar–${cap(priorMonth)})` },
     ];
     const cells = periods.map(p => {
       let curSales = 0, curInv = 0, pySales = 0, pyInv = 0;
       rows.forEach(r => {
-        const mr = p.key === 'ytd' ? monthlyTradeRange(r.store, 'mar', 'jul') : monthlyTradeRange(r.store, p.key, p.key);
+        const mr = p.key === 'ytd' ? monthlyTradeRange(r.store, 'mar', priorMonth || TRADE_SELECTED_MONTH) : (p.key ? monthlyTradeRange(r.store, p.key, p.key) : null);
         if (!mr) return;
         curSales += mr.cur.sales; curInv += mr.cur.inv;
         pySales += mr.py.sales; pyInv += mr.py.inv;
@@ -6866,22 +6883,30 @@ function viewCafeStatus2(){
 
     let html = '';
     const monthlyRec = CSPI_COMPONENTS[resolveAlias(s.store_name)] ? true : false; // just a presence check, not used directly below
-    const augRange = monthlyTradeRange(s.store_name, 'aug', 'aug');
-    const julRange = monthlyTradeRange(s.store_name, 'jul', 'jul');
-    const ytdRange = monthlyTradeRange(s.store_name, 'mar', 'jul');
+    // Computed from the latest month actually present in MONTHLY_TRADE_MONTHS,
+    // not a hardcoded literal — this stays correct automatically as new
+    // months get added to the trade data, rather than needing a manual
+    // edit each time (which is exactly how "aug"/"jul" went stale here).
+    const latestTradeMonth = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+    const priorTradeMonth = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 2];
+    const latestMonthLabel = latestTradeMonth ? latestTradeMonth.charAt(0).toUpperCase() + latestTradeMonth.slice(1) : '—';
+    const priorMonthLabel = priorTradeMonth ? priorTradeMonth.charAt(0).toUpperCase() + priorTradeMonth.slice(1) : '—';
+    const augRange = monthlyTradeRange(s.store_name, latestTradeMonth, latestTradeMonth);
+    const julRange = monthlyTradeRange(s.store_name, priorTradeMonth, priorTradeMonth);
+    const ytdRange = monthlyTradeRange(s.store_name, 'mar', priorTradeMonth);
     if (augRange || julRange || ytdRange) {
       const spiOf = r => (r && r.cur.inv) ? r.cur.sales / r.cur.inv : null;
       const metricLine2 = (label, r) => `
         <tr><td style="color:var(--grey-500);width:140px;">${label}</td>
         <td style="font-family:monospace;">${r ? fmtRand(r.cur.sales) : '—'}</td>
         <td>${r && r.growth!=null ? `<span class="rag-text ${r.growth>=0?'green':'red'}">${fmtSigned(r.growth*100,1)}</span>` : '—'}</td></tr>`;
-      html += `<div class="section-title">Turnover — Real Silo Data: Current Month (Aug MTD) / Previous Full Month (Jul) / YTD (Mar–Jul)</div>
+      html += `<div class="section-title">Turnover — Real Silo Data: Current Month (${latestMonthLabel} MTD) / Previous Full Month (${priorMonthLabel}) / YTD (Mar–${priorMonthLabel})</div>
         <table class="data-table" style="margin-bottom:12px;"><thead><tr><th></th><th>Value</th><th>vs 2025</th></tr></thead><tbody>
-          ${metricLine2('Current Month (Aug MTD)', augRange)}
-          ${metricLine2('Previous Full Month (Jul)', julRange)}
-          ${metricLine2('YTD (Mar–Jul)', ytdRange)}
-          <tr><td style="color:var(--grey-500);">SPI (Jul)</td><td style="font-family:monospace;">${julRange && spiOf(julRange)!=null ? fmtRand(spiOf(julRange)) : '—'}</td><td></td></tr>
-          <tr><td style="color:var(--grey-500);">Invoices (Jul)</td><td style="font-family:monospace;">${julRange ? julRange.cur.inv.toLocaleString('en-ZA') : '—'}</td><td></td></tr>
+          ${metricLine2(`Current Month (${latestMonthLabel} MTD)`, augRange)}
+          ${metricLine2(`Previous Full Month (${priorMonthLabel})`, julRange)}
+          ${metricLine2(`YTD (Mar–${priorMonthLabel})`, ytdRange)}
+          <tr><td style="color:var(--grey-500);">SPI (${priorMonthLabel})</td><td style="font-family:monospace;">${julRange && spiOf(julRange)!=null ? fmtRand(spiOf(julRange)) : '—'}</td><td></td></tr>
+          <tr><td style="color:var(--grey-500);">Invoices (${priorMonthLabel})</td><td style="font-family:monospace;">${julRange ? julRange.cur.inv.toLocaleString('en-ZA') : '—'}</td><td></td></tr>
         </tbody></table>`;
     } else {
       html += `<div class="empty-state" style="margin-bottom:12px;">No turnover data linked for this store.</div>`;
