@@ -926,7 +926,7 @@ function exportCombinedSummaryPdf() {
   const monthlyFranlo = monthlyStatsFor('Franlo');
   const monthlyTarryn = monthlyStatsFor('Tarryn');
   const monthlyNational = { scheduled: monthlyFranlo.scheduled + monthlyTarryn.scheduled, confirmed: monthlyFranlo.confirmed + monthlyTarryn.confirmed, rescheduled: monthlyFranlo.rescheduled + monthlyTarryn.rescheduled };
-  const monthLabel = new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+  const monthLabel = selectedMonthLabel() === 'This Month' ? new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }) : selectedMonthLabel();
   const monthlySectionHtml = `
     <div style="margin-bottom:20px;">
       <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">1. Monthly Metric Dashboard — ${monthLabel}</div>
@@ -961,7 +961,7 @@ function exportCombinedSummaryPdf() {
   const cafeCompletionPct = cafeScheduled ? Math.round((cafeConfirmed/cafeScheduled)*100) : null;
   const cafeSectionHtml = `
     <div style="margin-bottom:20px;">
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">2. Café Directory — This Month, National</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">2. Café Directory — ${selectedMonthLabel()}, National</div>
       <table style="width:100%;font-size:12px;border-collapse:collapse;">
         <tr><td style="padding:4px 0;">Scheduled</td><td style="text-align:right;font-weight:700;">${cafeScheduled}</td></tr>
         <tr><td style="padding:4px 0;">Confirmed</td><td style="text-align:right;font-weight:700;color:#2e7d32;">${cafeConfirmed}</td></tr>
@@ -993,7 +993,7 @@ function exportCombinedSummaryPdf() {
   const frCompletionPct = frScheduled ? Math.round((frConfirmed/frScheduled)*100) : null;
   const frSectionHtml = `
     <div>
-      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">3. Franchisee Directory — This Month, National</div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;border-bottom:1px solid #ccc;padding-bottom:4px;">3. Franchisee Directory — ${selectedMonthLabel()}, National</div>
       <table style="width:100%;font-size:12px;border-collapse:collapse;">
         <tr><td style="padding:4px 0;">Scheduled</td><td style="text-align:right;font-weight:700;">${frScheduled}</td></tr>
         <tr><td style="padding:4px 0;">Confirmed</td><td style="text-align:right;font-weight:700;color:#2e7d32;">${frConfirmed}</td></tr>
@@ -1034,10 +1034,25 @@ function exportToPdf(title, subtitle, tableHtml) {
 
 function render() {
   const app = document.getElementById('app');
+  // Last 6 months including the actual current one, for the selector —
+  // reporting further back than this isn't disallowed by the code, just
+  // not offered by default since scheduling/confirmation data that old is
+  // unlikely to be useful to look back at.
+  const monthOptions = [];
+  const today = new Date();
+  for (let i = 0; i < 6; i++) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    const label = d.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+    monthOptions.push({ value, label });
+  }
+  const currentSelection = SELECTED_REPORT_MONTH || monthOptions[0].value;
   app.innerHTML = `
     <div class="page-header">
       <div><div class="page-title">Support Schedule</div><div class="page-subtitle">Regional support team rosters &amp; café coverage</div></div>
       <div style="display:flex;align-items:center;gap:10px;">
+        <label style="font-size:11px;color:var(--grey-500);">Reporting Month</label>
+        <select id="reportMonthSelect" class="no-print">${monthOptions.map(o => `<option value="${o.value}" ${o.value===currentSelection?'selected':''}>${o.label}${o.value===monthOptions[0].value?' (current)':''}</option>`).join('')}</select>
         <button class="btn btn-outline no-print" id="combinedSummaryPdfBtn">⬇ Combined Summary Report</button>
         <div class="period-badge">${window.__ME.displayName || window.__ME.username}</div>
       </div>
@@ -1053,6 +1068,13 @@ function render() {
   `;
   document.querySelectorAll('#mainTabs .segmented-btn').forEach(b => b.addEventListener('click', () => { ACTIVE_TAB = b.dataset.tab; render(); }));
   document.getElementById('combinedSummaryPdfBtn').addEventListener('click', exportCombinedSummaryPdf);
+  document.getElementById('reportMonthSelect').addEventListener('change', (e) => {
+    // Selecting the current month collapses back to null (not a fixed
+    // "YYYY-MM"), so it keeps tracking today's real month automatically
+    // going forward, exactly like it did before this feature existed.
+    SELECTED_REPORT_MONTH = e.target.value === monthOptions[0].value ? null : e.target.value;
+    render();
+  });
   if (ACTIVE_TAB === 'weekly') renderWeeklyTab();
   else if (ACTIVE_TAB === 'opening') renderOpeningSupportTab();
   else if (ACTIVE_TAB === 'franchisees') renderFranchiseeTab();
@@ -1324,7 +1346,7 @@ function renderWeeklyTab() {
   const monthlyFranlo = monthlyStatsFor('Franlo');
   const monthlyTarryn = monthlyStatsFor('Tarryn');
   const monthlyNational = { scheduled: monthlyFranlo.scheduled + monthlyTarryn.scheduled, confirmed: monthlyFranlo.confirmed + monthlyTarryn.confirmed, rescheduled: monthlyFranlo.rescheduled + monthlyTarryn.rescheduled };
-  const monthLabel = new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
+  const monthLabel = selectedMonthLabel() === 'This Month' ? new Date().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' }) : selectedMonthLabel();
   const monthlyDashboardHtml = `
     <div class="card" style="padding:12px 16px;margin-bottom:16px;">
       <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;color:var(--grey-500);margin-bottom:10px;">Monthly Metric Dashboard — ${monthLabel}</div>
@@ -1802,9 +1824,9 @@ function renderFrTable() {
   });
 
   document.getElementById('frKpiStrip').innerHTML = `
-    <div><div class="card-label">Scheduled (This Month)</div><div class="card-value">${kpiScheduled}</div></div>
-    <div><div class="card-label">Confirmed (This Month)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
-    <div><div class="card-label">Rescheduled (This Month)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
+    <div><div class="card-label">Scheduled (${selectedMonthLabel()})</div><div class="card-value">${kpiScheduled}</div></div>
+    <div><div class="card-label">Confirmed (${selectedMonthLabel()})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
+    <div><div class="card-label">Rescheduled (${selectedMonthLabel()})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
@@ -2018,17 +2040,40 @@ function confirmedVisitsForSite(site, managerKey, personLabel) {
 function slotToAbsDay(slot) {
   return /^W\d+-(SAT|SUN)$/.test(slot) ? null : Number(slot);
 }
+// The month all "This Month" reporting actually reports on — null means
+// "use today's real month" (the original, unchanged behavior). Setting
+// this to a specific "YYYY-MM" string (via the month-selector dropdown)
+// makes every function that calls currentMonthStart/End — the Café and
+// Franchisee Directories, the Monthly Dashboard, the Combined Summary
+// Report — report on that month instead, without each of them needing
+// their own separate selector or logic.
+let SELECTED_REPORT_MONTH = null;
 function currentMonthStart() {
+  if (SELECTED_REPORT_MONTH) {
+    const [y, m] = SELECTED_REPORT_MONTH.split('-').map(Number);
+    return new Date(y, m - 1, 1, 0, 0, 0);
+  }
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
 }
 function currentMonthEnd() {
+  if (SELECTED_REPORT_MONTH) {
+    const [y, m] = SELECTED_REPORT_MONTH.split('-').map(Number);
+    return new Date(y, m, 0, 23, 59, 59);
+  }
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 }
 function isThisMonth(date) {
-  const now = new Date();
-  return date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth();
+  const start = currentMonthStart(), end = currentMonthEnd();
+  return date >= start && date <= end;
+}
+// "This Month" only when the selection genuinely IS today's real month —
+// otherwise the actual month name, so a label never misleadingly reads
+// "This Month" while showing August's figures with today in September.
+function selectedMonthLabel() {
+  if (!SELECTED_REPORT_MONTH) return 'This Month';
+  return currentMonthStart().toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' });
 }
 // Bootlegger's fiscal year runs March–February (established elsewhere in
 // BOS), so fiscal quarters are Mar–May, Jun–Aug, Sep–Nov, Dec–Feb —
@@ -2098,7 +2143,7 @@ function renderDirectoryTab() {
   body.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
       <div class="segmented" id="dirPeriodToggle" style="max-width:280px;">
-        <button class="segmented-btn ${DIR_PERIOD==='month'?'active':''}" data-period="month">This Month</button>
+        <button class="segmented-btn ${DIR_PERIOD==='month'?'active':''}" data-period="month">${selectedMonthLabel()}</button>
         <button class="segmented-btn ${DIR_PERIOD==='quarter'?'active':''}" data-period="quarter">This Quarter (${qLabel})</button>
       </div>
       <button class="btn btn-outline no-print" id="dirExportPdfBtn">⬇ Export to PDF</button>
@@ -2145,7 +2190,7 @@ function renderDirectoryTab() {
   document.getElementById('dirExportPdfBtn').addEventListener('click', () => {
     const kpiHtml = document.getElementById('dirKpiStrip').outerHTML;
     const combinedHtml = document.getElementById('dirCombinedRegion').outerHTML;
-    const periodLabel = DIR_PERIOD === 'quarter' ? `This Quarter (${qLabel})` : 'This Month';
+    const periodLabel = DIR_PERIOD === 'quarter' ? `This Quarter (${qLabel})` : selectedMonthLabel();
     const filterLabel = DIR_FILTER_MANAGER ? (DIR_FILTER_MANAGER === 'Franlo' ? "Franlo's Team" : "Tarryn's Team") : 'All Regions';
     exportToPdf('Café Directory — Summary', `${periodLabel} · ${filterLabel}`, kpiHtml + combinedHtml);
   });
@@ -2219,9 +2264,9 @@ function renderDirTable() {
   });
 
   document.getElementById('dirKpiStrip').innerHTML = `
-    <div><div class="card-label">Scheduled (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value">${kpiScheduled}</div></div>
-    <div><div class="card-label">Confirmed (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
-    <div><div class="card-label">Rescheduled (${DIR_PERIOD==='quarter'?'This Quarter':'This Month'})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
+    <div><div class="card-label">Scheduled (${DIR_PERIOD==='quarter'?'This Quarter':selectedMonthLabel()})</div><div class="card-value">${kpiScheduled}</div></div>
+    <div><div class="card-label">Confirmed (${DIR_PERIOD==='quarter'?'This Quarter':selectedMonthLabel()})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
+    <div><div class="card-label">Rescheduled (${DIR_PERIOD==='quarter'?'This Quarter':selectedMonthLabel()})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
     <div><div class="card-label">Out of Cycle (monthly missed visit)</div><div class="card-value" style="color:#b71c1c;">${kpiOutOfCycle}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
@@ -2238,7 +2283,7 @@ function renderDirTable() {
   const combinedPct = combinedScheduled ? Math.round((combinedConfirmed / combinedScheduled) * 100) : null;
   document.getElementById('dirCombinedRegion').innerHTML = `
     <div class="card" style="padding:10px 16px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — This Month</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — ${selectedMonthLabel()}</div>
       <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
       <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${combinedFranlo.confirmed}/${combinedFranlo.scheduled} · Tarryn: ${combinedTarryn.confirmed}/${combinedTarryn.scheduled})</div>
     </div>
