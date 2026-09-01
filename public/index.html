@@ -1088,9 +1088,15 @@ function taskInRange(a, range){
 // definition as the server-side task-creation trigger (due this month or
 // already overdue), so this KPI and the tasks it generates always agree
 // with each other.
-function servicingCycleHealth(storesList){
-  const today = todayISO();
-  const currentYearMonth = today.slice(0, 7);
+function servicingCycleHealth(storesList, range){
+  // Reports "as of" the Dashboard's own date-range filter when one is
+  // set (using its "To" date's month), so servicing respects the same
+  // filter every other Dashboard KPI already does — e.g. setting the
+  // filter's To date to August 31 shows servicing status as it stood at
+  // the end of August, not today. Falls back to today's month when no
+  // range is set, exactly matching the original behavior.
+  const asOfDate = (range && range.to) ? range.to : todayISO();
+  const currentYearMonth = asOfDate.slice(0, 7);
   let inCycle = 0, outOfCycle = 0, noSchedule = 0;
   // A handful of café names (Paarl Mall, Durbanville) are shared by two
   // genuinely distinct cafés, distinguished only by their `abbr` field —
@@ -1162,7 +1168,7 @@ function scopedKPIs(scope, range){
     ltl: ltlHealth(fsms),
     google: googleMysteryDinerHealth(stores, 'google'),
     mysteryDiner: googleMysteryDinerHealth(stores, 'mysteryDiner'),
-    servicing: servicingCycleHealth(stores)
+    servicing: servicingCycleHealth(stores, range)
   };
 }
 
@@ -1816,7 +1822,12 @@ function renderDrilldown(){
     var head = '<tr><th>Store</th><th>FSM</th><th>Audit Date</th><th>Score</th></tr>';
   } else if (metric === 'servicing') {
     title = 'Cafés Out of Coffee Servicing Cycle';
-    const today = todayISO();
+    // Same "as of" logic as servicingCycleHealth() — respects the
+    // Dashboard's date-range filter's "To" date when set, so the
+    // drilldown list stays consistent with whatever month the KPI
+    // number itself is showing, rather than always defaulting to today.
+    const dashRange = getDateRange('dashboard');
+    const asOfDate = (dashRange && dashRange.to) ? dashRange.to : todayISO();
     // Same name-collision handling as servicingCycleHealth() — Paarl Mall
     // and Durbanville each cover two distinct cafés, so this expands to
     // every matching STORES entry rather than the first name match only.
@@ -1829,7 +1840,7 @@ function renderDrilldown(){
         const fsm = store ? store.fsm : (stores.find(r => r.store === storeName) || {}).fsm;
         return { store: storeName, fsm, sd };
       });
-    }).filter(r => r.sd && r.sd.next_service && r.sd.next_service.slice(0,7) <= today.slice(0,7))
+    }).filter(r => r.sd && r.sd.next_service && r.sd.next_service.slice(0,7) <= asOfDate.slice(0,7))
       .sort((a,b) => a.sd.next_service.localeCompare(b.sd.next_service));
     rows = outOfCycle.map(r => `<tr><td>${r.store}</td><td>${r.fsm}</td><td class="rag-text red">${r.sd.next_service}</td></tr>`);
     var head = '<tr><th>Store</th><th>FSM</th><th>Next Service Was Due</th></tr>';
