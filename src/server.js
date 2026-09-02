@@ -1156,6 +1156,47 @@ function getStoresAndManagersData() {
   return { storesByName, storesByAbbr, managerOfFsm };
 }
 
+// Names BOS has renamed since some visits/actions were logged — a record
+// still carrying the old name would otherwise fail to resolve to any
+// current store and be skipped by the FSM-sync migration below.
+const STORE_NAME_MIGRATIONS = {
+  'Aquarium (XS)': 'Aquarium Kiosk',
+  'Delta Central XS': 'Delta Central',
+};
+
+// One-time-per-record sync: visits and actions each bake in the FSM at
+// creation time rather than looking it up live, so a record created
+// before an FSM reassignment (or a café rename) permanently shows under
+// the old FSM — invisible under the café's current, correct one. Safe to
+// re-run: only touches rows whose stored FSM actually disagrees with the
+// café's current FSM, so running it repeatedly is a no-op once caught up.
+async function syncVisitAndActionFsmToCurrentRoster() {
+  try {
+    const { storesByName } = getStoresAndManagersData();
+    const resolveStore = (name) => storesByName[name] || storesByName[STORE_NAME_MIGRATIONS[name]] || null;
+
+    for (const table of ['visits', 'actions']) {
+      const { rows } = await pool.query(`SELECT id, data FROM ${table}`);
+      let fixed = 0;
+      for (const row of rows) {
+        const rec = row.data;
+        const storeName = rec.store || rec.cafe;
+        if (!storeName) continue;
+        const store = resolveStore(storeName);
+        if (!store || !store.fsm) continue;
+        if (rec.fsm !== store.fsm) {
+          rec.fsm = store.fsm;
+          await pool.query(`UPDATE ${table} SET data = $1 WHERE id = $2`, [rec, row.id]);
+          fixed++;
+        }
+      }
+      if (fixed) console.log(`FSM sync: corrected ${fixed} stale FSM value(s) in ${table}.`);
+    }
+  } catch (e) {
+    console.error('FSM sync migration failed:', e.message);
+  }
+}
+
 // Some manager keys used throughout BOS's data are short internal labels,
 // not the person's real name as it'll appear in the users table (Tarryn's
 // key already happens to be her full name, but Franlo's isn't) — this is
@@ -1903,6 +1944,15 @@ app.post('/api/email/automation-status', authRequired, requireAdmin, async (req,
 // Runs one digest job immediately, once, redirected entirely to
 // testEmail — real recipients are never touched. Returns whether the run
 // completed so the control panel can confirm it went through.
+app.post('/api/admin/sync-fsm', authRequired, requireAdmin, async (req, res) => {
+  try {
+    await syncVisitAndActionFsmToCurrentRoster();
+    res.json({ ok: true, message: 'FSM sync complete — check server logs for how many records were corrected.' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/run-silo-refresh', authRequired, requireAdmin, async (req, res) => {
   const result = await refreshSiloTurnoverData();
   if (result.skipped) return res.status(400).json({ error: 'GOOGLE_APPLICATION_CREDENTIALS_JSON is not set in Railway yet — nothing to run.' });
@@ -1968,6 +2018,8 @@ initDB()
     setInterval(createServicingTasksForCurrentMonth, 24 * 60 * 60 * 1000);
     refreshSiloTurnoverData();
     setInterval(refreshSiloTurnoverData, 24 * 60 * 60 * 1000);
+    syncVisitAndActionFsmToCurrentRoster();
+    setInterval(syncVisitAndActionFsmToCurrentRoster, 24 * 60 * 60 * 1000);
   })
   .catch(err => {
     console.error('Failed to initialise database:', err);
