@@ -395,6 +395,49 @@ function serviceScheduleKeyFor(store, name){
   if (store && store.abbr && store.region) return store.abbr + '_' + store.region;
   return resolveAlias(name);
 }
+// A small, self-contained date-input modal for "mark as serviced" — lets
+// the actual service date be entered (often a few days in the past,
+// since this is usually logged after the fact) rather than always
+// defaulting to today. The next-service date is 4 months from whatever
+// date is entered here, not from today.
+function openServiceDateModal(key){
+  const existing = document.getElementById('serviceDateModalOverlay');
+  if (existing) existing.remove();
+  const todayStr = todayISO();
+  const overlay = document.createElement('div');
+  overlay.id = 'serviceDateModalOverlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:6px;padding:24px;width:320px;max-width:90vw;">
+      <div style="font-size:15px;font-weight:700;margin-bottom:6px;">Mark as Serviced</div>
+      <div style="font-size:12px;color:var(--grey-500);margin-bottom:14px;">Enter the actual date the servicing took place. The next service will be due 4 months from that date.</div>
+      <label style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--grey-500);margin-bottom:4px;">Service Date</label>
+      <input type="date" id="serviceDateModalInput" value="${todayStr}" max="${todayStr}" style="width:100%;padding:8px;border:1px solid var(--grey-200);border-radius:4px;font-size:13px;box-sizing:border-box;margin-bottom:16px;">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-outline" id="serviceDateModalCancel">Cancel</button>
+        <button class="btn btn-gold" id="serviceDateModalConfirm">Confirm</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+  document.getElementById('serviceDateModalCancel').addEventListener('click', close);
+  document.getElementById('serviceDateModalConfirm').addEventListener('click', async () => {
+    const enteredDate = document.getElementById('serviceDateModalInput').value;
+    if (!enteredDate) { toast('Please enter a service date'); return; }
+    const serviced = new Date(enteredDate + 'T00:00:00');
+    if (isNaN(serviced)) { toast('Invalid date'); return; }
+    const nextServiceDate = new Date(serviced.getFullYear(), serviced.getMonth() + 4, serviced.getDate());
+    const nextService = nextServiceDate.toISOString().slice(0, 10);
+    SERVICE_SCHEDULE_OVERRIDES[key] = { last_service: enteredDate, next_service: nextService };
+    try {
+      await fetch('/api/storage/service-schedule-overrides', { method: 'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(SERVICE_SCHEDULE_OVERRIDES) }) });
+      toast('Marked as serviced — next service due ' + nextService);
+    } catch (e) { toast('Saved locally, but failed to sync — try again shortly'); }
+    close();
+    render();
+  });
+}
 // Coffee machine servicing — sourced from the Bootlegger Service Schedule.
 // 105 of 114 rows matched to a real BOS café; the rest were either not yet
 // in BOS's store list, a header/footer row, or hit a known BOS data issue
@@ -522,6 +565,10 @@ function lastCompleteBudgetMonth() {
 // earlier month instead (e.g. explicitly re-selecting August later, once
 // a newer month has been added and become the new default).
 let TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+// null = always the latest month (current default behaviour); set to a
+// specific month key (e.g. 'jul') to pin the whole Café Status tab to
+// that month's turnover figures instead.
+let CS_SELECTED_MONTH = null;
 const MONTHLY_TRADE_MONTH_LABELS = { mar: 'Mar', apr: 'Apr', may: 'May', jun: 'Jun', jul: 'Jul', aug: 'Aug (MTD)' };
 function monthlyTradeRange(storeName, fromMonth, toMonth){
   const rec = MONTHLY_TRADE_DATA[resolveAlias(storeName)];
@@ -2780,36 +2827,6 @@ function viewActions(){
   }
 
   function isTaskOverdue(a){ return a.status !== 'closed' && a.status !== 'escalated' && a.dueDate && a.dueDate < todayISO(); }
-  // Was this task still open and past-due as of a specific date (not
-  // necessarily today)? A task only counts if it hadn't been closed yet
-  // by that point — closedDate is checked, not current status, since a
-  // task closed today should still show as having been overdue at the
-  // end of last month if that's the period being reported on.
-  function wasOverdueAsOf(a, asOfDate){
-    if (a.status === 'escalated') return false;
-    if (!a.dueDate || a.dueDate >= asOfDate) return false;
-    if (a.status === 'closed' && a.closedDate && a.closedDate <= asOfDate) return false;
-    return true;
-  }
-  // Overdue rows for the currently selected reporting period — end-of-period
-  // snapshot, not "overdue right now". Deliberately does NOT apply the
-  // createdDate-based date-range filter that baseFilters() uses: a task
-  // created before the selected period but still open and past-due at
-  // its end is exactly the kind of task this needs to surface, not
-  // exclude. Other filters (FSM/pillar/region/search) still apply.
-  function overdueRowsForPeriod(){
-    const range = getDateRange('tasks');
-    const asOfDate = range.to || todayISO();
-    const fsmF = document.getElementById('actFsm').value, pillarF = document.getElementById('actPillar').value;
-    const regionF = document.getElementById('actRegion').value;
-    const searchF = document.getElementById('actSearch').value.trim().toLowerCase();
-    return [...STATE.actions, ...OPS_AS_TASKS].filter(a =>
-      wasOverdueAsOf(a, asOfDate) &&
-      (!fsmF||a.fsm===fsmF) && (!pillarF||a.pillar===pillarF) &&
-      (!regionF || regionOfStore(a.store)===regionF) &&
-      (!searchF || (a.store||'').toLowerCase().includes(searchF) || (a.owner||'').toLowerCase().includes(searchF))
-    );
-  }
   // Shared by filteredRows (subtab-scoped, for the list below) and
   // allFilteredRows (subtab-independent, for the KPI strip) — everything
   // except the subtab/non-conformance restriction lives here once.
@@ -2846,18 +2863,14 @@ function viewActions(){
     const rows = filteredRows();
     const kpiRows = allFilteredRows();
     const active = kpiRows.filter(r=>r.status!=='closed' && r.status!=='escalated');
-    const range = getDateRange('tasks');
-    const periodSelected = !!(range.from || range.to);
-    const asOfDate = range.to || todayISO();
-    const overdue = overdueRowsForPeriod();
-    const overdueLabel = periodSelected ? `Still Overdue at ${fmtShortDate(asOfDate)}` : 'Overdue';
+    const overdue = active.filter(r=>r.dueDate && r.dueDate<todayISO());
     const completed = kpiRows.filter(r=>r.status==='closed');
     const escalated = kpiRows.filter(r=>r.status==='escalated');
     document.getElementById('ncSummaryBtn').style.display = subTab==='nonconformance' ? '' : 'none';
 
     document.getElementById('taskKpis').innerHTML = `
       <div class="card" style="border-top:3px solid var(--gold);"><div class="card-value">${active.length}</div><div class="card-label">Active Tasks</div></div>
-      <div class="card" style="border-top:3px solid var(--red);"><div class="card-value" style="color:var(--red);">${overdue.length}</div><div class="card-label">${overdueLabel}</div>${overdue.length?`<div class="card-sub" style="color:var(--red);">${overdue.length} need attention</div>`:''}</div>
+      <div class="card" style="border-top:3px solid var(--red);"><div class="card-value" style="color:var(--red);">${overdue.length}</div><div class="card-label">Overdue</div>${overdue.length?`<div class="card-sub" style="color:var(--red);">${overdue.length} need attention</div>`:''}</div>
       <div class="card" style="border-top:3px solid var(--green);"><div class="card-value" style="color:var(--green);">${completed.length}</div><div class="card-label">Completed</div></div>
       <div class="card" style="border-top:3px solid #7c3aed;"><div class="card-value" style="color:#7c3aed;">${escalated.length}</div><div class="card-label">Escalated</div></div>
       <div class="card" style="border-top:3px solid #2563eb;"><div class="card-value" style="color:#2563eb;">${kpiRows.length}</div><div class="card-label">Total Logged</div></div>
@@ -2871,7 +2884,7 @@ function viewActions(){
         <div class="card" style="padding:10px 16px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--${rag==='amber'?'gold':rag});">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">${regionF} Hit Rate</div>
           <div style="font-size:20px;font-weight:700;color:var(--${rag==='amber'?'gold':rag});">${hitRate}%</div>
-          <div style="font-size:11px;color:var(--grey-500);">${completed.length} closed of ${kpiRows.length} logged (${overdue.length} ${periodSelected ? 'still overdue at period end' : 'currently overdue'}) — under the filters above</div>
+          <div style="font-size:11px;color:var(--grey-500);">${completed.length} closed of ${kpiRows.length} logged (${overdue.length} currently overdue) — under the filters above</div>
         </div>`;
     } else {
       document.getElementById('actHitRateWrap').innerHTML = '';
@@ -2880,7 +2893,7 @@ function viewActions(){
     document.getElementById('taskOverdueBanner').innerHTML = overdue.length ? `
       <div class="card" style="border-left:3px solid var(--red);background:var(--red-bg);margin-bottom:14px;">
         <div id="overdueToggleHead" style="font-size:11px;font-weight:700;color:var(--red);text-transform:uppercase;letter-spacing:0.05em;cursor:pointer;display:flex;align-items:center;justify-content:space-between;${overdueExpanded?'margin-bottom:10px;':''}">
-          <span>● ${overdue.length} ${overdueLabel} — Immediate Attention Required</span>
+          <span>● ${overdue.length} Overdue — Immediate Attention Required</span>
           <span>${overdueExpanded ? '▲ Hide' : '▾ Show'}</span>
         </div>
         ${overdueExpanded ? overdue.map(a => {
@@ -4172,7 +4185,6 @@ function viewVisitReports(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
       <div><div class="page-title">Visit Reports</div><div class="page-subtitle">Every submitted GRIND café support summary, with linked tasks and PDF download</div></div>
-      <button class="btn btn-outline no-print" id="vrSummaryPdfBtn">Visit Summary PDF</button>
     </div>
     <div class="filter-row no-print" style="margin-bottom:8px;">
       <button class="btn btn-outline vrTabBtn" data-tab="open" style="font-weight:600;">Open Jobs</button>
@@ -4184,7 +4196,6 @@ function viewVisitReports(){
     </div>
     ${renderDateRangeFilterHtml('visitreports')}
     <div id="vrTableWrap"></div>
-    <div id="vrSummaryPrintArea" style="display:none;"></div>
     <div id="vrPrintArea" style="display:none;"></div>
   `;
 
@@ -4698,73 +4709,6 @@ function viewVisitReports(){
 
   document.getElementById('vrSearch').addEventListener('input', render);
   document.getElementById('vrTypeFilter').addEventListener('change', render);
-
-  document.getElementById('vrSummaryPdfBtn').addEventListener('click', () => {
-    // Same period/type/search/tab filters the table itself uses, so the
-    // summary always matches whatever's currently on screen — not a
-    // separate, potentially inconsistent query.
-    const search = document.getElementById('vrSearch').value.toLowerCase();
-    const typeFilter = document.getElementById('vrTypeFilter').value;
-    const rows = [...STATE.visits]
-      .filter(hasRealContent)
-      .filter(v => dateInRange(v.date, 'visitreports'))
-      .filter(v => (!typeFilter || v.type === typeFilter) && (!search || v.store.toLowerCase().includes(search) || v.fsm.toLowerCase().includes(search)))
-      .filter(v => VR_TAB === 'archived' ? isArchived(v) : !isArchived(v));
-
-    const range = getDateRange('visitreports');
-    const periodLabel = (range.from || range.to)
-      ? `${range.from ? fmtShortDate(range.from) : 'Start'} – ${range.to ? fmtShortDate(range.to) : 'Today'}`
-      : 'All time';
-
-    let totalTasks = 0, totalFlagged = 0;
-    const flaggedByStore = {};
-    rows.forEach(v => {
-      const fr = v.fullReport;
-      const flagCount = fr && fr.nextSteps ? Object.keys(fr.nextSteps).filter(k => fr.nextSteps[k] && fr.nextSteps[k].action).length : 0;
-      const taskCount = STATE.actions.filter(a => a.visitId === v.id).length;
-      totalTasks += taskCount;
-      totalFlagged += flagCount;
-      if (flagCount) flaggedByStore[v.store] = (flaggedByStore[v.store] || 0) + flagCount;
-    });
-    const topFlagged = Object.entries(flaggedByStore).sort((a, b) => b[1] - a[1]).slice(0, 10);
-
-    document.getElementById('vrSummaryPrintArea').innerHTML = `
-      <div style="padding:24px;">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #000;padding-bottom:12px;margin-bottom:20px;">
-          <div>
-            <div style="font-size:20px;font-weight:800;">Visit Reports — Summary</div>
-            <div style="font-size:12px;color:var(--grey-500);margin-top:2px;">${periodLabel}${VR_TAB==='archived'?' · Archived':' · Open Jobs'}${typeFilter?' · '+typeFilter:''}</div>
-          </div>
-          <div style="font-size:11px;color:var(--grey-500);">Generated ${fmtShortDate(todayISO())}</div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:24px;">
-          <div style="border:1px solid var(--grey-200);border-radius:4px;padding:14px;">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Logged Visits</div>
-            <div style="font-size:28px;font-weight:800;">${rows.length}</div>
-          </div>
-          <div style="border:1px solid var(--grey-200);border-radius:4px;padding:14px;">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Tasks Created</div>
-            <div style="font-size:28px;font-weight:800;">${totalTasks}</div>
-          </div>
-          <div style="border:1px solid var(--grey-200);border-radius:4px;padding:14px;">
-            <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Flagged Items</div>
-            <div style="font-size:28px;font-weight:800;color:${totalFlagged?'var(--red)':'inherit'};">${totalFlagged}</div>
-          </div>
-        </div>
-        <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px;">Cafés with Most Flagged Items</div>
-        ${topFlagged.length ? `<table class="data-table"><thead><tr><th>Café</th><th style="text-align:right;">Flagged Items</th></tr></thead><tbody>
-          ${topFlagged.map(([store, count]) => `<tr><td>${store}</td><td style="text-align:right;font-weight:700;color:var(--red);">${count}</td></tr>`).join('')}
-        </tbody></table>` : `<div style="font-size:12px;color:var(--grey-500);">No flagged items in this period.</div>`}
-      </div>`;
-    document.getElementById('vrSummaryPrintArea').style.display = 'block';
-    document.getElementById('vrTableWrap').style.display = 'none';
-    document.getElementById('vrPrintArea').style.display = 'none';
-    window.print();
-    setTimeout(() => {
-      document.getElementById('vrSummaryPrintArea').style.display = 'none';
-      document.getElementById('vrTableWrap').style.display = '';
-    }, 300);
-  });
 }
 
 function viewOpsTasks(){
@@ -7002,8 +6946,9 @@ function viewCafeStatus2(){
       <input type="text" id="csSearch" placeholder="Search store or town...">
       <select id="csRegion"><option value="">All Regions</option>${cafeRegions().map(r=>`<option value="${r}">${r}</option>`).join('')}</select>
       <select id="csFsm"><option value="">All FSMs</option>${cafeFSMs().map(f=>`<option value="${f}">${f}</option>`).join('')}</select>
+      <select id="csMonth">${MONTHLY_TRADE_MONTHS.map((m,i) => `<option value="${m}" ${(CS_SELECTED_MONTH ? CS_SELECTED_MONTH===m : i===MONTHLY_TRADE_MONTHS.length-1) ? 'selected' : ''}>${m.charAt(0).toUpperCase()+m.slice(1)}${i===MONTHLY_TRADE_MONTHS.length-1 ? ' (Latest)' : ''}</option>`).join('')}</select>
     </div>
-    <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">Click a café to expand it — its own "🖨 Save PDF" button appears inside, printing only that café.</div>
+    <div style="font-size:11px;color:var(--grey-500);margin-bottom:10px;" class="no-print">Click a café to expand it — its own "🖨 Save PDF" button appears inside, printing only that café. Use the month selector to generate status for a specific month instead of the latest.</div>
     <div id="csListWrap" class="no-print"></div>
     <div id="csPrintArea" style="display:none;"></div>
   `;
@@ -7027,8 +6972,9 @@ function viewCafeStatus2(){
     // not a hardcoded literal — this stays correct automatically as new
     // months get added to the trade data, rather than needing a manual
     // edit each time (which is exactly how "aug"/"jul" went stale here).
-    const latestTradeMonth = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
-    const priorTradeMonth = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 2];
+    const latestTradeMonth = CS_SELECTED_MONTH || MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+    const latestTradeMonthIdx = MONTHLY_TRADE_MONTHS.indexOf(latestTradeMonth);
+    const priorTradeMonth = MONTHLY_TRADE_MONTHS[Math.max(0, latestTradeMonthIdx - 1)];
     const latestMonthLabel = latestTradeMonth ? latestTradeMonth.charAt(0).toUpperCase() + latestTradeMonth.slice(1) : '—';
     const priorMonthLabel = priorTradeMonth ? priorTradeMonth.charAt(0).toUpperCase() + priorTradeMonth.slice(1) : '—';
     const augRange = monthlyTradeRange(s.store_name, latestTradeMonth, latestTradeMonth);
@@ -7040,9 +6986,11 @@ function viewCafeStatus2(){
         <tr><td style="color:var(--grey-500);width:140px;">${label}</td>
         <td style="font-family:monospace;">${r ? fmtRand(r.cur.sales) : '—'}</td>
         <td>${r && r.growth!=null ? `<span class="rag-text ${r.growth>=0?'green':'red'}">${fmtSigned(r.growth*100,1)}</span>` : '—'}</td></tr>`;
-      html += `<div class="section-title">Turnover — Real Silo Data: Current Month (${latestMonthLabel} MTD) / Previous Full Month (${priorMonthLabel}) / YTD (Mar–${priorMonthLabel})</div>
+      const isActualLatest = latestTradeMonth === MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+      const latestLineLabel = isActualLatest ? `Current Month (${latestMonthLabel} MTD)` : `Selected Month (${latestMonthLabel})`;
+      html += `<div class="section-title">Turnover — Real Silo Data: ${latestLineLabel} / Previous Full Month (${priorMonthLabel}) / YTD (Mar–${priorMonthLabel})</div>
         <table class="data-table" style="margin-bottom:12px;"><thead><tr><th></th><th>Value</th><th>vs 2025</th></tr></thead><tbody>
-          ${metricLine2(`Current Month (${latestMonthLabel} MTD)`, augRange)}
+          ${metricLine2(latestLineLabel, augRange)}
           ${metricLine2(`Previous Full Month (${priorMonthLabel})`, julRange)}
           ${metricLine2(`YTD (Mar–${priorMonthLabel})`, ytdRange)}
           <tr><td style="color:var(--grey-500);">SPI (${priorMonthLabel})</td><td style="font-family:monospace;">${julRange && spiOf(julRange)!=null ? fmtRand(spiOf(julRange)) : '—'}</td><td></td></tr>
@@ -7173,20 +7121,9 @@ function viewCafeStatus2(){
       const s = STORES.find(x => x.store_name === btn.dataset.detailId);
       if (s) btn._getDetailedReportHtml = () => buildStatusDetailHtml(s);
     });
-    document.querySelectorAll('.markServicedBtn').forEach(btn => btn.addEventListener('click', async (ev) => {
+    document.querySelectorAll('.markServicedBtn').forEach(btn => btn.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      const key = btn.dataset.key;
-      if (!confirm('Mark this café as serviced today? This starts a new 4-month servicing cycle.')) return;
-      const today = new Date();
-      const lastService = today.toISOString().slice(0, 10);
-      const nextServiceDate = new Date(today.getFullYear(), today.getMonth() + 4, today.getDate());
-      const nextService = nextServiceDate.toISOString().slice(0, 10);
-      SERVICE_SCHEDULE_OVERRIDES[key] = { last_service: lastService, next_service: nextService };
-      try {
-        await fetch('/api/storage/service-schedule-overrides', { method: 'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(SERVICE_SCHEDULE_OVERRIDES) }) });
-        toast('Marked as serviced — next service due ' + nextService);
-      } catch (e) { toast('Saved locally, but failed to sync — try again shortly'); }
-      render();
+      openServiceDateModal(btn.dataset.key);
     }));
     wireSendUpdateEmailButtons();
   }
@@ -7194,6 +7131,11 @@ function viewCafeStatus2(){
   document.getElementById('csSearch').addEventListener('input', render);
   document.getElementById('csRegion').addEventListener('change', render);
   document.getElementById('csFsm').addEventListener('change', render);
+  document.getElementById('csMonth').addEventListener('change', (ev) => {
+    const latest = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+    CS_SELECTED_MONTH = ev.target.value === latest ? null : ev.target.value;
+    viewCafeStatus2();
+  });
   render();
 }
 
