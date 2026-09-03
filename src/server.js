@@ -1822,6 +1822,16 @@ async function refreshSiloTurnoverData() {
       `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
       ['bos-upload-data-turnover', payload]
     );
+    // Critical: the frontend's loadDataUploadOverrides() only actually
+    // applies bos-upload-data-turnover when this meta flag is truthy — it
+    // was previously never set here, so this job could write correct data
+    // every day and the app would still silently keep showing the old,
+    // embedded (or last-manually-uploaded) figures.
+    const meta = { uploadedAt: new Date().toISOString(), uploadedBy: 'Automatic (Silo/BigQuery)', rows: Object.keys(TURNOVER_DATA).length, notes: `latest Silo date ${latestDate}` };
+    await pool.query(
+      `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      ['bos-upload-meta-turnover', JSON.stringify(meta)]
+    );
     console.log(`Silo turnover refresh complete — ${Object.keys(TURNOVER_DATA).length} stores, latest Silo date ${latestDate}.`);
     return { ok: true, storeCount: Object.keys(TURNOVER_DATA).length, latestDate };
   } catch (e) {
@@ -1944,6 +1954,23 @@ app.post('/api/email/automation-status', authRequired, requireAdmin, async (req,
 // Runs one digest job immediately, once, redirected entirely to
 // testEmail — real recipients are never touched. Returns whether the run
 // completed so the control panel can confirm it went through.
+app.post('/api/admin/clear-stale-overrides', authRequired, requireAdmin, async (req, res) => {
+  // Data types with no automatic daily refresh (unlike turnover, which
+  // now has refreshSiloTurnoverData). Clearing these lets the frontend
+  // fall back to whatever is currently embedded in index.html — the
+  // correct, current data — instead of silently being overwritten by
+  // whatever a manual upload set at some point in the past, however old.
+  const types = (req.body && req.body.types) || ['flow', 'social', 'bbetter', 'cspi', 'cspi-components'];
+  try {
+    for (const t of types) {
+      await pool.query(`DELETE FROM storage WHERE key IN ($1, $2)`, ['bos-upload-meta-' + t, 'bos-upload-data-' + t]);
+    }
+    res.json({ ok: true, cleared: types });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/sync-fsm', authRequired, requireAdmin, async (req, res) => {
   try {
     await syncVisitAndActionFsmToCurrentRoster();
