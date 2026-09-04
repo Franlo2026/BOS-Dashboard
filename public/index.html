@@ -550,7 +550,25 @@ const MONTHLY_TRADE_DATA = MONTHLY_TRADE_RAW.MONTHLY_TRADE_DATA;
 // is what makes a genuine "select Mar-Jul" period filter possible. Not
 // yet wired into an ongoing upload pipeline — this is a one-time pull;
 // extending it to grow with each future month is a separate piece of work.
-const MONTHLY_TRADE_MONTHS = ['mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep'];
+// Fiscal-year suffixes (FY starts March). The suffix on a month key is the
+// 2-digit year the fiscal year STARTS in — FY starting Mar 2026 => cur '26',
+// prior '25' — used for every month in that FY. Computed from today so it
+// rolls to the next FY on its own.
+const FISCAL_MONTH_ORDER = ['mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'jan', 'feb'];
+function fyStartYearNow(){ const d = new Date(); return d.getMonth() < 2 ? d.getFullYear() - 1 : d.getFullYear(); }
+const CUR_FY_SUFFIX = String(fyStartYearNow()).slice(2);
+const PRIOR_FY_SUFFIX = String(fyStartYearNow() - 1).slice(2);
+// The months actually present in the data (this FY), in fiscal order — so the
+// list grows on its own as each new month lands, instead of a hardcoded array.
+function deriveTradeMonths(data){
+  const present = new Set();
+  Object.values(data || {}).forEach(rec => Object.keys(rec).forEach(k => {
+    if (k.slice(3) === CUR_FY_SUFFIX && FISCAL_MONTH_ORDER.includes(k.slice(0, 3))) present.add(k.slice(0, 3));
+  }));
+  const months = FISCAL_MONTH_ORDER.filter(m => present.has(m));
+  return months.length ? months : ['mar'];
+}
+let MONTHLY_TRADE_MONTHS = deriveTradeMonths(MONTHLY_TRADE_DATA);
 // The last fully-complete month — one behind the latest month in the
 // trade data (which is always still-accumulating MTD). Used everywhere
 // Budget vs Actual needs "the most recent month we can fairly judge a
@@ -569,7 +587,21 @@ let TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1]
 // specific month key (e.g. 'jul') to pin the whole Café Status tab to
 // that month's turnover figures instead.
 let CS_SELECTED_MONTH = null;
-const MONTHLY_TRADE_MONTH_LABELS = { mar: 'Mar', apr: 'Apr', may: 'May', jun: 'Jun', jul: 'Jul', aug: 'Aug (MTD)' };
+// Short month label; the latest month in the data is the still-accumulating
+// current month, so it gets an "(MTD)" marker unless {plain:true} is passed.
+function monthLabel(m, opts){
+  if (!m) return '—';
+  if (m === 'ytd') return 'YTD';
+  const full = m.charAt(0).toUpperCase() + m.slice(1);
+  const isLatest = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1] === m;
+  return (isLatest && !(opts && opts.plain)) ? full + ' (MTD)' : full;
+}
+// 2-digit calendar year for a fiscal month label, e.g. FY '26' -> Mar..Dec are
+// 2026, Jan/Feb are 2027.
+function monthCalYear(m){
+  const base = 2000 + parseInt(CUR_FY_SUFFIX, 10);
+  return (m === 'jan' || m === 'feb') ? base + 1 : base;
+}
 function monthlyTradeRange(storeName, fromMonth, toMonth){
   const rec = MONTHLY_TRADE_DATA[resolveAlias(storeName)];
   if (!rec) return null;
@@ -578,8 +610,10 @@ function monthlyTradeRange(storeName, fromMonth, toMonth){
   const months = MONTHLY_TRADE_MONTHS.slice(idxFrom, idxTo + 1);
   let cur = { sales: 0, inv: 0 }, py = { sales: 0, inv: 0 };
   months.forEach(m => {
-    cur.sales += rec[m + '26'].sales; cur.inv += rec[m + '26'].inv;
-    py.sales += rec[m + '25'].sales; py.inv += rec[m + '25'].inv;
+    const c = rec[m + CUR_FY_SUFFIX] || { sales: 0, inv: 0 };
+    const pmo = rec[m + PRIOR_FY_SUFFIX] || { sales: 0, inv: 0 };
+    cur.sales += c.sales; cur.inv += c.inv;
+    py.sales += pmo.sales; py.inv += pmo.inv;
   });
   const growth = py.sales ? (cur.sales - py.sales) / py.sales : null;
   return { cur, py, growth, months };
@@ -2038,10 +2072,10 @@ function viewTrade(){
       <div class="section-title">Monthly Period — real month-by-month data, this year vs last year</div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <label style="font-size:11px;color:var(--grey-500);">From
-          <select id="tradeMonthFrom">${MONTHLY_TRADE_MONTHS.map(m=>`<option value="${m}">${MONTHLY_TRADE_MONTH_LABELS[m]} 2026</option>`).join('')}</select>
+          <select id="tradeMonthFrom">${MONTHLY_TRADE_MONTHS.map(m=>`<option value="${m}">${monthLabel(m)} ${monthCalYear(m)}</option>`).join('')}</select>
         </label>
         <label style="font-size:11px;color:var(--grey-500);">To
-          <select id="tradeMonthTo">${MONTHLY_TRADE_MONTHS.map((m,i)=>`<option value="${m}" ${i===MONTHLY_TRADE_MONTHS.length-1?'selected':''}>${MONTHLY_TRADE_MONTH_LABELS[m]} 2026</option>`).join('')}</select>
+          <select id="tradeMonthTo">${MONTHLY_TRADE_MONTHS.map((m,i)=>`<option value="${m}" ${i===MONTHLY_TRADE_MONTHS.length-1?'selected':''}>${monthLabel(m)} ${monthCalYear(m)}</option>`).join('')}</select>
         </label>
         <span style="font-size:11px;color:var(--grey-500);">Café filter above (search box) applies here too — clear it to see the network total.</span>
       </div>
@@ -2126,7 +2160,7 @@ function viewTrade(){
       if (r) { curTotal += r.cur.sales; pyTotal += r.py.sales; matched++; }
     });
     const growth = pyTotal ? ((curTotal - pyTotal) / pyTotal) * 100 : null;
-    const label = fromM === toM ? MONTHLY_TRADE_MONTH_LABELS[fromM] : `${MONTHLY_TRADE_MONTH_LABELS[fromM]}–${MONTHLY_TRADE_MONTH_LABELS[toM]}`;
+    const label = fromM === toM ? monthLabel(fromM) : `${monthLabel(fromM,{plain:true})}–${monthLabel(toM)}`;
     wrap.innerHTML = `
       <div style="display:flex;gap:24px;flex-wrap:wrap;">
         <div><div class="card-label">${label} 2026</div><div class="card-value">${fmtRand(curTotal)}</div></div>
@@ -2189,7 +2223,7 @@ function viewTrade(){
     let rows = storeRows();
     const fromM = document.getElementById('tradeMonthFrom').value;
     const toM = document.getElementById('tradeMonthTo').value;
-    const periodLabel = fromM === toM ? MONTHLY_TRADE_MONTH_LABELS[fromM] : `${MONTHLY_TRADE_MONTH_LABELS[fromM]}\u2013${MONTHLY_TRADE_MONTH_LABELS[toM]}`;
+    const periodLabel = fromM === toM ? monthLabel(fromM) : `${monthLabel(fromM,{plain:true})}\u2013${monthLabel(toM)}`;
     // "Stores w/ Data" = total active stores in this filtered view. YoY
     // comparisons only apply to stores with real prior-year sales for
     // THIS selected period — a store that opened partway through the
@@ -2233,7 +2267,7 @@ function viewTrade(){
       return `<div class="card" style="margin-bottom:8px;padding:0;">
         <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;" data-toggle-trade="${r.store}">
           <div style="flex:1;"><b>${r.store}</b> <span class="badge" style="margin-left:6px;">${t.store_type}</span>${t.is_new_store ? ' <span class="badge amber">NEW STORE</span>' : ''}${t.note ? ` <span class="badge amber" title="${t.note}">⚠ NOTE</span>` : ''}</div>
-          <div style="text-align:right;font-size:12px;"><div style="color:var(--grey-500);font-size:10px;">MTD JUL</div>${fmtRand(t.sales_mtd)}</div>
+          <div style="text-align:right;font-size:12px;"><div style="color:var(--grey-500);font-size:10px;">MTD ${monthLabel(MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length-1],{plain:true}).toUpperCase()}</div>${fmtRand(t.sales_mtd)}</div>
           <div style="text-align:right;width:80px;"><div style="color:var(--grey-500);font-size:10px;">YoY</div>${t.sales_lastmonth_growth!=null ? `<span class="rag-text ${t.sales_lastmonth_growth>=0?'green':'red'}">${fmtSigned(t.sales_lastmonth_growth*100,1)}</span>` : '<span class="rag-text na">—</span>'}</div>
           <div style="text-align:right;width:80px;"><div style="color:var(--grey-500);font-size:10px;">YTD</div>${t.sales_fytd_growth!=null ? `<span class="rag-text ${t.sales_fytd_growth>=0?'green':'red'}">${fmtSigned(t.sales_fytd_growth*100,1)}</span>` : '<span class="rag-text na">—</span>'}</div>
         </div>
@@ -3601,6 +3635,19 @@ async function loadDataUploadOverrides(){
       mutateReplace(BRAND_AVGS, parsed.BRAND_AVGS);
     }
   } catch (e) { /* keep embedded data if this fails */ }
+  // Monthly per-calendar-month turnover (store reports + monthly trend charts).
+  // Refreshed daily by the server from BigQuery, same as TURNOVER_DATA. When
+  // present, replace the embedded blob and re-derive the month list so new
+  // months roll in on their own.
+  try {
+    const meta = await apiGet('/api/storage/bos-upload-meta-monthly-trade');
+    if (JSON.parse(meta.value || 'null')) {
+      const r = await apiGet('/api/storage/bos-upload-data-monthly-trade');
+      mutateReplace(MONTHLY_TRADE_DATA, JSON.parse(r.value));
+      MONTHLY_TRADE_MONTHS = deriveTradeMonths(MONTHLY_TRADE_DATA);
+      if (!MONTHLY_TRADE_MONTHS.includes(TRADE_SELECTED_MONTH)) TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
+    }
+  } catch (e) { /* keep embedded monthly data if this fails */ }
   try {
     if (UPLOAD_META.bbetter) {
       const r = await apiGet('/api/storage/bos-upload-data-bbetter');
@@ -7099,7 +7146,7 @@ function viewCafeStatus2(){
       return `<div class="card" style="margin-bottom:8px;padding:0;">
         <div style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;" data-toggle-cs="${key}">
           <div style="flex:1;"><b>${s.store_name}</b> <span class="badge" style="margin-left:6px;">${td?td.store_type:(s.category||'—')}</span>${openCount?` <span class="badge amber">${openCount} open</span>`:''}</div>
-          <div style="text-align:right;font-size:12px;">${td ? `<div style="color:var(--grey-500);font-size:10px;">MTD JUL</div>${fmtRand(td.sales_mtd)}` : '<span style="color:var(--grey-500);">No turnover data</span>'}</div>
+          <div style="text-align:right;font-size:12px;">${td ? `<div style="color:var(--grey-500);font-size:10px;">MTD ${monthLabel(MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length-1],{plain:true}).toUpperCase()}</div>${fmtRand(td.sales_mtd)}` : '<span style="color:var(--grey-500);">No turnover data</span>'}</div>
         </div>
         ${isExp ? `<div style="border-top:1px solid var(--grey-200);padding:16px;font-size:12px;">
           <div style="display:flex;justify-content:flex-end;gap:8px;margin-bottom:10px;" class="no-print">

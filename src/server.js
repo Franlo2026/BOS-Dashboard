@@ -1716,6 +1716,12 @@ async function loadSiloMap() {
   return { doc, byNode, byBranchType, normType, excludeSuffix: doc.exclude_suffix || ' - Closed' };
 }
 
+// Calendar-month abbreviations (0-indexed) and fiscal order (FY starts March)
+// for building MONTHLY_TRADE_DATA — the per-calendar-month turnover structure
+// the store reports and monthly trend charts read from.
+const MONTH_ABBR = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const FISCAL_MONTH_ORDER = ['mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec', 'jan', 'feb'];
+
 function uploadSpi(sales, inv) { return inv ? Math.round((sales / inv) * 100) / 100 : null; }
 function uploadGrowth(cur, py) { return (cur == null || py == null || py === 0) ? null : Math.round(((cur - py) / py) * 10000) / 10000; }
 
@@ -1802,6 +1808,7 @@ async function refreshSiloTurnoverData() {
     // (e.g. the two St Cyprian's nodes) merge by summing. This mapping is the
     // only difference from a manual CSV upload — the figures are 100% BigQuery.
     const byStore = {};
+    const monthlyByStore = {}; // key -> { '<mon><yy>': {sales,inv} } for MONTHLY_TRADE_DATA
     const unmatched = new Set();
     const excluded = new Set();
     rows.forEach(r => {
@@ -1817,6 +1824,11 @@ async function refreshSiloTurnoverData() {
       const s = byStore[key];
       const date = r.date.value || r.date;
       const sales = Number(r.turnover_exclusive) || 0, inv = Number(r.invoices) || 0;
+      // Per-calendar-month bucket (both fiscal years), keyed <mon><yy> e.g. 'sep26'.
+      const mk = MONTH_ABBR[parseInt(date.slice(5, 7), 10) - 1] + date.slice(2, 4);
+      const mb = monthlyByStore[key] || (monthlyByStore[key] = {});
+      const cell = mb[mk] || (mb[mk] = { sales: 0, inv: 0 });
+      cell.sales += sales; cell.inv += inv;
       if (date >= p.mtdStart && date <= p.mtdEnd) { s.sales_mtd += sales; s.inv_mtd += inv; }
       if (date >= p.mtdStartPy && date <= p.mtdEndPy) { s.sales_mtd_py += sales; s.inv_mtd_py += inv; }
       if (date >= p.lastMonthStart && date <= p.lastMonthEnd) { s.sales_lastmonth += sales; s.inv_lastmonth += inv; }
@@ -1882,6 +1894,43 @@ async function refreshSiloTurnoverData() {
         sales_fytd: p.fytdMonths > 0 ? Math.round(((g.sales_fytd / g.n) / p.fytdMonths) * 100) / 100 : null, inv_fytd: p.fytdMonths > 0 ? Math.round(((g.inv_fytd / g.n) / p.fytdMonths) * 10) / 10 : null, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
       };
     });
+
+    // Normalise MONTHLY_TRADE_DATA: the frontend sums a contiguous month
+    // range and reads rec[m+curSuffix]/rec[m+priorSuffix] without null-checks,
+    // so every store must carry both fiscal years for every month that has any
+    // data, plus a ytd (Mar→last complete month) roll-up. Suffix = the 2-digit
+    // fiscal-year-start year (FY starting Mar 2026 => cur '26', prior '25').
+    const ldForFy = new Date(latestDate + 'T00:00:00');
+    const fyStartYear = ldForFy.getMonth() < 2 ? ldForFy.getFullYear() - 1 : ldForFy.getFullYear();
+    const curSuf = String(fyStartYear).slice(2);
+    const priorSuf = String(fyStartYear - 1).slice(2);
+    const curMonthsSet = new Set();
+    Object.values(monthlyByStore).forEach(mb => Object.keys(mb).forEach(k => {
+      if (k.slice(3) === curSuf && FISCAL_MONTH_ORDER.includes(k.slice(0, 3))) curMonthsSet.add(k.slice(0, 3));
+    }));
+    const curMonths = FISCAL_MONTH_ORDER.filter(m => curMonthsSet.has(m));
+    const ytdMonths = curMonths.slice(0, Math.max(0, curMonths.length - 1)); // exclude current MTD month
+    const round2 = v => Math.round(v * 100) / 100;
+    Object.values(monthlyByStore).forEach(mb => {
+      let yc = { sales: 0, inv: 0 }, yp = { sales: 0, inv: 0 };
+      curMonths.forEach(m => {
+        const ck = m + curSuf, pk = m + priorSuf;
+        if (!mb[ck]) mb[ck] = { sales: 0, inv: 0 };
+        if (!mb[pk]) mb[pk] = { sales: 0, inv: 0 };
+        mb[ck].sales = round2(mb[ck].sales); mb[pk].sales = round2(mb[pk].sales);
+      });
+      ytdMonths.forEach(m => { yc.sales += mb[m + curSuf].sales; yc.inv += mb[m + curSuf].inv; yp.sales += mb[m + priorSuf].sales; yp.inv += mb[m + priorSuf].inv; });
+      mb['ytd' + curSuf] = { sales: round2(yc.sales), inv: yc.inv };
+      mb['ytd' + priorSuf] = { sales: round2(yp.sales), inv: yp.inv };
+    });
+    await pool.query(
+      `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      ['bos-upload-data-monthly-trade', JSON.stringify(monthlyByStore)]
+    );
+    await pool.query(
+      `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+      ['bos-upload-meta-monthly-trade', JSON.stringify({ uploadedAt: new Date().toISOString(), uploadedBy: 'Automatic (Silo/BigQuery)', rows: Object.keys(monthlyByStore).length, notes: `latest Silo date ${latestDate}; months ${curMonths.join(',')}` })]
+    );
 
     const payload = JSON.stringify({ TURNOVER_DATA, BRAND_AVGS });
     await pool.query(
