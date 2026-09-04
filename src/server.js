@@ -1748,7 +1748,14 @@ function computeTradePeriods(latestDate) {
   // through the FYTD window last year (its PY total is really just a few weeks),
   // so we don't compare this year's full FYTD against a partial PY baseline.
   const fytdSecondLastEndPy = iso(new Date(Y - 1, M - 1, 0));
-  return { mtdStart, mtdEnd, mtdStartPy, mtdEndPy, lastMonthStart, lastMonthEnd, lastMonthStartPy, lastMonthEndPy, fytdStart, fytdEnd, fytdStartPy, fytdEndPy, fytdSecondLastEndPy };
+  // Number of COMPLETE trading months in the FYTD window (March through the
+  // last full month), so the "average monthly" figures divide by the real
+  // period and roll forward automatically after each month-end — Mar–Aug = 6.
+  // Zero in the first days of a new fiscal year (March), before any month has
+  // completed; callers guard against dividing by it.
+  const lmDate = new Date(Y, M, 0);
+  const fytdMonths = Math.max(0, (lmDate.getFullYear() * 12 + lmDate.getMonth()) - (fyStartYear * 12 + 2) + 1);
+  return { mtdStart, mtdEnd, mtdStartPy, mtdEndPy, lastMonthStart, lastMonthEnd, lastMonthStartPy, lastMonthEndPy, fytdStart, fytdEnd, fytdStartPy, fytdEndPy, fytdSecondLastEndPy, fytdMonths };
 }
 
 async function refreshSiloTurnoverData() {
@@ -1848,8 +1855,8 @@ async function refreshSiloTurnoverData() {
       d.inv_lastmonth_growth = uploadGrowth(d.inv_lastmonth, d.inv_lastmonth_py);
       d.sales_fytd_growth = uploadGrowth(d.sales_fytd, d.sales_fytd_py);
       d.inv_fytd_growth = uploadGrowth(d.inv_fytd, d.inv_fytd_py);
-      d.sales_fytd_avg_monthly = Math.round((d.sales_fytd / 4) * 100) / 100;
-      d.inv_fytd_avg_monthly = Math.round((d.inv_fytd / 4) * 10) / 10;
+      d.sales_fytd_avg_monthly = p.fytdMonths > 0 ? Math.round((d.sales_fytd / p.fytdMonths) * 100) / 100 : null;
+      d.inv_fytd_avg_monthly = p.fytdMonths > 0 ? Math.round((d.inv_fytd / p.fytdMonths) * 10) / 10 : null;
       d.spi_mtd = uploadSpi(d.sales_mtd, d.inv_mtd);
       d.spi_mtd_py = uploadSpi(d.sales_mtd_py, d.inv_mtd_py);
       d.spi_mtd_growth = uploadGrowth(d.spi_mtd, d.spi_mtd_py);
@@ -1872,7 +1879,7 @@ async function refreshSiloTurnoverData() {
         n_stores: g.n,
         sales_mtd: Math.round((g.sales_mtd / g.n) * 100) / 100, inv_mtd: Math.round((g.inv_mtd / g.n) * 10) / 10, spi_mtd: uploadSpi(g.sales_mtd, g.inv_mtd),
         sales_lastmonth: Math.round((g.sales_lastmonth / g.n) * 100) / 100, inv_lastmonth: Math.round((g.inv_lastmonth / g.n) * 10) / 10, spi_lastmonth: uploadSpi(g.sales_lastmonth, g.inv_lastmonth),
-        sales_fytd: Math.round(((g.sales_fytd / g.n) / 4) * 100) / 100, inv_fytd: Math.round(((g.inv_fytd / g.n) / 4) * 10) / 10, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
+        sales_fytd: p.fytdMonths > 0 ? Math.round(((g.sales_fytd / g.n) / p.fytdMonths) * 100) / 100 : null, inv_fytd: p.fytdMonths > 0 ? Math.round(((g.inv_fytd / g.n) / p.fytdMonths) * 10) / 10 : null, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
       };
     });
 
