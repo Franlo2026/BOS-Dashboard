@@ -3562,7 +3562,7 @@ function viewPrint(){
 const UPLOAD_TYPES = [
   { key:'turnover', label:'Trade / Turnover (Silo)', accept:'.csv,.xlsx,.xls', ready:true,
     desc:'One row per store. Columns: store_name, store_type, fsm, is_new_store, sales_mtd, inv_mtd, sales_mtd_py, inv_mtd_py, sales_lastmonth, inv_lastmonth, sales_lastmonth_py, inv_lastmonth_py, sales_fytd, inv_fytd, sales_fytd_py, inv_fytd_py.',
-    note:'No live Silo connection yet — Railway needs its own Google Cloud credentials for that, which is a separate setup step. In the meantime, ask Claude: "Pull today\'s Silo trade data in BOS upload format" — it can query Silo directly and hand you a CSV in this exact shape, ready to drop in here.' },
+    note:'Live Silo connection is active — the server refreshes turnover automatically every day directly from BigQuery (look for "by Automatic (Silo/BigQuery)" above). Manual upload here is only a fallback/override; a manual upload will be replaced by the next daily automatic refresh.' },
   { key:'ltl', label:'LTL Audits', accept:'.xlsx,.xls', ready:true,
     desc:'The ECAS compliance export, as-is (Customer, Site Type, Site, Audit Type, Audited By, Audit Date, Score %, Risk %, ...).',
     note:'Each row becomes a real audit entry via the same endpoint the LTL tab\'s own upload uses — repeat audits for the same café keep only the most recent one.' },
