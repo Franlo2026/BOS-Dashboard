@@ -1,0 +1,756 @@
+{
+  "version": "2026-09-04",
+  "description": "Silo store identity -> BOS dashboard turnover key. SINGLE SOURCE OF TRUTH for refreshSiloTurnoverData(). Data is pulled by the server BigQuery connector (bootlegger_curated); this file only maps identity->key. Server resolves by node first, then branch|store_type. key=null means exclude (closed/duplicate).",
+  "type_normalize": {
+    "Full Store": "All Day Café",
+    "XS": "XS Café",
+    "Kiosk": "Convenience",
+    "C Store Inline": "Convenience"
+  },
+  "exclude_suffix": " - Closed",
+  "stores": [
+    {
+      "node": "C0399R0001B0019",
+      "branch": "112 Kloof",
+      "store_type": "All Day Café",
+      "key": "112 Kloof Street"
+    },
+    {
+      "node": "C0399R0003B0002",
+      "branch": "Aquarium",
+      "store_type": "Convenience",
+      "key": "Aquarium Kiosk"
+    },
+    {
+      "node": "C0399R0001B0022",
+      "branch": "Aquarium",
+      "store_type": "All Day Café",
+      "key": "Aquarium"
+    },
+    {
+      "node": "C0399R0001B0008",
+      "branch": "Bakoven",
+      "store_type": "All Day Café",
+      "key": "Bakoven"
+    },
+    {
+      "node": "C0399R0002B0020",
+      "branch": "Bedford Centre",
+      "store_type": "All Day Café",
+      "key": "Bedford Centre"
+    },
+    {
+      "node": "C0399R0001B0025",
+      "branch": "Blouberg",
+      "store_type": "All Day Café",
+      "key": "Blouberg"
+    },
+    {
+      "node": "C0399R0002B0006",
+      "branch": "Blueberry",
+      "store_type": "All Day Café",
+      "key": "Blueberry Square"
+    },
+    {
+      "node": "C0399R0012B0002",
+      "branch": "Boardwalk Mall",
+      "store_type": "All Day Café",
+      "key": "Boardwalk"
+    },
+    {
+      "node": "C0399R0003B0008",
+      "branch": "Brackenfell Corner",
+      "store_type": "XS Café",
+      "key": "Brackenfell Corner (XS)"
+    },
+    {
+      "node": "C0399R0005B0008",
+      "branch": "Bram Fischer",
+      "store_type": "XS Café",
+      "key": "Bram Fischer XS"
+    },
+    {
+      "node": "C0399R0001B0024",
+      "branch": "Bree Street",
+      "store_type": "All Day Café",
+      "key": "Bree Street"
+    },
+    {
+      "node": "C0399R0001B0029",
+      "branch": "Bridgewater",
+      "store_type": "All Day Café",
+      "key": "Bridgewater"
+    },
+    {
+      "node": "C0399R0003B0009",
+      "branch": "Brooklyn Junction",
+      "store_type": "XS Café",
+      "key": "Brooklyn Junction (XS)"
+    },
+    {
+      "node": "C0399R0008B0004",
+      "branch": "Campbells",
+      "store_type": "Convenience",
+      "key": "Campbells"
+    },
+    {
+      "node": "C0399R0001B0050",
+      "branch": "Canal Walk",
+      "store_type": "All Day Café",
+      "key": "Canal Walk"
+    },
+    {
+      "node": "C0399R0003B0021",
+      "branch": "Cape Gate",
+      "store_type": "XS Café",
+      "key": "Cape Gate XS"
+    },
+    {
+      "node": "C0399R0001B0005",
+      "branch": "Cape Quarter",
+      "store_type": "All Day Café",
+      "key": "Cape Quarter"
+    },
+    {
+      "node": "C0399R0008B0008",
+      "branch": "Cashan",
+      "store_type": "Convenience",
+      "key": "Cashan"
+    },
+    {
+      "node": "C0399R0003B0030",
+      "branch": "Cavendish",
+      "store_type": "Convenience",
+      "key": "Cavendish Mall"
+    },
+    {
+      "node": "C0399R0001B0011",
+      "branch": "Century City",
+      "store_type": "All Day Café",
+      "key": "Century City"
+    },
+    {
+      "node": "C0399R0002B0008",
+      "branch": "Chartwell Corner",
+      "store_type": "All Day Café",
+      "key": "Chartwell Corner"
+    },
+    {
+      "node": "C0399R0001B0045",
+      "branch": "Clara Anna Fontein",
+      "store_type": "All Day Café",
+      "key": "Clara Anna"
+    },
+    {
+      "node": "C0399R0001B0017",
+      "branch": "Claremont",
+      "store_type": "All Day Café",
+      "key": "Claremont"
+    },
+    {
+      "node": "C0399R0005B0006",
+      "branch": "Clearwater Mall",
+      "store_type": "XS Café",
+      "key": "Clearwater Mall XS"
+    },
+    {
+      "node": "C0399R0002B0012",
+      "branch": "Cresta Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Cresta Shopping Centre, Cresta"
+    },
+    {
+      "node": "C0399R0001B0037",
+      "branch": "Dean Street",
+      "store_type": "All Day Café",
+      "key": "Dean Street"
+    },
+    {
+      "node": "C0399R0005B0014",
+      "branch": "Delta Central",
+      "store_type": "XS Café",
+      "key": "Delta Central"
+    },
+    {
+      "node": "C0399R0002B0013",
+      "branch": "Design Quarter",
+      "store_type": "All Day Café",
+      "key": "Design Quarter, Fourways"
+    },
+    {
+      "node": "C0399R0002B0032",
+      "branch": "Douglasdale Village",
+      "store_type": "All Day Café",
+      "key": "Douglasdale"
+    },
+    {
+      "node": "C0399R0001B0030",
+      "branch": "Drakenstein Sentrum",
+      "store_type": "All Day Café",
+      "key": "Drakenstein Sentrum"
+    },
+    {
+      "node": "C0399R0008B0009",
+      "branch": "Durbanville",
+      "store_type": "Convenience",
+      "key": "Durbanville TEMSA"
+    },
+    {
+      "node": "C0399R0001B0026",
+      "branch": "Durbanville Village Square",
+      "store_type": "All Day Café",
+      "key": "Durbanville"
+    },
+    {
+      "node": "C0399R0003B0006",
+      "branch": "Eikestad Mall",
+      "store_type": "XS Café",
+      "key": "Eikestad (XS)"
+    },
+    {
+      "node": "C0399R0002B0005",
+      "branch": "Ferndale on Republic",
+      "store_type": "All Day Café",
+      "key": "Ferndale on Republic"
+    },
+    {
+      "node": "C0399R0003B0015",
+      "branch": "Foreshore",
+      "store_type": "XS Café",
+      "key": "Foreshore XS"
+    },
+    {
+      "node": "C0399R0001B0046",
+      "branch": "Franschhoek",
+      "store_type": "All Day Café",
+      "key": "Franschhoek"
+    },
+    {
+      "node": "C0399R0001B0028",
+      "branch": "Frater Square",
+      "store_type": "All Day Café",
+      "key": "Frater Square"
+    },
+    {
+      "node": "C0399R0001B0021",
+      "branch": "Gardens Centre",
+      "store_type": "All Day Café",
+      "key": "Gardens Centre"
+    },
+    {
+      "node": "C0399R0011B0001",
+      "branch": "Gateway",
+      "store_type": "XS Café",
+      "key": "Gateway XS"
+    },
+    {
+      "node": "C0399R0001B0042",
+      "branch": "Gordons Bay",
+      "store_type": "All Day Café",
+      "key": "Gordon's Bay"
+    },
+    {
+      "node": "C0399R0003B0018",
+      "branch": "GrandWest Casino",
+      "store_type": "Convenience",
+      "key": "Grandwest XS"
+    },
+    {
+      "node": "C0399R0002B0010",
+      "branch": "Grayston Drive",
+      "store_type": "All Day Café",
+      "key": "Grayston Shopping Centre"
+    },
+    {
+      "node": "C0399R0001B0013",
+      "branch": "Green Point",
+      "store_type": "All Day Café",
+      "key": "Green Point"
+    },
+    {
+      "node": "C0399R0001B0014",
+      "branch": "Harrington",
+      "store_type": "All Day Café",
+      "key": "Harrington Street"
+    },
+    {
+      "node": "C0399R0004B0002",
+      "branch": "Hartenbos",
+      "store_type": "All Day Café",
+      "key": "Hartenbos"
+    },
+    {
+      "node": "C0399R0003B0028",
+      "branch": "Hermanus",
+      "store_type": "Convenience",
+      "key": "Hermanus Kiosk"
+    },
+    {
+      "node": "C0399R0005B0016",
+      "branch": "Hoedspruit",
+      "store_type": "Convenience",
+      "key": "Hoedspruit XS"
+    },
+    {
+      "node": "C0399R0001B0047",
+      "branch": "Hout Bay",
+      "store_type": "All Day Café",
+      "key": "Hout Bay"
+    },
+    {
+      "node": "C0399R0002B0029",
+      "branch": "Hyde Park Corner",
+      "store_type": "All Day Café",
+      "key": "Hyde Park"
+    },
+    {
+      "node": "C0399R0002B0015",
+      "branch": "Irene Link Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Irene Link, Irene"
+    },
+    {
+      "node": "C0399R0003B0038",
+      "branch": "Jetty Quarter",
+      "store_type": "XS Café",
+      "key": "Long Street XS"
+    },
+    {
+      "node": "C0399R0001B0006",
+      "branch": "Kalk Bay",
+      "store_type": "All Day Café",
+      "key": "Kalk Bay"
+    },
+    {
+      "node": "C0399R0002B0025",
+      "branch": "Karaglen Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Karaglen"
+    },
+    {
+      "node": "C0399R0001B0004",
+      "branch": "Kenilworth",
+      "store_type": "All Day Café",
+      "key": "Kenilworth"
+    },
+    {
+      "node": "C0399R0003B0026",
+      "branch": "Laguna Mall",
+      "store_type": "XS Café",
+      "key": "Laguna Mall XS"
+    },
+    {
+      "node": "C0399R0005B0009",
+      "branch": "Lennox",
+      "store_type": "Convenience",
+      "key": "Lennox Kimberly"
+    },
+    {
+      "node": "C0399R0005B0013",
+      "branch": "Mall of Africa",
+      "store_type": "XS Café",
+      "key": "Mall of Africa XS"
+    },
+    {
+      "node": "C0399R0001B0036",
+      "branch": "Meadowridge Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Meadowridge Park n Shop"
+    },
+    {
+      "node": "C0399R0005B0012",
+      "branch": "Middleburg",
+      "store_type": "XS Café",
+      "key": "Middleburg XS"
+    },
+    {
+      "node": "C0399R0004B0004",
+      "branch": "Milkwood Square",
+      "store_type": "All Day Café",
+      "key": "Milkwood Square Centre"
+    },
+    {
+      "node": "C0399R0002B0011",
+      "branch": "Mooirivier Mall",
+      "store_type": "All Day Café",
+      "key": "Mooirivier Mall, Potchefstroom"
+    },
+    {
+      "node": "C0399R0003B0001",
+      "branch": "Muizenberg",
+      "store_type": "Convenience",
+      "key": "Muizenberg (XS)"
+    },
+    {
+      "node": "C0399R0006B0001",
+      "branch": "Musgrave Centre",
+      "store_type": "All Day Café",
+      "key": "Musgrave Centre"
+    },
+    {
+      "node": "C0399R0002B0027",
+      "branch": "Mushroom Farm",
+      "store_type": "All Day Café",
+      "key": "Mushroom Farm"
+    },
+    {
+      "node": "C0399R0003B0029",
+      "branch": "N1 City Mall",
+      "store_type": "Convenience",
+      "key": "N1 City Kiosk"
+    },
+    {
+      "node": "C0399R0003B0005",
+      "branch": "N1 Value Centre",
+      "store_type": "XS Café",
+      "key": "N1 Value Centre (XS)"
+    },
+    {
+      "node": "C0399R0008B0012",
+      "branch": "N12 East",
+      "store_type": "Convenience",
+      "key": "N12 East"
+    },
+    {
+      "node": "C0399R0001B0043",
+      "branch": "Ndabeni",
+      "store_type": "All Day Café",
+      "key": "Ndabeni"
+    },
+    {
+      "node": "C0399R0002B0009",
+      "branch": "Norwood",
+      "store_type": "All Day Café",
+      "key": "Norwood"
+    },
+    {
+      "node": "C0399R0002B0014",
+      "branch": "Olivedale Corner",
+      "store_type": "All Day Café",
+      "key": "Olivedale Corner"
+    },
+    {
+      "node": "C0399R0001B0055",
+      "branch": "Paarden Eiland",
+      "store_type": "All Day Café",
+      "key": "Paarden Eiland"
+    },
+    {
+      "node": "C0399R0003B0016",
+      "branch": "Paardevlei Sentrum",
+      "store_type": "XS Café",
+      "key": "Paardevlei XS"
+    },
+    {
+      "node": "C0399R0008B0011",
+      "branch": "Paarl Mall",
+      "store_type": "Convenience",
+      "key": "Paarl Mall TEMSA"
+    },
+    {
+      "node": "C0399R0006B0002",
+      "branch": "Pearls Shore",
+      "store_type": "All Day Café",
+      "key": "The Pearls"
+    },
+    {
+      "node": "C0399R0003B0004",
+      "branch": "Pinelands",
+      "store_type": "XS Café",
+      "key": "Pinelands"
+    },
+    {
+      "node": "C0399R0005B0002",
+      "branch": "Planet Fitness Bedford",
+      "store_type": "XS Café",
+      "key": "Bedford Sqaure Planet Fitness xs"
+    },
+    {
+      "node": "C0399R0001B0051",
+      "branch": "Plattekloof Village",
+      "store_type": "All Day Café",
+      "key": "Plattekloof Village"
+    },
+    {
+      "node": "C0399R0007B0001",
+      "branch": "Preller Walk",
+      "store_type": "All Day Café",
+      "key": "Preller Walk"
+    },
+    {
+      "node": "C0399R0005B0018",
+      "branch": "Rayton",
+      "store_type": "Convenience",
+      "key": "Alzu Rayton",
+      "note": "best-guess (confirm)"
+    },
+    {
+      "node": "C0399R0002B0017",
+      "branch": "Ridgeview Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Ridgeview"
+    },
+    {
+      "node": "C0399R0003B0035",
+      "branch": "Riverlands",
+      "store_type": "Convenience",
+      "key": "Riverlands"
+    },
+    {
+      "node": "C0399R0001B0044",
+      "branch": "Rosmead",
+      "store_type": "All Day Café",
+      "key": "Rosmead Avenue"
+    },
+    {
+      "node": "C0399R0008B0006",
+      "branch": "Route N4",
+      "store_type": "Convenience",
+      "key": "Route N4"
+    },
+    {
+      "node": "C0399R0003B0011",
+      "branch": "Salt River",
+      "store_type": "XS Café",
+      "key": "Salt River (XS)"
+    },
+    {
+      "node": "C0399R0003B0037",
+      "branch": "Sandkraal",
+      "store_type": "Convenience",
+      "key": "Sandkraal XS"
+    },
+    {
+      "node": "C0399R0001B0041",
+      "branch": "Sandown Retail Crossing",
+      "store_type": "All Day Café",
+      "key": "Sandown Retail Crossing"
+    },
+    {
+      "node": "C0399R0002B0031",
+      "branch": "Sandton Gate",
+      "store_type": "All Day Café",
+      "key": "Sandton Gate"
+    },
+    {
+      "node": "C0399R0003B0010",
+      "branch": "Sea Point",
+      "store_type": "XS Café",
+      "key": "Sea Point (XS)"
+    },
+    {
+      "node": "C0399R0008B0010",
+      "branch": "Simmonds Street",
+      "store_type": "Convenience",
+      "key": "Simmonds"
+    },
+    {
+      "node": "C0399R0008B0007",
+      "branch": "Sizan",
+      "store_type": "Convenience",
+      "key": "Sizan"
+    },
+    {
+      "node": "C0399R0001B0054",
+      "branch": "Somerset Mall",
+      "store_type": "All Day Café",
+      "key": "Somerset Mall"
+    },
+    {
+      "node": "C0399R0001B0033",
+      "branch": "Somerset West",
+      "store_type": "All Day Café",
+      "key": "Somerset West"
+    },
+    {
+      "node": "C0399R0003B0014",
+      "branch": "St Cyprians",
+      "store_type": "Convenience",
+      "key": "St Cyprian's"
+    },
+    {
+      "node": "C0399R0003B0013",
+      "branch": "St Cyprians",
+      "store_type": "Convenience",
+      "key": "St Cyprian's"
+    },
+    {
+      "node": "C0399R0008B0013",
+      "branch": "Steiltes",
+      "store_type": "Convenience",
+      "key": "TEMSA Steiltes"
+    },
+    {
+      "node": "C0399R0001B0016",
+      "branch": "Stellenbosch",
+      "store_type": "All Day Café",
+      "key": "Stellenbosch"
+    },
+    {
+      "node": "C0399R0001B0034",
+      "branch": "Strand",
+      "store_type": "All Day Café",
+      "key": "Strand Beach Road",
+      "note": "best-guess (confirm)"
+    },
+    {
+      "node": "C0399R0005B0003",
+      "branch": "Sunninghill Village",
+      "store_type": "XS Café",
+      "key": "Sunninghill Village XS"
+    },
+    {
+      "node": "C0399R0001B0032",
+      "branch": "Table Bay Mall",
+      "store_type": "All Day Café",
+      "key": "Table Bay Mall"
+    },
+    {
+      "node": "C0399R0005B0015",
+      "branch": "Thabazimbi",
+      "store_type": "Convenience",
+      "key": "Thabazimbi"
+    },
+    {
+      "node": "C0399R0002B0016",
+      "branch": "Thatchfield Retail Centre",
+      "store_type": "All Day Café",
+      "key": "Thatchfield Retail Centre"
+    },
+    {
+      "node": "C0399R0009B0001",
+      "branch": "The Grove Mall",
+      "store_type": "All Day Café",
+      "key": "The Grove"
+    },
+    {
+      "node": "C0399R0001B0002",
+      "branch": "The Point Mall",
+      "store_type": "All Day Café",
+      "key": "Point Mall"
+    },
+    {
+      "node": "C0399R0002B0007",
+      "branch": "The Zone @ Rosebank",
+      "store_type": "All Day Café",
+      "key": "The Zone, Rosebank"
+    },
+    {
+      "node": "C0399R0001B0015",
+      "branch": "Three Anchor Bay",
+      "store_type": "All Day Café",
+      "key": "Three Anchor Bay"
+    },
+    {
+      "node": "C0399R0002B0033",
+      "branch": "Three Rivers",
+      "store_type": "All Day Café",
+      "key": "Three Rivers"
+    },
+    {
+      "node": "C0399R0001B0007",
+      "branch": "Tokai",
+      "store_type": "All Day Café",
+      "key": "Tokai"
+    },
+    {
+      "node": "C0399R0003B0003",
+      "branch": "V&A Waterfront",
+      "store_type": "Convenience",
+      "key": "V&A Waterfront (XS)"
+    },
+    {
+      "node": "C0399R0012B0001",
+      "branch": "Vincent Park",
+      "store_type": "All Day Café",
+      "key": "Vincent Park"
+    },
+    {
+      "node": "C0399R0001B0027",
+      "branch": "Vredehoek",
+      "store_type": "All Day Café",
+      "key": "Vredehoek"
+    },
+    {
+      "node": "C0399R0012B0004",
+      "branch": "Walmer Park Shopping Centre",
+      "store_type": "All Day Café",
+      "key": "Walmer Park"
+    },
+    {
+      "node": "C0399R0003B0036",
+      "branch": "Welgelee Plein Shopping Centre",
+      "store_type": "XS Café",
+      "key": "Welgelee Plein XS"
+    },
+    {
+      "node": "C0399R0003B0019",
+      "branch": "Westlake Lifestyle Centre",
+      "store_type": "XS Café",
+      "key": "Westlake XS"
+    },
+    {
+      "node": "C0399R0008B0003",
+      "branch": "Winchester",
+      "store_type": "Convenience",
+      "key": "Winchester Hill XS"
+    },
+    {
+      "node": "C0399R0010B0001",
+      "branch": "Windhoek CBD",
+      "store_type": "XS Café",
+      "key": "FNB Windhoek"
+    },
+    {
+      "node": "C0399R0007B0002",
+      "branch": "Woodland Hills",
+      "store_type": "All Day Café",
+      "key": "Woodland Hills"
+    },
+    {
+      "node": "C0399R0002B0035",
+      "branch": "Woodmead",
+      "store_type": "XS Café",
+      "key": "Woodmead XS"
+    },
+    {
+      "node": "C0399R0005B0017",
+      "branch": "Woodmead XS - Closed",
+      "store_type": "XS",
+      "key": null,
+      "note": "closed"
+    },
+    {
+      "node": "C0399R0001B0018",
+      "branch": "Woodstock Quarter",
+      "store_type": "All Day Café",
+      "key": "Woodstock Quarter"
+    },
+    {
+      "node": "C0399R0004B0003",
+      "branch": "Yellowoods",
+      "store_type": "All Day Café",
+      "key": "Yellowoods Centre"
+    },
+    {
+      "node": "C0399R0004B0006",
+      "branch": "York Street Boulevard",
+      "store_type": "All Day Café",
+      "key": "York Street"
+    },
+    {
+      "node": null,
+      "branch": "Blackbrick Hotel",
+      "store_type": "Convenience",
+      "key": "Blackbrick Hotel",
+      "note": "best-guess (confirm); unity feed - matched by branch+type only"
+    },
+    {
+      "node": null,
+      "branch": "Sea Point Beach Road",
+      "store_type": "Convenience",
+      "key": "Sea Point High",
+      "note": "best-guess (confirm); unity feed - matched by branch+type only"
+    }
+  ]
+}

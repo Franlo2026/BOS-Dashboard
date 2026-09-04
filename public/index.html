@@ -3562,7 +3562,7 @@ function viewPrint(){
 const UPLOAD_TYPES = [
   { key:'turnover', label:'Trade / Turnover (Silo)', accept:'.csv,.xlsx,.xls', ready:true,
     desc:'One row per store. Columns: store_name, store_type, fsm, is_new_store, sales_mtd, inv_mtd, sales_mtd_py, inv_mtd_py, sales_lastmonth, inv_lastmonth, sales_lastmonth_py, inv_lastmonth_py, sales_fytd, inv_fytd, sales_fytd_py, inv_fytd_py.',
-    note:'No live Silo connection yet — Railway needs its own Google Cloud credentials for that, which is a separate setup step. In the meantime, ask Claude: "Pull today\'s Silo trade data in BOS upload format" — it can query Silo directly and hand you a CSV in this exact shape, ready to drop in here.' },
+    note:'Live Silo connection is active — the server refreshes turnover automatically every day directly from BigQuery (look for "by Automatic (Silo/BigQuery)" above). Manual upload here is only a fallback/override; a manual upload will be replaced by the next daily automatic refresh.' },
   { key:'ltl', label:'LTL Audits', accept:'.xlsx,.xls', ready:true,
     desc:'The ECAS compliance export, as-is (Customer, Site Type, Site, Audit Type, Audited By, Audit Date, Score %, Risk %, ...).',
     note:'Each row becomes a real audit entry via the same endpoint the LTL tab\'s own upload uses — repeat audits for the same café keep only the most recent one.' },
@@ -3635,6 +3635,16 @@ async function loadDataUploadOverrides(){
 
 function uploadSpi(sales, inv){ return inv ? Math.round((sales/inv)*100)/100 : null; }
 function uploadGrowth(cur, py){ return (cur==null || py==null || py===0) ? null : Math.round(((cur-py)/py)*10000)/10000; }
+// Complete trading months in the current FYTD window (1 March through the last
+// full month). Rolls forward automatically after each month-end — Mar–Aug = 6.
+// Kept in sync with the server's computeTradePeriods().fytdMonths so the manual
+// upload path and the live BigQuery refresh divide by the same period.
+function fytdMonthsNow(){
+  const now=new Date(), Y=now.getFullYear(), M=now.getMonth();
+  const fyStartYear = M < 2 ? Y - 1 : Y;
+  const lm=new Date(Y, M, 0); // last day of the month before this one
+  return Math.max(1, (lm.getFullYear()*12 + lm.getMonth()) - (fyStartYear*12 + 2) + 1);
+}
 
 function parseTurnoverUploadRows(rows){
   const TURNOVER_DATA_NEW = {};
@@ -3661,8 +3671,8 @@ function parseTurnoverUploadRows(rows){
     d.inv_lastmonth_growth = uploadGrowth(d.inv_lastmonth, d.inv_lastmonth_py);
     d.sales_fytd_growth = uploadGrowth(d.sales_fytd, d.sales_fytd_py);
     d.inv_fytd_growth = uploadGrowth(d.inv_fytd, d.inv_fytd_py);
-    d.sales_fytd_avg_monthly = Math.round((d.sales_fytd/4)*100)/100;
-    d.inv_fytd_avg_monthly = Math.round((d.inv_fytd/4)*10)/10;
+    d.sales_fytd_avg_monthly = Math.round((d.sales_fytd/fytdMonthsNow())*100)/100;
+    d.inv_fytd_avg_monthly = Math.round((d.inv_fytd/fytdMonthsNow())*10)/10;
     d.spi_mtd = uploadSpi(d.sales_mtd, d.inv_mtd);
     d.spi_mtd_py = uploadSpi(d.sales_mtd_py, d.inv_mtd_py);
     d.spi_mtd_growth = uploadGrowth(d.spi_mtd, d.spi_mtd_py);
@@ -3685,7 +3695,7 @@ function parseTurnoverUploadRows(rows){
       n_stores: g.n,
       sales_mtd: Math.round((g.sales_mtd/g.n)*100)/100, inv_mtd: Math.round((g.inv_mtd/g.n)*10)/10, spi_mtd: uploadSpi(g.sales_mtd, g.inv_mtd),
       sales_lastmonth: Math.round((g.sales_lastmonth/g.n)*100)/100, inv_lastmonth: Math.round((g.inv_lastmonth/g.n)*10)/10, spi_lastmonth: uploadSpi(g.sales_lastmonth, g.inv_lastmonth),
-      sales_fytd: Math.round(((g.sales_fytd/g.n)/4)*100)/100, inv_fytd: Math.round(((g.inv_fytd/g.n)/4)*10)/10, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
+      sales_fytd: Math.round(((g.sales_fytd/g.n)/fytdMonthsNow())*100)/100, inv_fytd: Math.round(((g.inv_fytd/g.n)/fytdMonthsNow())*10)/10, spi_fytd: uploadSpi(g.sales_fytd, g.inv_fytd),
     };
   });
   return { TURNOVER_DATA: TURNOVER_DATA_NEW, BRAND_AVGS: BRAND_AVGS_NEW };
