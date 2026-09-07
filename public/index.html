@@ -536,7 +536,7 @@ function budgetVarianceAggregate(storeNames, month){
 function googleMysteryDinerHealth(storesList, field){
   const results = storesList.map(s => {
     const c = CSPI_COMPONENTS[resolveAlias(s)];
-    return c ? c[field + '_jul'] : null;
+    return c ? (c[field + '_latest'] != null ? c[field + '_latest'] : c[field + '_jul']) : null;
   }).filter(v => v !== null);
   if (!results.length) return { pct: null, withData: 0 };
   const avg = results.reduce((s,v) => s+v, 0) / results.length;
@@ -1955,11 +1955,13 @@ function renderDrilldown(){
     const field = metric === 'google' ? 'google' : 'mysteryDiner';
     const thresh = THRESH[metric];
     title = (metric === 'google' ? 'Stores Below Google Rating Target (92%)' : 'Stores Below Mystery Diner Target (87%)');
-    rows = stores.map(s => ({ store: s.store, fsm: s.fsm, value: CSPI_COMPONENTS[resolveAlias(s.store)] ? CSPI_COMPONENTS[resolveAlias(s.store)][field + '_jul'] : null }))
+    const cspiComp = s => { const c = CSPI_COMPONENTS[resolveAlias(s)]; return c ? (c[field + '_latest'] != null ? c[field + '_latest'] : c[field + '_jul']) : null; };
+    rows = stores.map(s => ({ store: s.store, fsm: s.fsm, value: cspiComp(s.store) }))
       .filter(r => r.value !== null && r.value < thresh.green)
       .sort((a,b) => a.value - b.value)
       .map(r => `<tr><td>${r.store}</td><td>${r.fsm}</td><td class="rag-text red">${fmtPct(r.value,0)}</td></tr>`);
-    var head = `<tr><th>Store</th><th>FSM</th><th>Score (${lastCompleteBudgetMonth().charAt(0).toUpperCase() + lastCompleteBudgetMonth().slice(1)} 2026)</th></tr>`;
+    const cspiMon = (Object.values(CSPI_COMPONENTS).find(c => c && c.month_label) || {}).month_label;
+    var head = `<tr><th>Store</th><th>FSM</th><th>Score (${cspiMon || 'latest CSPI upload'})</th></tr>`;
   }
 
   el.innerHTML = `
@@ -2304,12 +2306,8 @@ function viewStandards(){
       <div style="font-size:12px;line-height:1.7;">Network average KeyTech compliance is approximately 38% — every store currently sits red against the 80% target. This is confirmed live data, not a reporting error.</div>
     </div>
     <div class="section-divider"></div>
-    <div class="card">
-      <div class="section-title">Upload Data</div>
-      <div class="wrap-copy" style="margin-bottom:8px;">CSV with two columns: store, score (0–100). Header row required.</div>
-      <input type="file" id="stdUploadInput" accept=".csv" style="display:none;">
-      <button class="btn btn-outline" id="stdUploadBtn">Upload KeyTech Data</button>
-      <span id="stdUploadStatus" style="font-size:11px;color:var(--grey-500);margin-left:10px;"></span>
+    <div class="card" style="background:var(--grey-100);">
+      <div style="font-size:11px;color:var(--grey-600);">Flow data is now uploaded in one place only — <b>Admin → Data Uploads → Flow (Recipe &amp; Cleaning)</b>. This tab and the Cafe Status report both read that single upload, so they can no longer drift.</div>
     </div>
     <div class="section-divider"></div>
     <div class="grid-2-1">
@@ -2324,10 +2322,6 @@ function viewStandards(){
       </div>
     </div>
   `;
-  wireUploadButton('stdUploadInput','stdUploadBtn','stdUploadStatus','keytech-overrides',
-    (store,score) => { DATA.keytech[store] = score; },
-    () => viewStandards()
-  );
   const ranked = FSM_LIST.map(f => ({ f, s: standardsScore(fsmStoresList(f)) })).sort((a,b)=>(b.s.pct||0)-(a.s.pct||0));
   const maxPct = Math.max(...ranked.map(r=>r.s.pct||0), 1);
   document.getElementById('stdRanked').innerHTML = ranked.map((r,i) => `
@@ -2364,12 +2358,8 @@ function viewBBetter(){
       <div><div class="page-title">B-Better View</div><div class="page-subtitle">Learning Completion % per Store · Source: Beeline (latest upload)</div></div>
       <div class="period-badge">TARGET ≥80%</div>
     </div>
-    <div class="card">
-      <div class="section-title">Upload Data</div>
-      <div class="wrap-copy" style="margin-bottom:8px;">CSV with two columns: store, score (0–100). Header row required. FSM is looked up automatically from the store.</div>
-      <input type="file" id="bbUploadInput" accept=".csv" style="display:none;">
-      <button class="btn btn-outline" id="bbUploadBtn">Upload B-Better Data</button>
-      <span id="bbUploadStatus" style="font-size:11px;color:var(--grey-500);margin-left:10px;"></span>
+    <div class="card" style="background:var(--grey-100);">
+      <div style="font-size:11px;color:var(--grey-600);">B-Better data is now uploaded in one place only — <b>Admin → Data Uploads → B.Better Training</b>. This tab and the Cafe Status report both read that single upload, so they can no longer drift.</div>
     </div>
     <div class="section-divider"></div>
     <div class="grid-2-1">
@@ -2387,10 +2377,6 @@ function viewBBetter(){
       </div>
     </div>
   `;
-  wireUploadButton('bbUploadInput','bbUploadBtn','bbUploadStatus','bbetter-overrides',
-    (store,score) => { const fsm = fsmOfStore(store); if (fsm) { if (!BEELINE_FLAT[fsm]) BEELINE_FLAT[fsm]={}; BEELINE_FLAT[fsm][resolveAlias(store)] = score; } },
-    () => viewBBetter()
-  );
   const ranked = FSM_LIST.map(f => ({ f, s: bbetterScore(f, fsmStoresList(f)) })).sort((a,b)=>(b.s.pct||0)-(a.s.pct||0));
   const maxPct = Math.max(...ranked.map(r=>r.s.pct||0), 1);
   document.getElementById('bbRanked').innerHTML = ranked.map((r,i) => `
@@ -3708,6 +3694,30 @@ async function loadDataUploadOverrides(){
       mutateReplace(CSPI_COMPONENTS, JSON.parse(r.value));
     }
   } catch (e) { /* keep embedded data if this fails — e.g. an older upload made before this component breakdown existed */ }
+  // Single source for Flow & B-Better: the Flow and B-Better TABS derive from
+  // the same datasets the Admin uploads populate (FLOW_DATA / BB_DATA), so
+  // there is exactly one place to upload each metric (Admin → Data Uploads).
+  syncFlowAndBBetterToTabs();
+}
+
+// Rebuild the Flow tab's DATA.keytech from FLOW_DATA (% met recipe = mtd_recipe,
+// stored as a 0-1 fraction → 0-100 scale) and the B-Better tab's BEELINE_FLAT
+// from BB_DATA.completion (already 0-100). Called after uploads are applied so
+// both the tab and the Cafe Status report always show the one uploaded source.
+function syncFlowAndBBetterToTabs(){
+  try {
+    Object.entries(FLOW_DATA).forEach(([store, d]) => {
+      if (d && d.mtd_recipe != null) DATA.keytech[store] = Math.round(d.mtd_recipe * 1000) / 10;
+    });
+  } catch (e) {}
+  try {
+    Object.entries(BB_DATA).forEach(([store, d]) => {
+      if (!d || d.completion == null) return;
+      const fsm = fsmOfStore(store); if (!fsm) return;
+      if (!BEELINE_FLAT[fsm]) BEELINE_FLAT[fsm] = {};
+      BEELINE_FLAT[fsm][store] = d.completion;
+    });
+  } catch (e) {}
 }
 
 function uploadSpi(sales, inv){ return inv ? Math.round((sales/inv)*100)/100 : null; }
@@ -3960,7 +3970,11 @@ function parseCspiUploadRows(rows){
     const cafeVisitYtd = num(r.cafe_visit_ytd); const googleYtd = num(r.google_ytd); const mysteryDinerYtd = num(r.mystery_diner_ytd); const complaintsYtd = num(r.complaints_ytd);
     if (google !== null || mysteryDiner !== null) {
       CSPI_COMPONENTS_NEW[name] = {
-        cafeVisit_jul: cafeVisit, google_jul: google, mysteryDiner_jul: mysteryDiner, complaints_jul: complaints, score_jul: score,
+        // Stored under a stable "_latest" slot (not a frozen month) so the
+        // dashboard always shows the most recent upload; month_label records
+        // which month that is, for display.
+        month_label: String(r.month_label || '').trim(),
+        cafeVisit_latest: cafeVisit, google_latest: google, mysteryDiner_latest: mysteryDiner, complaints_latest: complaints, score_latest: score,
         cafeVisit_ytd: cafeVisitYtd, google_ytd: googleYtd, mysteryDiner_ytd: mysteryDinerYtd, complaints_ytd: complaintsYtd, score_ytd: ytd,
       };
     }
@@ -4079,6 +4093,7 @@ async function handleDataUpload(key, file){
 
     UPLOAD_META[key] = meta;
     await fetch('/api/storage/bos-upload-meta-' + key, { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(meta) }) });
+    if (key === 'flow' || key === 'bbetter') syncFlowAndBBetterToTabs(); // keep the Flow/B-Better tabs in step with this single upload
     toast(`Uploaded — ${meta.rows} row(s) applied${meta.notes?' ('+meta.notes+')':''}`);
     renderUploadCards();
   } catch (e) {
