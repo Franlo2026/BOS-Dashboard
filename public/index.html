@@ -3583,8 +3583,8 @@ const UPLOAD_TYPES = [
   { key:'turnover', label:'Trade / Turnover (Silo)', accept:'.csv,.xlsx,.xls', ready:true,
     desc:'One row per store. Columns: store_name, store_type, fsm, is_new_store, sales_mtd, inv_mtd, sales_mtd_py, inv_mtd_py, sales_lastmonth, inv_lastmonth, sales_lastmonth_py, inv_lastmonth_py, sales_fytd, inv_fytd, sales_fytd_py, inv_fytd_py.',
     note:'Live Silo connection is active — the server refreshes turnover automatically every day directly from BigQuery (look for "by Automatic (Silo/BigQuery)" above). Manual upload here is only a fallback/override; a manual upload will be replaced by the next daily automatic refresh.' },
-  { key:'ltl', label:'LTL Audits', accept:'.xlsx,.xls', ready:true,
-    desc:'The ECAS compliance export, as-is (Customer, Site Type, Site, Audit Type, Audited By, Audit Date, Score %, Risk %, ...).',
+  { key:'ltl', label:'LTL Audits', accept:'.xlsx,.xls,.csv', ready:true,
+    desc:'The ECAS "Total Compliance" export, uploaded exactly as downloaded — no editing. It finds the header row (Site / Score %  / Audit Date) automatically, uses Score % as the audit score, maps each site to its BOS café, and keeps the latest audit per café.',
     note:'Each row becomes a real audit entry via the same endpoint the LTL tab\'s own upload uses — repeat audits for the same café keep only the most recent one.' },
   { key:'bbetter', label:'B.Better Training', accept:'.xlsx,.xls', ready:true,
     desc:'The Beeline "Groups" export, as-is (Group, Classification, Location kind, Completion %, Members, Avg progress %, FSM, Region, Store Type, ...).',
@@ -3815,7 +3815,7 @@ function parseBBetterUploadRows(rows){
 // that contains all of the expected column names, and build objects from
 // there instead of assuming row 0 is the header.
 function findHeaderRowIndex(aoa, requiredCols){
-  for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+  for (let i = 0; i < Math.min(aoa.length, 12); i++) {
     const row = (aoa[i]||[]).map(c => String(c==null?'':c).trim());
     if (requiredCols.every(rc => row.includes(rc))) return i;
   }
@@ -4042,17 +4042,48 @@ async function handleDataUpload(key, file){
       const parsedRows = parseLTLUploadRows(aoa);
       if (!parsedRows) { toast('Could not find the Site / Score % / Audit Date header row in this file'); return; }
       if (!parsedRows.length) { toast('No audit rows found in that file'); return; }
-      let ok = 0, failed = 0;
+      // Map each ECAS "Site" to a BOS café (exact → alias table → normalised →
+      // explicit ECAS alias) so each audit attributes to the right store and
+      // FSM. The audit score is the ECAS "Score %" (already computed in
+      // parseLTLUploadRows). Store attribute lookups use store_name (the real
+      // field — the old code checked a non-existent `s.store`, so FSM was
+      // always blank).
+      const ECAS_ALIAS = {
+        'Aquarium (XS)': 'Aquarium Kiosk',
+        'Durbanville C-store': 'Durbanville TEMSA',
+        'The Zone': 'The Zone, Rosebank',
+        'Cresta Shopping Centre': 'Cresta Shopping Centre, Cresta',
+        'Total Winchester Hills': 'Winchester Hill XS',
+      };
+      const ltlNorm = s => String(s || '').toLowerCase()
+        .replace(/\b(total energies?|total|astron|kiosk|xs|c-?stores?|cafe|café|coffee)\b/g, '')
+        .replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+      const ltlNormIndex = {};
+      ALL_STORES.forEach(s => { const n = ltlNorm(s.store_name); (ltlNormIndex[n] = ltlNormIndex[n] || []).push(s); });
+      const matchEcasStore = (site) => {
+        const aliased = ECAS_ALIAS[site] || site;
+        let s = ALL_STORES.find(x => x.store_name === aliased);
+        if (!s) { const ra = resolveAlias(aliased); s = ALL_STORES.find(x => x.store_name === ra); }
+        if (!s) { const arr = ltlNormIndex[ltlNorm(aliased)]; if (arr && arr.length === 1) s = arr[0]; }
+        return s || null;
+      };
+      let ok = 0, failed = 0; const unmatched = [];
       for (const r of parsedRows) {
-        const fsm = (ALL_STORES.find(s => s.store === r.store) || {}).fsm || '';
+        const s = matchEcasStore(r.store);
+        const store = s ? s.store_name : r.store;
+        const fsm = s ? (s.fsm || '') : '';
+        if (!s) unmatched.push(r.store);
         try {
-          await apiPost('/api/ltl', { fsm, store: r.store, date: r.date, score: r.score, cspi: 0, ncRaised: 0, ncClosed: 0, notes: r.auditor ? ('Audited by ' + r.auditor) : '' });
+          await apiPost('/api/ltl', { fsm, store, date: r.date, score: r.score, cspi: 0, ncRaised: 0, ncClosed: 0, notes: r.auditor ? ('Audited by ' + r.auditor) : '' });
           ok++;
         } catch (e) { failed++; }
       }
       await refreshState();
       meta.rows = ok;
-      if (failed) meta.notes = failed + ' row(s) failed to save';
+      const ltlNotes = [];
+      if (unmatched.length) ltlNotes.push(unmatched.length + ' not matched to a café: ' + unmatched.slice(0, 6).join(', ') + (unmatched.length > 6 ? '…' : ''));
+      if (failed) ltlNotes.push(failed + ' row(s) failed to save');
+      if (ltlNotes.length) meta.notes = ltlNotes.join('; ');
 
     } else if (key === 'flow') {
       const aoa = await readWorkbookRows(file, { asArray: true });
