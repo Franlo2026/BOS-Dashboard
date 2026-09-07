@@ -3615,6 +3615,28 @@ const UPLOAD_TYPES = [
 ];
 const UPLOAD_META = {}; // key -> { uploadedAt, uploadedBy, rows }
 
+// Per-feed freshness expectation + which tabs each upload actually powers, so
+// the Admin cards make it obvious (a) whether a feed is current and (b) where
+// the uploaded data lands. `also` flags the feeds whose dashboard TAB has a
+// separate upload button (a known dual-path — upload in both places).
+const UPLOAD_EXTRA = {
+  turnover: { staleDays: 3,  feeds: 'Dashboard · Trade · Cafe Status · Regional Report' },
+  ltl:      { staleDays: 45, feeds: 'LTL Audits · Dashboard · Regional Report' },
+  bbetter:  { staleDays: 45, feeds: 'Cafe Status · Dashboard · Regional Report', also: 'The B-Better tab has its OWN separate upload button — upload there too to refresh that tab.' },
+  flow:     { staleDays: 45, feeds: 'Cafe Status', also: 'The Flow tab has its OWN separate upload button — upload there too to refresh that tab.' },
+  social:   { staleDays: 45, feeds: 'Cafe Status · Dashboard (Google) · Regional Report' },
+  cspi:     { staleDays: 45, feeds: 'Cafe Status · Dashboard (CSPI) · Regional Report' },
+};
+function freshnessBadge(meta, staleDays){
+  if (!meta || !meta.uploadedAt) return '<span style="background:#eee;color:#777;padding:1px 7px;border-radius:3px;font-size:10px;">No data yet</span>';
+  const days = Math.floor((Date.now() - new Date(meta.uploadedAt).getTime())/86400000);
+  const ageTxt = days<=0 ? 'today' : (days===1 ? '1 day ago' : days+' days ago');
+  let bg='#e6f4ea', fg='#1e7e34', lbl='✓ Current';
+  if (days > (staleDays||45)) { bg='#fdecea'; fg='#c62828'; lbl='⚠ Stale'; }
+  else if (days > Math.ceil((staleDays||45)*0.6)) { bg='#fff4e5'; fg='#b26a00'; lbl='● Ageing'; }
+  return `<span style="background:${bg};color:${fg};padding:1px 7px;border-radius:3px;font-size:10px;">${lbl} · updated ${ageTxt}</span>`;
+}
+
 function mutateReplace(target, source){
   Object.keys(target).forEach(k => delete target[k]);
   Object.assign(target, source);
@@ -4075,10 +4097,13 @@ function renderUploadCards(){
   if (!wrap) return;
   wrap.innerHTML = UPLOAD_TYPES.map(t => {
     const meta = UPLOAD_META[t.key];
+    const extra = UPLOAD_EXTRA[t.key] || {};
     return `<div class="card">
-      <div class="section-title">${t.label}</div>
+      <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><span>${t.label}</span>${freshnessBadge(meta, extra.staleDays)}</div>
       <div style="font-size:11px;color:var(--grey-500);margin-bottom:8px;">${t.desc}</div>
-      ${t.note ? `<div style="font-size:10px;color:var(--grey-500);background:var(--grey-100);padding:6px 8px;border-radius:4px;margin-bottom:10px;">${t.note}</div>` : ''}
+      ${extra.feeds ? `<div style="font-size:10px;color:var(--grey-600);margin-bottom:6px;"><b>Feeds:</b> ${extra.feeds}</div>` : ''}
+      ${t.note ? `<div style="font-size:10px;color:var(--grey-500);background:var(--grey-100);padding:6px 8px;border-radius:4px;margin-bottom:8px;">${t.note}</div>` : ''}
+      ${extra.also ? `<div style="font-size:10px;color:#b26a00;background:#fff4e5;padding:6px 8px;border-radius:4px;margin-bottom:10px;">⚠ ${extra.also}</div>` : ''}
       <div style="font-size:11px;margin-bottom:10px;"><b>Last updated:</b> ${meta ? fmtUploadDate(meta.uploadedAt) + ' by ' + (meta.uploadedBy||'—') + (meta.rows?` (${meta.rows} rows)`:'') : '<span style="color:var(--grey-500);">Never — using data built into this page</span>'}</div>
       <input type="file" class="uploadFileInput" data-key="${t.key}" accept="${t.accept}" ${t.ready?'':'disabled'} style="font-size:11px;">
     </div>`;
