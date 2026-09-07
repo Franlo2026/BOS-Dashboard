@@ -2011,7 +2011,7 @@ function renderAttention(){
 function fmtRand(v){ if (v===null||v===undefined||isNaN(v)) return '—'; const s = v<0?'-':''; return s+'R'+Math.round(Math.abs(v)).toLocaleString('en-ZA'); }
 function fmtRandSigned(v){ if (v===null||v===undefined||isNaN(v)) return '—'; const s = v>=0?'+':'-'; return s+'R'+Math.round(Math.abs(v)).toLocaleString('en-ZA'); }
 function fmtNumSigned(v){ if (v===null||v===undefined||isNaN(v)) return '—'; const s = v>=0?'+':'-'; return s+Math.round(Math.abs(v)).toLocaleString('en-ZA'); }
-const YTD_MONTHS_ELAPSED = 4; // Mar, Apr, May, Jun 2026 — divide FYTD totals down to a true monthly average
+const YTD_MONTHS_ELAPSED = fytdMonthsNow(); // complete FYTD months (Mar → last full month); auto-advances each month-end
 function metricBreakdown(t, prefix, formatAvgObj){
   // prefix is 'sales' | 'inv' | 'spi'. Field names below are explicit about which
   // period they hold — no more reused "_may26"-style names once the actual month rolls on.
@@ -2034,7 +2034,7 @@ function metricRow(label, m, isMoney, fmtVal){
   const val = x => (x===null||x===undefined) ? '—' : fmtVal(x);
   const yoyCell = m.isNew ? '<span class="badge amber" title="Opened in 2026 — no prior-year data to compare against yet">NEW STORE</span>' : cell(m.yoy);
   return `<tr style="font-weight:600;"><td>${label}</td><td>${val(m.cur)}</td><td>${val(m.prev)}</td><td>${val(m.ytdAvg)}</td><td>${val(m.formatAvg)}</td></tr>
-    <tr><td style="color:var(--grey-500);font-weight:400;font-size:10px;">vs above →</td><td>${yoyCell}${!m.isNew?'<div style="font-size:9px;color:var(--grey-500);">vs Jul 2025 MTD</div>':''}</td><td>${cell(m.mom)}</td><td>${cell(m.ytd)}</td><td>${cell(m.vsFormat)}</td></tr>`;
+    <tr><td style="color:var(--grey-500);font-weight:400;font-size:10px;">vs above →</td><td>${yoyCell}${!m.isNew?'<div style="font-size:9px;color:var(--grey-500);">vs same month last year (MTD)</div>':''}</td><td>${cell(m.mom)}</td><td>${cell(m.ytd)}</td><td>${cell(m.vsFormat)}</td></tr>`;
 }
 
 function viewTrade(){
@@ -2261,7 +2261,7 @@ function viewTrade(){
           <table class="data-table" style="margin-bottom:16px;">${tableHead}<tbody>${metricRow('SPI', spi, true, fmtRand)}</tbody></table>
           <div class="section-title">Invoice Count</div>
           <table class="data-table" style="margin-bottom:8px;">${tableHead}<tbody>${metricRow('Invoices', inv, false, fmtInv)}</tbody></table>
-          <div style="font-size:10px;color:var(--grey-500);">YTD Avg Monthly = FYTD total ÷ ${YTD_MONTHS_ELAPSED} months (Mar–Jun) — SPI isn't divided since it's already a rate. Format Avg = ${t.store_type} network average, latest month, used for both the monthly and YTD columns.</div>
+          <div style="font-size:10px;color:var(--grey-500);">YTD Avg Monthly = FYTD total ÷ ${YTD_MONTHS_ELAPSED} months (Mar–${monthLabel(MONTHLY_TRADE_MONTHS[Math.max(0,MONTHLY_TRADE_MONTHS.length-2)],{plain:true})}) — SPI isn't divided since it's already a rate. Format Avg = ${t.store_type} network average, latest month, used for both the monthly and YTD columns.</div>
         </div>`;
       }
       return `<div class="card" style="margin-bottom:8px;padding:0;">
@@ -2297,7 +2297,7 @@ function viewTrade(){
 function viewStandards(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <div><div class="page-title">Flow</div><div class="page-subtitle">% Met Recipe per Store · Source: KeyTech · May 2026</div></div>
+      <div><div class="page-title">Flow</div><div class="page-subtitle">% Met Recipe per Store · Source: KeyTech (latest upload)</div></div>
       <div class="period-badge">TARGET ≥80%</div>
     </div>
     <div class="card" style="border-left:4px solid var(--gold); background:var(--gold-light);">
@@ -2361,7 +2361,7 @@ function viewStandards(){
 function viewBBetter(){
   document.getElementById('app').innerHTML = `
     <div class="page-header">
-      <div><div class="page-title">B-Better View</div><div class="page-subtitle">Learning Completion % per Store · Source: Beeline · June 2026</div></div>
+      <div><div class="page-title">B-Better View</div><div class="page-subtitle">Learning Completion % per Store · Source: Beeline (latest upload)</div></div>
       <div class="period-badge">TARGET ≥80%</div>
     </div>
     <div class="card">
@@ -4151,10 +4151,32 @@ Share the app URL with everyone. Each person signs in with their own username/pa
     </div>
     <div class="section-divider"></div>
     <div class="page-title" style="font-size:16px;">Data Uploads</div>
-    <div class="page-subtitle" style="margin-bottom:14px;">Refresh Trade/Turnover, LTL, B-Better, Flow &amp; Social/Google data straight from a file — no code deploy needed.</div>
+    <div class="page-subtitle" style="margin-bottom:10px;">Refresh Trade/Turnover, LTL, B-Better, Flow &amp; Social/Google data straight from a file — no code deploy needed.</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;">
+      <button class="btn btn-outline" id="runSiloRefreshBtn">↻ Run Silo turnover refresh now</button>
+      <span id="runSiloRefreshStatus" style="font-size:11px;color:var(--grey-500);">Turnover + monthly + cost-of-sales pull automatically from Silo daily; use this to force it immediately.</span>
+    </div>
     <div class="grid-3" id="uploadCardsWrap"></div>
   `;
   renderUploadCards();
+  const siloBtn = document.getElementById('runSiloRefreshBtn');
+  if (siloBtn) siloBtn.addEventListener('click', async () => {
+    const st = document.getElementById('runSiloRefreshStatus');
+    siloBtn.disabled = true; if (st) st.textContent = 'Refreshing from Silo…';
+    try {
+      const r = await fetch('/api/admin/run-silo-refresh', { method:'POST', headers: authHeaders() });
+      const d = await r.json();
+      if (!r.ok) { if (st) { st.textContent = d.error || 'Refresh failed.'; st.style.color = 'var(--red)'; } }
+      else {
+        if (st) { st.textContent = d.message || 'Done.'; st.style.color = 'var(--green)'; }
+        toast('Silo refresh complete');
+        await loadDataUploadOverrides();
+        for (const t of UPLOAD_TYPES) { try { const m = await apiGet('/api/storage/bos-upload-meta-' + t.key); UPLOAD_META[t.key] = JSON.parse(m.value || 'null'); } catch(e){} }
+        renderUploadCards();
+      }
+    } catch (e) { if (st) { st.textContent = 'Could not reach the server.'; st.style.color = 'var(--red)'; } }
+    finally { siloBtn.disabled = false; }
+  });
   async function loadUsers(){
     try {
       const users = await apiGet('/api/admin/users');
@@ -7095,8 +7117,8 @@ function viewCafeStatus2(){
       const pctCell = v => v===null ? '—' : `<span class="rag-text ${v>=0?'green':'red'}">${v>=0?'+':''}${v.toFixed(1)}%</span>`;
       html += `<div class="section-title">Budget vs Actual</div>
         <table class="data-table" style="margin-bottom:12px;"><thead><tr><th></th><th>Actual</th><th>Budget</th><th>Variance (R)</th><th>Variance (%)</th></tr></thead><tbody>
-          <tr><td style="color:var(--grey-500);">July</td><td style="font-family:monospace;">${fmtRand(bv.actualMonth)}</td><td style="font-family:monospace;">${fmtRand(bv.budgetMonth)}</td><td style="font-family:monospace;">${fmtRandSigned(bv.varianceMonthRand)}</td><td>${pctCell(bv.varianceMonthPct)}</td></tr>
-          <tr><td style="color:var(--grey-500);">YTD (Mar–Jul)</td><td style="font-family:monospace;">${bv.actualYtd!==null?fmtRand(bv.actualYtd):'—'}</td><td style="font-family:monospace;">${bv.budgetYtd!==null?fmtRand(bv.budgetYtd):'—'}</td><td style="font-family:monospace;">${bv.varianceYtdRand!==null?fmtRandSigned(bv.varianceYtdRand):'—'}</td><td>${pctCell(bv.varianceYtdPct)}</td></tr>
+          <tr><td style="color:var(--grey-500);">${monthLabel(lastCompleteBudgetMonth(),{plain:true})}</td><td style="font-family:monospace;">${fmtRand(bv.actualMonth)}</td><td style="font-family:monospace;">${fmtRand(bv.budgetMonth)}</td><td style="font-family:monospace;">${fmtRandSigned(bv.varianceMonthRand)}</td><td>${pctCell(bv.varianceMonthPct)}</td></tr>
+          <tr><td style="color:var(--grey-500);">YTD (Mar–${monthLabel(lastCompleteBudgetMonth(),{plain:true})})</td><td style="font-family:monospace;">${bv.actualYtd!==null?fmtRand(bv.actualYtd):'—'}</td><td style="font-family:monospace;">${bv.budgetYtd!==null?fmtRand(bv.budgetYtd):'—'}</td><td style="font-family:monospace;">${bv.varianceYtdRand!==null?fmtRandSigned(bv.varianceYtdRand):'—'}</td><td>${pctCell(bv.varianceYtdPct)}</td></tr>
         </tbody></table>`;
     }
 
@@ -7346,13 +7368,13 @@ function viewRegionalReport(){
 
           <div class="section-title" style="margin-top:14px;">Turnover — by Region (${lastCompleteBudgetMonth().charAt(0).toUpperCase() + lastCompleteBudgetMonth().slice(1)} 2026, real Silo data)</div>
           <table class="data-table" style="margin-bottom:16px;">
-            <thead><tr><th>Region</th><th>Stores</th><th>Jul Turnover</th><th>vs 2025</th></tr></thead>
+            <thead><tr><th>Region</th><th>Stores</th><th>${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Turnover</th><th>vs 2025</th></tr></thead>
             <tbody>${subRegions.map(r => `<tr><td>${r.city}</td><td>${r.n}</td><td>${fmtRand(r.sales)}</td><td>${r.growth!=null?`<span class="rag-text ${r.growth>=0?'green':'red'}">${fmtSigned(r.growth*100,1)}</span>`:'—'}</td></tr>`).join('')}</tbody>
           </table>
 
           <div class="section-title">Budget vs Actual — ${label}</div>
           <table class="data-table" style="margin-bottom:16px;">
-            <thead><tr><th>Region</th><th>Stores</th><th>Jul Actual</th><th>Jul Budget</th><th>Jul Variance</th><th>YTD Actual</th><th>YTD Budget</th><th>YTD Variance</th></tr></thead>
+            <thead><tr><th>Region</th><th>Stores</th><th>${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Actual</th><th>${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Budget</th><th>${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Variance</th><th>YTD Actual</th><th>YTD Budget</th><th>YTD Variance</th></tr></thead>
             <tbody>${budgetSubRegions.map(r => `<tr>
               <td>${r.region}</td><td>${r.n}</td>
               <td>${fmtRand(r.actualMonth)}</td><td style="color:var(--grey-500);">${fmtRand(r.budgetMonth)}</td>
@@ -7362,13 +7384,13 @@ function viewRegionalReport(){
             </tr>`).join('') || '<tr><td colspan="8">No budgeted stores matched in this region.</td></tr>'}</tbody>
           </table>
           <div class="grid-4" style="margin-bottom:16px;">
-            <div class="card"><div class="card-label">Total Jul Variance</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceMonthPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceMonthRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceMonthPct!=null?(budgetAgg.varianceMonthPct>=0?'+':'')+budgetAgg.varianceMonthPct.toFixed(1)+'%':'—'}</div></div>
-            <div class="card"><div class="card-label">Total YTD Variance (Mar–Jul)</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceYtdPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceYtdRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceYtdPct!=null?(budgetAgg.varianceYtdPct>=0?'+':'')+budgetAgg.varianceYtdPct.toFixed(1)+'%':'—'} · ${budgetAgg.matched} stores</div></div>
+            <div class="card"><div class="card-label">Total ${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Variance</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceMonthPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceMonthRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceMonthPct!=null?(budgetAgg.varianceMonthPct>=0?'+':'')+budgetAgg.varianceMonthPct.toFixed(1)+'%':'—'}</div></div>
+            <div class="card"><div class="card-label">Total YTD Variance (Mar–${monthLabel(lastCompleteBudgetMonth(),{plain:true})})</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceYtdPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceYtdRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceYtdPct!=null?(budgetAgg.varianceYtdPct>=0?'+':'')+budgetAgg.varianceYtdPct.toFixed(1)+'%':'—'} · ${budgetAgg.matched} stores</div></div>
           </div>
 
           <div class="section-title">Top 10 Stores At Risk (worst YoY, ${lastCompleteBudgetMonth().charAt(0).toUpperCase() + lastCompleteBudgetMonth().slice(1)} 2026)</div>
           <table class="data-table" style="margin-bottom:16px;">
-            <thead><tr><th>Store</th><th>Jul Turnover</th><th>YoY</th></tr></thead>
+            <thead><tr><th>Store</th><th>${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Turnover</th><th>YoY</th></tr></thead>
             <tbody>${atRisk.map(x => `<tr><td>${x.storeName}</td><td>${fmtRand(x.r.cur.sales)}</td><td><span class="rag-text red">${fmtSigned(x.r.growth*100,1)}</span></td></tr>`).join('') || '<tr><td colspan="3">No comparable stores.</td></tr>'}</tbody>
           </table>
 
@@ -7462,10 +7484,10 @@ function viewRegionalReport(){
           </div>
           <div class="section-title">Budget vs Actual — Network Wide</div>
           <div class="grid-4" style="margin-bottom:16px;">
-            <div class="card"><div class="card-label">Jul Actual</div><div style="font-size:18px;font-weight:700;">${fmtRand(budgetAgg.actualMonth)}</div></div>
-            <div class="card"><div class="card-label">Jul Budget</div><div style="font-size:18px;font-weight:700;color:var(--grey-500);">${fmtRand(budgetAgg.budgetMonth)}</div></div>
-            <div class="card"><div class="card-label">Jul Variance</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceMonthPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceMonthRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceMonthPct!=null?(budgetAgg.varianceMonthPct>=0?'+':'')+budgetAgg.varianceMonthPct.toFixed(1)+'%':'—'}</div></div>
-            <div class="card"><div class="card-label">YTD Variance (Mar–Jul)</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceYtdPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceYtdRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceYtdPct!=null?(budgetAgg.varianceYtdPct>=0?'+':'')+budgetAgg.varianceYtdPct.toFixed(1)+'%':'—'} · ${budgetAgg.matched} stores</div></div>
+            <div class="card"><div class="card-label">${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Actual</div><div style="font-size:18px;font-weight:700;">${fmtRand(budgetAgg.actualMonth)}</div></div>
+            <div class="card"><div class="card-label">${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Budget</div><div style="font-size:18px;font-weight:700;color:var(--grey-500);">${fmtRand(budgetAgg.budgetMonth)}</div></div>
+            <div class="card"><div class="card-label">${monthLabel(lastCompleteBudgetMonth(),{plain:true})} Variance</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceMonthPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceMonthRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceMonthPct!=null?(budgetAgg.varianceMonthPct>=0?'+':'')+budgetAgg.varianceMonthPct.toFixed(1)+'%':'—'}</div></div>
+            <div class="card"><div class="card-label">YTD Variance (Mar–${monthLabel(lastCompleteBudgetMonth(),{plain:true})})</div><div style="font-size:18px;font-weight:700;color:${budgetAgg.varianceYtdPct>=0?'var(--green)':'var(--red)'};">${fmtRandSigned(budgetAgg.varianceYtdRand)}</div><div style="font-size:11px;color:var(--grey-500);">${budgetAgg.varianceYtdPct!=null?(budgetAgg.varianceYtdPct>=0?'+':'')+budgetAgg.varianceYtdPct.toFixed(1)+'%':'—'} · ${budgetAgg.matched} stores</div></div>
           </div>
         </div>`;
     }
