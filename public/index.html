@@ -3648,6 +3648,14 @@ async function loadDataUploadOverrides(){
       if (!MONTHLY_TRADE_MONTHS.includes(TRADE_SELECTED_MONTH)) TRADE_SELECTED_MONTH = MONTHLY_TRADE_MONTHS[MONTHLY_TRADE_MONTHS.length - 1];
     }
   } catch (e) { /* keep embedded monthly data if this fails */ }
+  // Cost of Sales / FC% — refreshed daily by the server from Silo cos_daily.
+  try {
+    const meta = await apiGet('/api/storage/bos-upload-meta-fc');
+    if (JSON.parse(meta.value || 'null')) {
+      const r = await apiGet('/api/storage/bos-upload-data-fc');
+      mutateReplace(FC_DATA, JSON.parse(r.value));
+    }
+  } catch (e) { /* keep embedded FC data if this fails */ }
   try {
     if (UPLOAD_META.bbetter) {
       const r = await apiGet('/api/storage/bos-upload-data-bbetter');
@@ -7083,7 +7091,7 @@ function viewCafeStatus2(){
       html += `<div class="section-title">Cost of Sales — FC% (goal 32–35%)</div>
         <table class="data-table" style="margin-bottom:12px;"><tbody>
           <tr><td style="color:var(--grey-500);width:140px;">FYTD Avg</td><td><span class="rag-text ${fcStyle(fc.fc_fytd_avg)}">${fc.fc_fytd_avg!=null?(fc.fc_fytd_avg*100).toFixed(1)+'%':'—'}</span></td></tr>
-          <tr><td style="color:var(--grey-500);">Latest Month</td><td><span class="rag-text ${fcStyle(fc.fc_may)}">${fc.fc_may!=null?(fc.fc_may*100).toFixed(1)+'%':'—'}</span></td></tr>
+          ${(()=>{ const v = (fc.fc_latest!=null?fc.fc_latest:fc.fc_may); const lbl = fc.latest_month ? (fc.latest_month.charAt(0).toUpperCase()+fc.latest_month.slice(1)) : 'Latest Month'; return `<tr><td style="color:var(--grey-500);">${lbl==='Latest Month'?lbl:lbl+' (latest)'}</td><td><span class="rag-text ${fcStyle(v)}">${v!=null?(v*100).toFixed(1)+'%':'—'}</span></td></tr>`; })()}
         </tbody></table>`;
     }
 

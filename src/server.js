@@ -1801,6 +1801,33 @@ async function refreshSiloTurnoverData() {
       location: 'europe-west1',
     });
 
+    // Cost of Sales (for FC%). cos_daily is keyed by store name + store_type,
+    // which match turnover's branch + store_type — so the SAME map resolves it
+    // (no separate mapping needed). Bucketed per calendar month like turnover;
+    // FC% is computed after the monthly turnover is aggregated below. Wrapped in
+    // its own try/catch so a missing/denied cos table never breaks turnover —
+    // FC then simply falls back to whatever is embedded in the page.
+    const cosByKeyMonth = {}; // key -> { '<mon><yy>': cost_of_sales }
+    try {
+      const [cosRows] = await bigquery.query({
+        query: `SELECT store, store_type, date, cost_of_sales
+                FROM \`silo-data-platform.bootlegger_curated.cos_daily\`
+                WHERE brand = 'Bootlegger' AND date BETWEEN @fytdStart AND @mtdEnd`,
+        params: { fytdStart: p.fytdStart, mtdEnd: p.mtdEnd },
+        location: 'europe-west1',
+      });
+      cosRows.forEach(r => {
+        const key = map.byBranchType[(r.store || '') + '|' + map.normType(r.store_type)];
+        if (!key) return; // unmapped/excluded store — FC just won't show for it
+        const date = r.date.value || r.date;
+        const mk = MONTH_ABBR[parseInt(date.slice(5, 7), 10) - 1] + date.slice(2, 4);
+        const cb = cosByKeyMonth[key] || (cosByKeyMonth[key] = {});
+        cb[mk] = (cb[mk] || 0) + (Number(r.cost_of_sales) || 0);
+      });
+    } catch (e) {
+      console.error('Silo COS refresh skipped (FC falls back to embedded):', e.message);
+    }
+
     // Resolve each Silo store to its dashboard turnover key via the map (node
     // first, then branch+normalised type). key===null means deliberately
     // excluded (closed/duplicate); an UNKNOWN store is logged and skipped —
@@ -1931,6 +1958,48 @@ async function refreshSiloTurnoverData() {
       `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
       ['bos-upload-meta-monthly-trade', JSON.stringify({ uploadedAt: new Date().toISOString(), uploadedBy: 'Automatic (Silo/BigQuery)', rows: Object.keys(monthlyByStore).length, notes: `latest Silo date ${latestDate}; months ${curMonths.join(',')}` })]
     );
+
+    // Cost of Sales FC% per café: fc_month = cost_of_sales / turnover (ex-VAT).
+    // Impossible values (<=0 or >100%, e.g. stock adjustments / negative COS)
+    // are nulled per the store-review data-quality rule. fc_latest = last
+    // complete month; fc_fytd_avg = FYTD complete-month COS ÷ FYTD turnover.
+    // Only written when COS actually resolved for ≥1 store — otherwise we leave
+    // the embedded FC_DATA in place rather than blanking it.
+    const FC_DATA = {};
+    const latestCompleteMonth = ytdMonths[ytdMonths.length - 1] || curMonths[curMonths.length - 1] || null;
+    Object.keys(cosByKeyMonth).forEach(key => {
+      const mb = monthlyByStore[key]; if (!mb) return;
+      const cos = cosByKeyMonth[key];
+      const fcOf = (m) => {
+        const t = mb[m + curSuf] && mb[m + curSuf].sales;
+        const c = cos[m + curSuf];
+        if (!t || c == null) return null;
+        const fc = c / t;
+        return (fc <= 0 || fc > 1) ? null : Math.round(fc * 10000) / 10000;
+      };
+      let cosSum = 0, turnSum = 0, used = [];
+      ytdMonths.forEach(m => {
+        const t = (mb[m + curSuf] && mb[m + curSuf].sales) || 0;
+        const c = cos[m + curSuf] || 0;
+        if (t > 0 && c > 0 && c / t <= 1) { cosSum += c; turnSum += t; used.push(m.charAt(0).toUpperCase() + m.slice(1)); }
+      });
+      FC_DATA[key] = {
+        fc_fytd_avg: turnSum > 0 ? Math.round((cosSum / turnSum) * 10000) / 10000 : null,
+        fc_latest: latestCompleteMonth ? fcOf(latestCompleteMonth) : null,
+        latest_month: latestCompleteMonth,
+        months_used: used,
+      };
+    });
+    if (Object.keys(FC_DATA).length) {
+      await pool.query(
+        `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+        ['bos-upload-data-fc', JSON.stringify(FC_DATA)]
+      );
+      await pool.query(
+        `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = $2`,
+        ['bos-upload-meta-fc', JSON.stringify({ uploadedAt: new Date().toISOString(), uploadedBy: 'Automatic (Silo/BigQuery)', rows: Object.keys(FC_DATA).length, notes: `latest Silo date ${latestDate}; FC latest month ${latestCompleteMonth || '—'}` })]
+      );
+    }
 
     const payload = JSON.stringify({ TURNOVER_DATA, BRAND_AVGS });
     await pool.query(
