@@ -1,0 +1,13 @@
+# Railway build/start config for the New Café & Franchisee Journey service.
+# This is a SEPARATE Railway service from BOS-Dashboard (security separation),
+# with its own Postgres database service attached in the same project.
+
+[build]
+builder = "NIXPACKS"
+
+[deploy]
+startCommand = "node src/server.js"
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
