@@ -1692,16 +1692,26 @@ if (SILO_CONFIGURED) {
 // by branch+normalised store_type as a fallback.
 const SILO_MAP_FILE = path.join(__dirname, 'silo-turnover-map.json');
 async function loadSiloMap() {
+  const fileDoc = JSON.parse(fs.readFileSync(SILO_MAP_FILE, 'utf8'));
   let doc = null;
   try {
     const { rows } = await pool.query("SELECT value FROM storage WHERE key = 'silo-turnover-map-v1'");
     if (rows[0] && rows[0].value) doc = JSON.parse(rows[0].value);
   } catch (e) { /* fall through to the bundled file */ }
-  if (!doc) {
-    doc = JSON.parse(fs.readFileSync(SILO_MAP_FILE, 'utf8'));
+  // Seed on first use, OR refresh the DB row when the bundled file carries a
+  // newer `version` than what's stored — so version-controlled map fixes take
+  // effect on deploy without a manual Admin edit. Versions are ISO dates, which
+  // sort lexically. This overwrites exactly once per version bump (afterwards
+  // stored == bundled, so the comparison is false), so a live Admin edit made
+  // at the current version stays authoritative and is never clobbered on restart.
+  const storedVersion = (doc && doc.version) || '';
+  const bundledVersion = fileDoc.version || '';
+  if (!doc || (bundledVersion && bundledVersion > storedVersion)) {
+    doc = fileDoc;
     try {
       await pool.query(
-        `INSERT INTO storage (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING`,
+        `INSERT INTO storage (key, value) VALUES ($1, $2)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
         ['silo-turnover-map-v1', JSON.stringify(doc)]
       );
     } catch (e) { /* seeding is best-effort; the in-memory doc is enough for this run */ }

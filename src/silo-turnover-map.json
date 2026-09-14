@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-04",
+  "version": "2026-09-14",
   "description": "Silo store identity -> BOS dashboard turnover key. SINGLE SOURCE OF TRUTH for refreshSiloTurnoverData(). Data is pulled by the server BigQuery connector (bootlegger_curated); this file only maps identity->key. Server resolves by node first, then branch|store_type. key=null means exclude (closed/duplicate).",
   "type_normalize": {
     "Full Store": "All Day Café",
@@ -193,13 +193,13 @@
       "node": "C0399R0008B0009",
       "branch": "Durbanville",
       "store_type": "Convenience",
-      "key": "Durbanville TEMSA"
+      "key": "Durbanville"
     },
     {
       "node": "C0399R0001B0026",
       "branch": "Durbanville Village Square",
       "store_type": "All Day Café",
-      "key": "Durbanville"
+      "key": "Durbanville Village Square"
     },
     {
       "node": "C0399R0003B0006",
@@ -289,7 +289,7 @@
       "node": "C0399R0005B0016",
       "branch": "Hoedspruit",
       "store_type": "Convenience",
-      "key": "Hoedspruit XS"
+      "key": "Hoedspruit"
     },
     {
       "node": "C0399R0001B0047",
@@ -344,6 +344,12 @@
       "branch": "Lennox",
       "store_type": "Convenience",
       "key": "Lennox Kimberly"
+    },
+    {
+      "node": "C0399R0008B0014",
+      "branch": "Mafikeng",
+      "store_type": "Convenience",
+      "key": "Mafikeng XS"
     },
     {
       "node": "C0399R0005B0013",
@@ -445,7 +451,7 @@
       "node": "C0399R0008B0011",
       "branch": "Paarl Mall",
       "store_type": "Convenience",
-      "key": "Paarl Mall TEMSA"
+      "key": "Paarl Mall"
     },
     {
       "node": "C0399R0006B0002",
@@ -457,7 +463,7 @@
       "node": "C0399R0003B0004",
       "branch": "Pinelands",
       "store_type": "XS Café",
-      "key": "Pinelands"
+      "key": "PineworX (XS)"
     },
     {
       "node": "C0399R0005B0002",
@@ -699,7 +705,7 @@
       "node": "C0399R0010B0001",
       "branch": "Windhoek CBD",
       "store_type": "XS Café",
-      "key": "FNB Windhoek"
+      "key": "FNB"
     },
     {
       "node": "C0399R0007B0002",
