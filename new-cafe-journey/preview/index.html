@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>New Café &amp; Franchisee Journey — Offline Preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;600;700&display=swap');
+:root{
+  --gold:#c8ae79; --gold-light:rgba(200,174,121,0.12);
+  --black:#1a1a1a; --white:#ffffff;
+  --grey-100:#f7f7f7; --grey-200:#ebebeb; --grey-300:#d4d4d4; --grey-500:#999999; --grey-700:#555555;
+  --green:#2e7d32; --green-bg:rgba(46,125,50,0.10);
+  --amber:#e65100; --amber-bg:rgba(230,81,0,0.10);
+  --red:#c62828; --red-bg:rgba(198,40,40,0.10);
+  --font:'Montserrat',Arial,sans-serif;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font);background:var(--grey-100);color:var(--black);min-height:100vh;font-size:13px}
+nav.topnav{background:var(--black);min-height:52px;position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-wrap:wrap}
+.brand{color:var(--white);font-weight:700;font-size:13px;letter-spacing:0.2em;text-transform:uppercase;white-space:nowrap;padding:14px 0}
+.brand span{color:var(--gold)}
+.topnav-right{display:flex;align-items:center;gap:14px;color:var(--grey-500);font-size:10px;letter-spacing:0.08em;text-transform:uppercase}
+.offline-pill{background:var(--gold);color:var(--black);font-weight:700;padding:3px 8px;border-radius:0;letter-spacing:0.08em}
+.container{max-width:1200px;width:100%;margin:0 auto;padding:28px 24px 80px}
+.page-header{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--gold);padding-bottom:14px;margin-bottom:24px;flex-wrap:wrap;gap:10px}
+.page-title{font-size:18px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em}
+.page-subtitle{font-size:11px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.06em;margin-top:4px}
+.card{background:var(--white);border:1px solid var(--grey-200);padding:20px 22px;margin-bottom:16px}
+.section-title{font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;margin-bottom:14px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:9px 16px;font-family:var(--font);font-size:11px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;cursor:pointer;border:none;border-radius:0}
+.btn.gold{background:var(--gold);color:var(--black)}
+.btn.gold:hover{background:#b89a63}
+.btn.ghost{background:transparent;color:var(--grey-700);border:1px solid var(--grey-300)}
+.btn.ghost:hover{border-color:var(--gold);color:var(--black)}
+.btn.small{padding:5px 10px;font-size:9px}
+.btn.danger{background:transparent;color:var(--red);border:1px solid var(--red-bg)}
+.badge{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;padding:3px 8px;border-radius:0;display:inline-block;white-space:nowrap}
+.badge.green{background:var(--green-bg);color:var(--green)}
+.badge.amber{background:var(--amber-bg);color:var(--amber)}
+.badge.red{background:var(--red-bg);color:var(--red)}
+.badge.grey{background:var(--grey-200);color:var(--grey-700)}
+.badge.gold{background:var(--gold-light);color:#8a7238}
+label{display:block;font-size:9px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;color:var(--grey-500);margin-bottom:4px}
+input,select,textarea{width:100%;font-family:var(--font);font-size:12px;padding:8px 10px;border:1px solid var(--grey-300);border-radius:0;background:var(--white);color:var(--black)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--gold)}
+.form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px}
+.field{margin-bottom:0}
+.cafe-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px}
+.cafe-card{background:var(--white);border:1px solid var(--grey-200);border-left:3px solid var(--gold);padding:16px 18px;cursor:pointer;transition:border-color .15s}
+.cafe-card:hover{border-left-color:var(--black)}
+.cafe-card h3{font-size:14px;font-weight:700;margin-bottom:4px}
+.cafe-meta{font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px}
+.progress{height:6px;background:var(--grey-200);border-radius:0;overflow:hidden;margin:8px 0 6px}
+.progress > div{height:100%;background:var(--gold)}
+.cafe-card-foot{display:flex;justify-content:space-between;align-items:center;font-size:10px;color:var(--grey-700);margin-top:8px}
+.back-link{background:none;border:none;color:var(--gold);font-family:var(--font);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;padding:0;margin-bottom:16px}
+.kpi-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));background:var(--white);border:1px solid var(--grey-200);margin-bottom:20px}
+.kpi-strip > div{padding:14px 18px;border-right:1px solid var(--grey-200)}
+.kpi-strip > div:last-child{border-right:none}
+.card-label{font-size:9px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:var(--grey-500);margin-bottom:6px}
+.card-value{font-size:22px;font-weight:700}
+.stage-tabs{display:flex;gap:2px;flex-wrap:wrap;margin-bottom:16px;border-bottom:1px solid var(--grey-200)}
+.stage-tab{background:none;border:none;border-bottom:2px solid transparent;font-family:var(--font);font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--grey-500);cursor:pointer;padding:10px 12px;white-space:nowrap}
+.stage-tab:hover{color:var(--black)}
+.stage-tab.active{color:var(--gold);border-bottom-color:var(--gold)}
+.stage-tab .dot{display:inline-block;width:6px;height:6px;border-radius:50%;margin-left:6px;vertical-align:middle}
+.stage-tab .dot.red{background:var(--red)}
+.stage-tab .dot.green{background:var(--green)}
+.stage-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.stage-role{font-size:11px;color:var(--grey-700);margin-bottom:14px;font-style:italic}
+.step{border:1px solid var(--grey-200);border-left:3px solid var(--grey-300);padding:12px 14px;margin-bottom:8px;background:var(--white)}
+.step.done{border-left-color:var(--green);background:var(--green-bg)}
+.step.overdue{border-left-color:var(--red);background:var(--red-bg)}
+.step.ref{border-left-color:var(--gold);background:var(--gold-light)}
+.step-top{display:flex;align-items:flex-start;gap:10px}
+.step-check{margin-top:2px}
+.step-check input{width:16px;height:16px;cursor:pointer}
+.step-body{flex:1;min-width:0}
+.step-title{font-size:12px;font-weight:600;line-height:1.35}
+.step-desc{font-size:11px;color:var(--grey-700);margin-top:4px;line-height:1.4}
+.step-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.step-dates{font-size:10px;color:var(--grey-500);text-transform:uppercase;letter-spacing:0.04em;white-space:nowrap;text-align:right}
+.step-dates b{color:var(--black)}
+.step-extra{margin-top:10px;padding-top:10px;border-top:1px dashed var(--grey-300);display:none}
+.step.editing .step-extra{display:block}
+.step-extra .form-grid{margin-bottom:8px}
+.muted{color:var(--grey-500)}
+.hidden{display:none!important}
+.empty{padding:40px;text-align:center;color:var(--grey-500);font-size:12px}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--black);color:var(--white);padding:10px 18px;font-size:11px;letter-spacing:0.05em;text-transform:uppercase;z-index:100;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+.note-line{font-size:10px;color:var(--grey-700);margin-top:6px}
+.overdue-banner{background:var(--red-bg);border:1px solid var(--red);color:var(--red);padding:10px 14px;margin-bottom:16px;font-size:11px;font-weight:600}
+details.addform{margin-bottom:20px}
+details.addform > summary{cursor:pointer;list-style:none;font-size:11px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:var(--gold);padding:6px 0}
+details.addform > summary::-webkit-details-marker{display:none}
+.disclaimer{font-size:10px;color:var(--grey-500);margin-top:24px;padding-top:12px;border-top:1px solid var(--grey-200);line-height:1.5}
+.offline-note{background:var(--gold-light);border:1px solid var(--gold);padding:10px 14px;margin-bottom:18px;font-size:11px;color:var(--grey-700);line-height:1.5}
+.offline-note b{color:var(--black)}
+.offline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <div class="brand">NEW CAFÉ <span>&amp;</span> FRANCHISEE JOURNEY</div>
+  <div class="topnav-right"><span class="offline-pill">OFFLINE PREVIEW</span><span id="nav-version">v1.0</span></div>
+</nav>
+
+<div class="container">
+  <div id="list-view">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Opening Pipeline</div>
+        <div class="page-subtitle">Sign-up → 4-week post-opening sign-off · 8-stage FSM workflow</div>
+      </div>
+      <div><span class="badge gold" id="cafe-count">0 cafés</span></div>
+    </div>
+
+    <div class="offline-note">
+      <b>This is a self-contained offline preview.</b> Nothing here is live or linked to any server — it runs entirely in your browser and remembers your changes on this computer only (browser local storage). Add cafés and tick steps to try it out. Use <b>Load demo café</b> to see a fully-seeded example, or <b>Reset preview</b> to clear everything.
+      <div class="offline-actions">
+        <button class="btn ghost small" onclick="loadDemo()">Load demo café</button>
+        <button class="btn ghost small" onclick="resetPreview()">Reset preview</button>
+      </div>
+    </div>
+
+    <div id="overdue-banner"></div>
+
+    <details class="addform" id="addform">
+      <summary>+ Add a new café</summary>
+      <div class="card">
+        <div class="section-title">New Café</div>
+        <div class="form-grid">
+          <div class="field"><label>Café name *</label><input id="f-name" placeholder="e.g. Walmer Park"></div>
+          <div class="field"><label>Region</label><input id="f-region" placeholder="e.g. EC"></div>
+          <div class="field"><label>Franchisee</label><input id="f-franchisee" placeholder="Franchisee name"></div>
+          <div class="field"><label>FSM</label><input id="f-fsm" placeholder="Assigned FSM"></div>
+          <div class="field"><label>Created / sign-up date *</label><input id="f-created" type="date"></div>
+          <div class="field"><label>Handover date</label><input id="f-handover" type="date"></div>
+          <div class="field"><label>Target open date</label><input id="f-open" type="date"></div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:8px">
+          <button class="btn gold" onclick="createCafe()">Create café &amp; generate journey</button>
+          <button class="btn ghost" onclick="document.getElementById('addform').open=false">Cancel</button>
+        </div>
+      </div>
+    </details>
+
+    <div id="cafe-grid" class="cafe-grid"></div>
+  </div>
+
+  <div id="detail-view" class="hidden">
+    <button class="back-link" onclick="showList()">← Back to pipeline</button>
+    <div class="page-header">
+      <div>
+        <div class="page-title" id="d-name"></div>
+        <div class="page-subtitle" id="d-meta"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost small" onclick="toggleEditCafe()">Edit dates</button>
+        <button class="btn danger small" onclick="deleteCafe()">Delete</button>
+      </div>
+    </div>
+
+    <div class="card hidden" id="edit-cafe-card">
+      <div class="section-title">Edit anchors &amp; details</div>
+      <div class="form-grid">
+        <div class="field"><label>Café name</label><input id="e-name"></div>
+        <div class="field"><label>Region</label><input id="e-region"></div>
+        <div class="field"><label>Franchisee</label><input id="e-franchisee"></div>
+        <div class="field"><label>FSM</label><input id="e-fsm"></div>
+        <div class="field"><label>Created / sign-up</label><input id="e-created" type="date"></div>
+        <div class="field"><label>Handover</label><input id="e-handover" type="date"></div>
+        <div class="field"><label>Open</label><input id="e-open" type="date"></div>
+        <div class="field"><label>Status</label><select id="e-status"><option value="active">Active</option><option value="completed">Completed</option></select></div>
+      </div>
+      <div style="margin-top:14px">
+        <button class="btn gold" onclick="saveCafe()">Save &amp; recompute planned dates</button>
+        <span class="muted" style="margin-left:10px;font-size:10px">Changing an anchor moves planned dates; confirmed dates are preserved.</span>
+      </div>
+    </div>
+
+    <div class="kpi-strip" id="d-kpis"></div>
+    <div class="stage-tabs" id="stage-tabs"></div>
+    <div id="stage-panel"></div>
+    <div class="disclaimer" id="content-disclaimer"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Embedded workflow templates (generated from src/stepTemplates.js — do not hand-edit) -->
+<script id="templates" type="application/json">{"templateVersion":"v1.0","escalationThresholds":{"cosPctMax":35,"cashVarianceRandPerDayMax":200,"labourPctMax":30},"stages":[{"id":"00","name":"Welcome & Orientation","fsmRole":"Onboard the franchisee and orient them to the journey.","concurrentWith":[],"referenceOnly":false},{"id":"01","name":"Recruitment & Opening Admin","fsmRole":"Drive all legal, financial, HR and recruitment admin to completion.","concurrentWith":["02"],"referenceOnly":false},{"id":"02","name":"Off-Site Training","fsmRole":"Ensure franchisee completes pre-opening off-site training.","concurrentWith":["01"],"referenceOnly":false},{"id":"03","name":"Ordering & Stock","fsmRole":"Compile and place the opening stock order.","concurrentWith":[],"referenceOnly":false},{"id":"04","name":"Site & Technology Setup","fsmRole":"Complete site handover, snag list and technology setup.","concurrentWith":[],"referenceOnly":false},{"id":"05","name":"7-Day On-Site Readiness","fsmRole":"Run the 7-day on-site training and readiness checklist.","concurrentWith":[],"referenceOnly":false},{"id":"06","name":"Opening Day","fsmRole":"Execute the opening day run-sheet.","concurrentWith":[],"referenceOnly":false},{"id":"07","name":"Post-Opening Operations","fsmRole":"Track first-fortnight trading and run 30/60/90 reviews to project sign-off.","concurrentWith":[],"referenceOnly":false},{"id":"08","name":"Reference & Standards","fsmRole":"Reference-only standards the store operates against.","concurrentWith":[],"referenceOnly":true}],"steps":[{"stageId":"00","key":"welcome-pack-issued","title":"Issue Franchisee Welcome Pack & Toolkit Navigator","description":"Send the Franchisee Welcome Pack and Franchise Toolkit Navigator to the new franchisee and walk them through how the opening journey works.","responsible":"FSM","sourceDoc":"Franchisee Welcome Pack / Franchise Toolkit Navigator","anchor":"created","offsetDays":0,"isReference":false,"sortOrder":0},{"stageId":"01","key":"fsm-anchors-confirmed","title":"Confirm caf\u00e9 anchor dates (created / handover / open) loaded","description":"Verify the created, handover and target open dates are captured so every planned milestone date computes correctly.","responsible":"FSM","sourceDoc":"Store Information Sheet","anchor":"created","offsetDays":0,"isReference":false,"sortOrder":1},{"stageId":"01","key":"fsm-kickoff-call","title":"Schedule & hold Stage 01 kick-off call with franchisee","description":"Introduce the opening journey, confirm the FSM as single point of contact, and set expectations for Stage 01 admin.","responsible":"FSM","sourceDoc":"FSM New Store Opening Guide","anchor":"created","offsetDays":2,"isReference":false,"sortOrder":2},{"stageId":"01","key":"fsm-issue-store-info-sheet","title":"Issue Store Information Sheet for completion","description":"Send the Store Information Sheet to the franchisee to capture entity, site, contact and banking details.","responsible":"FSM","sourceDoc":"Store Information Sheet","anchor":"created","offsetDays":3,"isReference":false,"sortOrder":3},{"stageId":"01","key":"fsm-issue-business-essentials","title":"Issue Business Essentials Checklist to franchisee & accountant","description":"Hand over the Business Essentials Checklist and confirm the franchisee has appointed an accountant and HR provider.","responsible":"FSM","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":3,"isReference":false,"sortOrder":4},{"stageId":"01","key":"fsm-confirm-recruitment-plan","title":"Confirm recruitment plan & staffing structure","description":"Agree the store staffing structure and number of roles with the franchisee using the Staff Recruitment Guide.","responsible":"FSM","sourceDoc":"Staff Recruitment Guide","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":5},{"stageId":"01","key":"fsm-weekly-checkin","title":"Weekly Stage 01 progress check-in with franchisee","description":"Recurring weekly review of Business Essentials + recruitment progress until Stage 01 is closed out.","responsible":"FSM","sourceDoc":"FSM New Store Opening Guide","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":6},{"stageId":"01","key":"fsm-escalate-blockers","title":"Escalate any Stage 01 blockers to Regional FM","description":"Flag outstanding legal/financial/HR items that put the opening date at risk to the Regional FM.","responsible":"FSM","sourceDoc":"FSM New Store Opening Guide","anchor":"handover","offsetDays":-7,"isReference":false,"sortOrder":7},{"stageId":"01","key":"fsm-stage01-signoff","title":"Stage 01 sign-off & gate to Stage 02 / 03","description":"Confirm all Business Essentials and recruitment items are complete (or approved exceptions logged) and unlock the next stages.","responsible":"FSM","sourceDoc":"FSM New Store Opening Guide","anchor":"handover","offsetDays":-3,"isReference":false,"sortOrder":8},{"stageId":"01","key":"recruit-define-structure","title":"Define staffing structure & role requirements","description":"Set out the required roles (baristas, FOH, BOH, shift leads, manager) and headcount per the Staff Recruitment Guide.","responsible":"Franchisee","sourceDoc":"Staff Recruitment Guide","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":9},{"stageId":"01","key":"recruit-advertise-source","title":"Advertise roles & source candidates","description":"Post vacancies and build a candidate pipeline for each open role.","responsible":"Franchisee","sourceDoc":"Staff Recruitment Guide","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":10},{"stageId":"01","key":"recruit-screen-interview","title":"Screen & interview candidates","description":"Shortlist, interview and reference-check candidates against role requirements.","responsible":"Franchisee","sourceDoc":"Staff Recruitment Guide","anchor":"created","offsetDays":21,"isReference":false,"sortOrder":11},{"stageId":"01","key":"recruit-offers-contracts","title":"Issue offers & employment contracts","description":"Make offers and issue compliant employment contracts via the HR provider.","responsible":"HR Provider","sourceDoc":"Staff Recruitment Guide","anchor":"handover","offsetDays":-14,"isReference":false,"sortOrder":12},{"stageId":"01","key":"recruit-confirm-roster","title":"Confirm final team roster & start dates","description":"Lock the opening team roster and confirm start dates aligned to off-site and on-site training.","responsible":"Franchisee","sourceDoc":"Staff Recruitment Guide","anchor":"handover","offsetDays":-7,"isReference":false,"sortOrder":13},{"stageId":"01","key":"be-cipc-registration","title":"Company / CC registered with CIPC","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":3,"isReference":false,"sortOrder":14},{"stageId":"01","key":"be-company-docs","title":"Company registration documents (CoR) filed","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":4,"isReference":false,"sortOrder":15},{"stageId":"01","key":"be-directors-ids","title":"Directors / members ID documents on file","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":4,"isReference":false,"sortOrder":16},{"stageId":"01","key":"be-shareholder-agreement","title":"Shareholder / members agreement in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":17},{"stageId":"01","key":"be-franchise-agreement-signed","title":"Franchise agreement signed & countersigned","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":5,"isReference":false,"sortOrder":18},{"stageId":"01","key":"be-lease-signed","title":"Premises lease agreement signed","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":19},{"stageId":"01","key":"be-income-tax-number","title":"Company income tax number registered (SARS)","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":20},{"stageId":"01","key":"be-vat-registration","title":"VAT registration completed (SARS)","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":10,"isReference":false,"sortOrder":21},{"stageId":"01","key":"be-paye-registration","title":"PAYE / UIF / SDL registered (SARS)","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":10,"isReference":false,"sortOrder":22},{"stageId":"01","key":"be-uif-dol","title":"UIF registered with Department of Labour","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":12,"isReference":false,"sortOrder":23},{"stageId":"01","key":"be-coida","title":"COIDA / Workmen\u2019s Compensation registered","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":24},{"stageId":"01","key":"be-tax-clearance","title":"Tax clearance / compliance status confirmed","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":25},{"stageId":"01","key":"be-business-bank-account","title":"Business bank account opened","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":7,"isReference":false,"sortOrder":26},{"stageId":"01","key":"be-merchant-account","title":"Card / merchant acquiring account set up","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":12,"isReference":false,"sortOrder":27},{"stageId":"01","key":"be-debit-order-mandates","title":"Debit-order mandates set up (royalties, marketing levy)","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":28},{"stageId":"01","key":"be-accounting-software","title":"Accounting / bookkeeping software configured","description":"Business Essentials Checklist item.","responsible":"Accountant","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":29},{"stageId":"01","key":"be-opening-float","title":"Opening cash float arranged","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-3,"isReference":false,"sortOrder":30},{"stageId":"01","key":"be-cash-management","title":"Cash management & banking procedure agreed","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-5,"isReference":false,"sortOrder":31},{"stageId":"01","key":"be-public-liability","title":"Public liability insurance in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":32},{"stageId":"01","key":"be-assets-insurance","title":"Assets / contents insurance in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":14,"isReference":false,"sortOrder":33},{"stageId":"01","key":"be-business-interruption","title":"Business interruption cover in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":16,"isReference":false,"sortOrder":34},{"stageId":"01","key":"be-employee-cover","title":"Employee / group cover arranged (where applicable)","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":35},{"stageId":"01","key":"be-business-licence","title":"Business / trading licence obtained (local municipality)","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":36},{"stageId":"01","key":"be-coa","title":"Certificate of Acceptability (food premises) obtained","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":20,"isReference":false,"sortOrder":37},{"stageId":"01","key":"be-health-inspection","title":"Environmental Health inspection passed","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-10,"isReference":false,"sortOrder":38},{"stageId":"01","key":"be-fire-clearance","title":"Fire clearance certificate obtained","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-10,"isReference":false,"sortOrder":39},{"stageId":"01","key":"be-signage-approval","title":"Signage approval obtained (landlord + municipality)","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":40},{"stageId":"01","key":"be-music-licence","title":"Music / SAMRO licence arranged","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":20,"isReference":false,"sortOrder":41},{"stageId":"01","key":"be-hr-provider-appointed","title":"HR / payroll provider appointed","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":5,"isReference":false,"sortOrder":42},{"stageId":"01","key":"be-payroll-setup","title":"Payroll system set up & pay dates confirmed","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":16,"isReference":false,"sortOrder":43},{"stageId":"01","key":"be-employment-contracts-template","title":"Compliant employment contract template in place","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":12,"isReference":false,"sortOrder":44},{"stageId":"01","key":"be-staff-policies","title":"Staff policies & code of conduct issued","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":45},{"stageId":"01","key":"be-bcea-compliance","title":"BCEA / sectoral determination compliance confirmed","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":46},{"stageId":"01","key":"be-staff-files","title":"Staff files & onboarding documents prepared","description":"Business Essentials Checklist item.","responsible":"HR Provider","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":47},{"stageId":"01","key":"be-supplier-accounts","title":"Approved supplier accounts opened","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":48},{"stageId":"01","key":"be-coffee-supply","title":"Coffee & core stock supply account confirmed","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":18,"isReference":false,"sortOrder":49},{"stageId":"01","key":"be-utilities-connected","title":"Utilities (electricity / water) accounts active","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":20,"isReference":false,"sortOrder":50},{"stageId":"01","key":"be-waste-removal","title":"Waste removal / refuse contract in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":20,"isReference":false,"sortOrder":51},{"stageId":"01","key":"be-pest-control","title":"Pest control contract in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":22,"isReference":false,"sortOrder":52},{"stageId":"01","key":"be-internet-connectivity","title":"Internet / connectivity installed & tested","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":53},{"stageId":"01","key":"be-telephone","title":"Store telephone / contact number active","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":54},{"stageId":"01","key":"be-pos-account","title":"POS system account requested & configured","description":"Business Essentials Checklist item.","responsible":"FSM","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-21,"isReference":false,"sortOrder":55},{"stageId":"01","key":"be-loyalty-setup","title":"Loyalty / app integration set up","description":"Business Essentials Checklist item.","responsible":"FSM","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":56},{"stageId":"01","key":"be-menu-pricing-loaded","title":"Menu & pricing loaded to POS","description":"Business Essentials Checklist item.","responsible":"FSM","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-10,"isReference":false,"sortOrder":57},{"stageId":"01","key":"be-uber-mrd-accounts","title":"UberEats / Mr D delivery accounts registered","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":58},{"stageId":"01","key":"be-google-listing","title":"Google Business listing created / claimed","description":"Business Essentials Checklist item.","responsible":"FSM","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":59},{"stageId":"01","key":"be-popia","title":"POPIA compliance basics in place","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"created","offsetDays":22,"isReference":false,"sortOrder":60},{"stageId":"01","key":"be-first-aid","title":"First-aid kit & OHS basics on site","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-10,"isReference":false,"sortOrder":61},{"stageId":"01","key":"be-emergency-contacts","title":"Emergency contacts & escalation list posted","description":"Business Essentials Checklist item.","responsible":"Franchisee","sourceDoc":"Business Essentials Checklist","anchor":"open","offsetDays":-7,"isReference":false,"sortOrder":62},{"stageId":"02","key":"offsite-training-signoff","title":"Complete Off-Site Training & Sign-Off","description":"Franchisee completes Pre-Opening Franchisee Business Training and off-site sign-off forms are captured.","responsible":"Franchisee","sourceDoc":"Off-Site Training Sign-Off Forms / Pre-Opening Franchisee Business Training","anchor":"open","offsetDays":-35,"isReference":false,"sortOrder":63},{"stageId":"03","key":"opening-order-placed","title":"Place Opening Order per Opening Order Guide","description":"Compile and place the opening stock order using the Opening Order Guide quantities.","responsible":"FSM","sourceDoc":"Opening Order Guide","anchor":"open","offsetDays":-14,"isReference":false,"sortOrder":64},{"stageId":"04","key":"site-handover-snag","title":"Site Handover & Snag List completed","description":"Complete site handover, walk the snag list and confirm technology setup per the guides.","responsible":"FSM","sourceDoc":"Site Handover & Snag List / Technology Setup Guide","anchor":"handover","offsetDays":0,"isReference":false,"sortOrder":65},{"stageId":"05","key":"seven-day-onsite-readiness","title":"7-Day On-Site Training & Readiness completed","description":"Run the 7-Day On-Site Training template (Day 1\u20137 checklist) targeting ~95\u2013100% completion per day.","responsible":"FSM","sourceDoc":"7-Day On-Site Training Template","anchor":"open","offsetDays":-7,"isReference":false,"sortOrder":66},{"stageId":"06","key":"opening-day-runsheet","title":"Opening Day Run-Sheet executed","description":"Work the Opening Day Run-Sheet end-to-end on trading open day.","responsible":"FSM","sourceDoc":"Opening Day Run-Sheet","anchor":"open","offsetDays":0,"isReference":false,"sortOrder":67},{"stageId":"07","key":"ten-day-trading-tracker","title":"10-Day Trading Tracker & Roster in use","description":"Maintain the 10-Day Trading Tracker and 10-Day Roster through the first trading fortnight.","responsible":"FSM","sourceDoc":"10-Day Trading Tracker / 10-Day Roster","anchor":"open","offsetDays":1,"isReference":false,"sortOrder":68},{"stageId":"07","key":"review-30day","title":"30-Day Review (30/60/90 framework)","description":"Complete the 30-day post-opening review per the 30/60/90-Day Review Framework.","responsible":"Regional FM","sourceDoc":"30/60/90-Day Review Framework / Post-Opening FSM Framework","anchor":"open","offsetDays":30,"isReference":false,"sortOrder":69},{"stageId":"07","key":"project-signoff-4wk","title":"Project sign-off & 4-week post-opening report","description":"Final project sign-off with the post-opening report & analysis (turnover, COS, labour, escalations).","responsible":"Regional FM","sourceDoc":"Post-Opening FSM Framework","anchor":"open","offsetDays":28,"isReference":false,"sortOrder":70},{"stageId":"08","key":"ref-brand-standards","title":"Brand Standards Guide","description":"Reference-only. Brand standards for the store to operate against.","responsible":"HQ","sourceDoc":"Brand Standards Guide","anchor":"open","offsetDays":0,"isReference":true,"sortOrder":71},{"stageId":"08","key":"ref-cos-benchmark","title":"COS Benchmark Reference","description":"Reference-only. Cost-of-sales benchmarks. Escalation thresholds: COS above 34\u201335%, cash variance over R200/day, labour above 30% \u2192 mandatory escalation to Regional FM.","responsible":"HQ","sourceDoc":"COS Benchmark Reference","anchor":"open","offsetDays":0,"isReference":true,"sortOrder":72}]}</script>
+
+<script>
+/* ============================================================
+   OFFLINE DATA LAYER
+   Mirrors the server's semantics (server.js) but runs entirely
+   in the browser against localStorage. The render code below is
+   identical to the live app — only api() is local.
+   ============================================================ */
+const TEMPLATES = JSON.parse(document.getElementById('templates').textContent);
+const LS_KEY = 'ncfj_offline_v1';
+
+function loadDB(){
+  try{ const d=JSON.parse(localStorage.getItem(LS_KEY)); if(d&&d.cafes) return d; }catch{}
+  return { cafes:[], steps:[], seq:1 };
+}
+function saveDB(db){ try{ localStorage.setItem(LS_KEY, JSON.stringify(db)); }catch(e){ /* private mode */ } }
+let DB = loadDB();
+
+/* --- date helpers (match server.js) --- */
+function toISODate(d){ if(!d) return null; const dt=(d instanceof Date)?d:new Date(d); if(isNaN(dt.getTime())) return null; return dt.toISOString().slice(0,10); }
+function addDays(iso,days){ if(!iso) return null; const dt=new Date(iso+'T00:00:00Z'); if(isNaN(dt.getTime())) return null; dt.setUTCDate(dt.getUTCDate()+(days||0)); return dt.toISOString().slice(0,10); }
+function todayISO(){ return new Date().toISOString().slice(0,10); }
+const ANCHOR_COL={created:'createdDate',handover:'handoverDate',open:'openDate'};
+function computePlannedDate(cafe,step){ const iso=toISODate(cafe[ANCHOR_COL[step.anchor]||'createdDate']); if(!iso) return null; return addDays(iso, step.offsetDays||0); }
+
+/* --- generation + serialization (match server.js) --- */
+function generateSteps(cafe){
+  TEMPLATES.steps.forEach(t=>{
+    if(DB.steps.some(s=>s.cafeId===cafe.id && s.stepKey===t.key)) return;
+    DB.steps.push({
+      id: DB.seq++, cafeId:cafe.id, stageId:t.stageId, stepKey:t.key, title:t.title,
+      description:t.description, responsible:t.responsible, sourceDoc:t.sourceDoc,
+      anchor:t.anchor, offsetDays:t.offsetDays, plannedDate:computePlannedDate(cafe,t),
+      actualDate:null, confirmedBy:null, attachmentUrl:null, notes:null, overrideReason:null,
+      isReference:t.isReference, sortOrder:t.sortOrder
+    });
+  });
+}
+function recomputePlanned(cafe){
+  DB.steps.filter(s=>s.cafeId===cafe.id).forEach(s=>{ s.plannedDate=computePlannedDate(cafe,{anchor:s.anchor,offsetDays:s.offsetDays}); });
+}
+function serializeStep(s){
+  const confirmed=!!s.actualDate;
+  const overdue=!s.isReference && !confirmed && s.plannedDate && s.plannedDate<todayISO();
+  return {...s, confirmed, overdue};
+}
+function summarize(steps){
+  const a=steps.filter(s=>!s.isReference); const total=a.length; const done=a.filter(s=>s.confirmed).length; const overdue=a.filter(s=>s.overdue).length;
+  return { total, done, overdue, pct: total?Math.round(done/total*100):0 };
+}
+function cafeSteps(cafeId){ return DB.steps.filter(s=>s.cafeId===cafeId).map(serializeStep).sort((a,b)=>{ const ap=a.plannedDate||'9999', bp=b.plannedDate||'9999'; return ap===bp ? a.sortOrder-b.sortOrder : ap.localeCompare(bp); }); }
+
+/* --- local api() router: same shapes as the live server --- */
+function api(method,path,body){
+  const m=(p)=>{ const mm=path.match(p); return mm?mm.slice(1):null; };
+  // GET /api/stages
+  if(method==='GET' && path==='/api/stages'){
+    return { templateVersion:TEMPLATES.templateVersion, escalationThresholds:TEMPLATES.escalationThresholds,
+      stages:TEMPLATES.stages.map(s=>({...s, stepCount:TEMPLATES.steps.filter(x=>x.stageId===s.id).length})) };
+  }
+  // GET /api/cafes
+  if(method==='GET' && path==='/api/cafes'){
+    return DB.cafes.slice().sort((a,b)=>b.id-a.id).map(c=>({...c, summary:summarize(cafeSteps(c.id))}));
+  }
+  // POST /api/cafes
+  if(method==='POST' && path==='/api/cafes'){
+    if(!body.name||!body.name.trim()) throw new Error('name is required');
+    const cafe={ id:DB.seq++, name:body.name.trim(), region:body.region||null, franchiseeName:body.franchiseeName||null,
+      fsm:body.fsm||null, createdDate:toISODate(body.createdDate)||todayISO(), handoverDate:toISODate(body.handoverDate),
+      openDate:toISODate(body.openDate), status:'active', templateVersion:TEMPLATES.templateVersion };
+    DB.cafes.push(cafe); generateSteps(cafe); saveDB(DB); return cafe;
+  }
+  // GET /api/cafes/:id
+  let mm=m(/^\/api\/cafes\/(\d+)$/);
+  if(method==='GET' && mm){
+    const cafe=DB.cafes.find(c=>c.id==mm[0]); if(!cafe) throw new Error('café not found');
+    const steps=cafeSteps(cafe.id);
+    const stages=TEMPLATES.stages.map(s=>{ const ss=steps.filter(x=>x.stageId===s.id); return {...s, summary:summarize(ss), steps:ss}; });
+    return { cafe, summary:summarize(steps), stages };
+  }
+  // PATCH /api/cafes/:id
+  if(method==='PATCH' && mm){
+    const cafe=DB.cafes.find(c=>c.id==mm[0]); if(!cafe) throw new Error('café not found');
+    if(body.name!==undefined) cafe.name=String(body.name).trim();
+    if(body.region!==undefined) cafe.region=body.region;
+    if(body.franchiseeName!==undefined) cafe.franchiseeName=body.franchiseeName;
+    if(body.fsm!==undefined) cafe.fsm=body.fsm;
+    if(body.createdDate!==undefined) cafe.createdDate=toISODate(body.createdDate)||cafe.createdDate;
+    if(body.handoverDate!==undefined) cafe.handoverDate=toISODate(body.handoverDate);
+    if(body.openDate!==undefined) cafe.openDate=toISODate(body.openDate);
+    if(body.status!==undefined) cafe.status=body.status;
+    recomputePlanned(cafe); saveDB(DB); return cafe;
+  }
+  // DELETE /api/cafes/:id
+  if(method==='DELETE' && mm){
+    DB.cafes=DB.cafes.filter(c=>c.id!=mm[0]); DB.steps=DB.steps.filter(s=>s.cafeId!=mm[0]); saveDB(DB); return {ok:true};
+  }
+  // PATCH /api/steps/:id
+  mm=m(/^\/api\/steps\/(\d+)$/);
+  if(method==='PATCH' && mm){
+    const s=DB.steps.find(x=>x.id==mm[0]); if(!s) throw new Error('step not found');
+    if(body.confirmed===true){ s.actualDate=toISODate(body.actualDate)||s.actualDate||todayISO(); s.confirmedBy=body.confirmedBy||s.confirmedBy||null; }
+    else if(body.confirmed===false){ s.actualDate=null; s.confirmedBy=null; }
+    else if(body.actualDate!==undefined){ s.actualDate=toISODate(body.actualDate); if(s.actualDate&&body.confirmedBy) s.confirmedBy=body.confirmedBy; }
+    if(body.notes!==undefined) s.notes=body.notes;
+    if(body.overrideReason!==undefined) s.overrideReason=body.overrideReason;
+    if(body.attachmentUrl!==undefined) s.attachmentUrl=body.attachmentUrl;
+    saveDB(DB); return serializeStep(s);
+  }
+  // GET /api/overdue
+  if(method==='GET' && path==='/api/overdue'){
+    const t=todayISO(); const out=[];
+    DB.cafes.filter(c=>c.status==='active').forEach(c=>{
+      DB.steps.filter(s=>s.cafeId===c.id && !s.isReference && !s.actualDate && s.plannedDate && s.plannedDate<t)
+        .forEach(s=>out.push({...serializeStep(s), cafeName:c.name, cafeFsm:c.fsm}));
+    });
+    return out.sort((a,b)=>(a.plannedDate||'').localeCompare(b.plannedDate||''));
+  }
+  throw new Error('unknown route '+method+' '+path);
+}
+
+/* ============================================================
+   UI (identical to the live app)
+   ============================================================ */
+let CAFES=[], CURRENT=null, ACTIVE_STAGE='01', STAGE_META=null;
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'),1800); }
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
+function fmtDate(iso){ if(!iso) return 'TBC'; const d=new Date(iso+'T00:00:00Z'); return d.toLocaleDateString('en-ZA',{day:'2-digit',month:'short',year:'2-digit',timeZone:'UTC'}); }
+
+function loadList(){ CAFES=api('GET','/api/cafes'); renderList(); loadOverdue(); }
+function renderList(){
+  document.getElementById('cafe-count').textContent = CAFES.length+' café'+(CAFES.length===1?'':'s');
+  const grid=document.getElementById('cafe-grid');
+  if(!CAFES.length){ grid.innerHTML='<div class="empty">No cafés yet. Add one above (or load the demo café) to generate its opening journey.</div>'; return; }
+  grid.innerHTML=CAFES.map(c=>{
+    const s=c.summary||{total:0,done:0,overdue:0,pct:0};
+    const statusBadge = c.status==='completed'?'<span class="badge green">Completed</span>' : (s.overdue>0?'<span class="badge red">'+s.overdue+' overdue</span>':'<span class="badge grey">Active</span>');
+    return `<div class="cafe-card" onclick="openCafe(${c.id})">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px"><h3>${esc(c.name)}</h3>${statusBadge}</div>
+      <div class="cafe-meta">${esc(c.region||'—')} · ${esc(c.fsm||'No FSM')}</div>
+      <div class="progress"><div style="width:${s.pct}%"></div></div>
+      <div class="cafe-card-foot"><span>${s.done}/${s.total} steps · ${s.pct}%</span><span>Open: ${fmtDate(c.openDate)}</span></div>
+    </div>`;
+  }).join('');
+}
+function loadOverdue(){
+  const od=api('GET','/api/overdue'); const b=document.getElementById('overdue-banner');
+  if(!od.length){ b.innerHTML=''; return; }
+  const byCafe={}; od.forEach(x=>{ byCafe[x.cafeName]=(byCafe[x.cafeName]||0)+1; });
+  const parts=Object.entries(byCafe).map(([n,c])=>`${esc(n)} (${c})`).join(', ');
+  b.innerHTML=`<div class="overdue-banner">⚠ ${od.length} overdue step${od.length===1?'':'s'} across active cafés — ${parts}</div>`;
+}
+function createCafe(){
+  const name=document.getElementById('f-name').value.trim();
+  if(!name){ toast('Café name is required'); return; }
+  const c=api('POST','/api/cafes',{ name, region:document.getElementById('f-region').value.trim(), franchiseeName:document.getElementById('f-franchisee').value.trim(), fsm:document.getElementById('f-fsm').value.trim(), createdDate:document.getElementById('f-created').value||null, handoverDate:document.getElementById('f-handover').value||null, openDate:document.getElementById('f-open').value||null });
+  toast('Café created — journey generated');
+  document.getElementById('addform').open=false;
+  ['f-name','f-region','f-franchisee','f-fsm','f-created','f-handover','f-open'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('f-created').value=todayISO();
+  loadList(); openCafe(c.id);
+}
+function openCafe(id){
+  CURRENT=api('GET','/api/cafes/'+id);
+  const firstWithSteps=(CURRENT.stages.find(s=>s.steps.length)||CURRENT.stages[0]);
+  ACTIVE_STAGE=firstWithSteps?firstWithSteps.id:'01';
+  document.getElementById('list-view').classList.add('hidden');
+  document.getElementById('detail-view').classList.remove('hidden');
+  document.getElementById('edit-cafe-card').classList.add('hidden');
+  renderDetail(); window.scrollTo(0,0);
+}
+function showList(){ document.getElementById('detail-view').classList.add('hidden'); document.getElementById('list-view').classList.remove('hidden'); loadList(); }
+function renderDetail(){
+  const c=CURRENT.cafe, s=CURRENT.summary;
+  document.getElementById('d-name').textContent=c.name;
+  document.getElementById('d-meta').textContent=`${c.region||'—'} · Franchisee: ${c.franchiseeName||'—'} · FSM: ${c.fsm||'—'} · ${c.status==='completed'?'COMPLETED':'ACTIVE'}`;
+  document.getElementById('d-kpis').innerHTML=`
+    <div><div class="card-label">Overall progress</div><div class="card-value">${s.pct}%</div></div>
+    <div><div class="card-label">Steps done</div><div class="card-value">${s.done}/${s.total}</div></div>
+    <div><div class="card-label">Overdue</div><div class="card-value" style="color:${s.overdue?'var(--red)':'inherit'}">${s.overdue}</div></div>
+    <div><div class="card-label">Created</div><div class="card-value" style="font-size:14px">${fmtDate(c.createdDate)}</div></div>
+    <div><div class="card-label">Handover</div><div class="card-value" style="font-size:14px">${fmtDate(c.handoverDate)}</div></div>
+    <div><div class="card-label">Open</div><div class="card-value" style="font-size:14px">${fmtDate(c.openDate)}</div></div>`;
+  document.getElementById('stage-tabs').innerHTML=CURRENT.stages.map(st=>{
+    const sm=st.summary; let dot='';
+    if(!st.referenceOnly){ if(sm.overdue>0) dot='<span class="dot red"></span>'; else if(sm.total>0&&sm.done===sm.total) dot='<span class="dot green"></span>'; }
+    return `<button class="stage-tab ${st.id===ACTIVE_STAGE?'active':''}" onclick="setStage('${st.id}')">${st.id} · ${esc(st.name)}${dot}</button>`;
+  }).join('');
+  renderStage();
+  document.getElementById('content-disclaimer').textContent='Stage 01 (Recruitment & Opening Admin) is fully populated from the FSM New Store Opening Guide. Stages 00 and 02–07 are placeholder stubs pending extraction of their source documents; Stage 08 is reference-only. Step wording should be validated against the live source documents.';
+}
+function setStage(id){ ACTIVE_STAGE=id; renderDetail(); }
+function renderStage(){
+  const st=CURRENT.stages.find(x=>x.id===ACTIVE_STAGE); const panel=document.getElementById('stage-panel');
+  if(!st){ panel.innerHTML=''; return; }
+  const sm=st.summary;
+  const concurrent = st.concurrentWith&&st.concurrentWith.length?` · runs concurrently with Stage ${st.concurrentWith.join(', ')}`:'';
+  let head=`<div class="card"><div class="stage-head">
+      <div><div class="section-title">Stage ${st.id} — ${esc(st.name)}</div><div class="stage-role">${esc(st.fsmRole||'')}${concurrent}</div></div>
+      <div>${st.referenceOnly?'<span class="badge gold">Reference only</span>':`<span class="badge ${sm.overdue?'red':(sm.done===sm.total&&sm.total?'green':'grey')}">${sm.done}/${sm.total} · ${sm.pct}%</span>`}</div>
+    </div>`;
+  if(!st.steps.length){ head+='<div class="empty">No steps yet — this stage is a stub pending source-document extraction.</div></div>'; panel.innerHTML=head; return; }
+  head+='</div>';
+  panel.innerHTML=head+st.steps.map(renderStepRow).join('');
+}
+function renderStepRow(step){
+  const cls=step.isReference?'ref':(step.confirmed?'done':(step.overdue?'overdue':''));
+  const respBadge=step.responsible?`<span class="badge grey">${esc(step.responsible)}</span>`:'';
+  const srcBadge=step.sourceDoc?`<span class="badge gold" title="Source document">${esc(step.sourceDoc)}</span>`:'';
+  const overdueBadge=step.overdue?'<span class="badge red">Overdue</span>':'';
+  const notesLine=step.notes?`<div class="note-line">📝 ${esc(step.notes)}</div>`:'';
+  const overrideLine=step.overrideReason?`<div class="note-line muted">Override: ${esc(step.overrideReason)}</div>`:'';
+  const confBy=step.confirmedBy?` by ${esc(step.confirmedBy)}`:'';
+  if(step.isReference){
+    return `<div class="step ref"><div class="step-top"><div class="step-body">
+      <div class="step-title">${esc(step.title)}</div><div class="step-desc">${esc(step.description||'')}</div>
+      <div class="step-tags">${srcBadge}<span class="badge gold">Reference</span></div></div></div></div>`;
+  }
+  return `<div class="step ${cls}" id="step-${step.id}">
+    <div class="step-top">
+      <div class="step-check"><input type="checkbox" ${step.confirmed?'checked':''} onchange="toggleStep(${step.id},this.checked)"></div>
+      <div class="step-body">
+        <div class="step-title">${esc(step.title)}</div>
+        <div class="step-desc">${esc(step.description||'')}</div>
+        <div class="step-tags">${respBadge}${srcBadge}${overdueBadge}<button class="btn ghost small" onclick="toggleEdit(${step.id})">Details</button></div>
+        ${notesLine}${overrideLine}
+      </div>
+      <div class="step-dates"><div>Planned: <b>${fmtDate(step.plannedDate)}</b></div><div class="${step.confirmed?'':'muted'}">Actual: <b>${step.confirmed?fmtDate(step.actualDate):'—'}</b>${confBy}</div></div>
+    </div>
+    <div class="step-extra">
+      <div class="form-grid">
+        <div class="field"><label>Actual / confirmed date</label><input type="date" id="ad-${step.id}" value="${step.actualDate||''}"></div>
+        <div class="field"><label>Confirmed by</label><input id="cb-${step.id}" value="${esc(step.confirmedBy||'')}" placeholder="Name"></div>
+        <div class="field"><label>Attachment URL (proof)</label><input id="au-${step.id}" value="${esc(step.attachmentUrl||'')}" placeholder="https://…"></div>
+      </div>
+      <div class="field" style="margin-bottom:8px"><label>Notes</label><textarea id="nt-${step.id}" rows="2">${esc(step.notes||'')}</textarea></div>
+      <div class="field" style="margin-bottom:8px"><label>Override reason (if actual differs from planned)</label><input id="or-${step.id}" value="${esc(step.overrideReason||'')}"></div>
+      <button class="btn gold small" onclick="saveStep(${step.id})">Save step</button>
+    </div>
+  </div>`;
+}
+function toggleEdit(id){ document.getElementById('step-'+id).classList.toggle('editing'); }
+function toggleStep(id,checked){ api('PATCH','/api/steps/'+id, checked?{confirmed:true}:{confirmed:false}); refreshCurrent(); toast(checked?'Step confirmed':'Step un-confirmed'); }
+function saveStep(id){
+  const body={ actualDate:document.getElementById('ad-'+id).value||null, confirmedBy:document.getElementById('cb-'+id).value.trim()||null, attachmentUrl:document.getElementById('au-'+id).value.trim()||null, notes:document.getElementById('nt-'+id).value.trim()||null, overrideReason:document.getElementById('or-'+id).value.trim()||null };
+  if(body.actualDate) body.confirmed=true;
+  api('PATCH','/api/steps/'+id,body); refreshCurrent(); toast('Step saved');
+}
+function refreshCurrent(){ if(!CURRENT) return; CURRENT=api('GET','/api/cafes/'+CURRENT.cafe.id); renderDetail(); }
+function toggleEditCafe(){
+  const card=document.getElementById('edit-cafe-card'); card.classList.toggle('hidden');
+  if(!card.classList.contains('hidden')){ const c=CURRENT.cafe;
+    document.getElementById('e-name').value=c.name||''; document.getElementById('e-region').value=c.region||'';
+    document.getElementById('e-franchisee').value=c.franchiseeName||''; document.getElementById('e-fsm').value=c.fsm||'';
+    document.getElementById('e-created').value=c.createdDate||''; document.getElementById('e-handover').value=c.handoverDate||'';
+    document.getElementById('e-open').value=c.openDate||''; document.getElementById('e-status').value=c.status||'active'; }
+}
+function saveCafe(){
+  api('PATCH','/api/cafes/'+CURRENT.cafe.id,{ name:document.getElementById('e-name').value.trim(), region:document.getElementById('e-region').value.trim(), franchiseeName:document.getElementById('e-franchisee').value.trim(), fsm:document.getElementById('e-fsm').value.trim(), createdDate:document.getElementById('e-created').value||null, handoverDate:document.getElementById('e-handover').value||null, openDate:document.getElementById('e-open').value||null, status:document.getElementById('e-status').value });
+  document.getElementById('edit-cafe-card').classList.add('hidden'); refreshCurrent(); toast('Saved — planned dates recomputed');
+}
+function deleteCafe(){ if(!confirm('Delete this café and its entire journey?')) return; api('DELETE','/api/cafes/'+CURRENT.cafe.id); toast('Café deleted'); showList(); }
+
+/* --- offline-only helpers --- */
+function loadDemo(){
+  // a seeded café with realistic dates + a chunk of Stage 01 confirmed
+  const c=api('POST','/api/cafes',{ name:'Walmer Park (demo)', region:'EC', franchiseeName:'J. Nkosi', fsm:'Charlene', createdDate:addDays(todayISO(),-120), handoverDate:addDays(todayISO(),-20), openDate:addDays(todayISO(),1) });
+  const det=api('GET','/api/cafes/'+c.id); const s01=det.stages.find(s=>s.id==='01');
+  s01.steps.slice(0,16).forEach(st=>api('PATCH','/api/steps/'+st.id,{confirmed:true,confirmedBy:'Charlene'}));
+  toast('Demo café loaded'); loadList(); openCafe(c.id);
+}
+function resetPreview(){ if(!confirm('Clear all preview cafés and start fresh?')) return; DB={cafes:[],steps:[],seq:1}; saveDB(DB); showList(); toast('Preview reset'); }
+
+/* boot */
+(function(){
+  STAGE_META=api('GET','/api/stages');
+  document.getElementById('nav-version').textContent=STAGE_META.templateVersion;
+  document.getElementById('f-created').value=todayISO();
+  loadList();
+})();
+</script>
+</body>
+</html>
