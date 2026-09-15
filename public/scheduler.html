@@ -1124,7 +1124,7 @@ function exportCombinedSummaryPdf() {
     const stats = franchiseeVisitStats(f);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
-    const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
+    const confirmed = confirmedVisitsForFranchisee(f);
     const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       if (!stats.managerKey) return false;
@@ -1861,23 +1861,42 @@ function franchiseeManagerKey(franchisee) {
   return null;
 }
 function franchiseeVisitStats(franchisee) {
-  const mgrKey = franchiseeManagerKey(franchisee);
-  if (!mgrKey) return { managerKey: null, scheduledDays: [] };
-  const plan = getEffectivePlan(mgrKey, MANAGER_LABEL, MANAGER_COMBINED_PLANS[mgrKey]);
+  const homeKey = franchiseeManagerKey(franchisee);
   const marker = '🤝 ' + franchisee.name + ' (at ';
-  const scheduledDays = [];
-  plan.forEach((names, absDay) => { if (names.some(n => n.startsWith(marker))) scheduledDays.push(absDay); });
-  return { managerKey: mgrKey, scheduledDays };
+  const dayset = new Set();
+  // A franchisee check-in can be scheduled under EITHER manager's plan — for
+  // example Franlo scheduling a meeting for a franchisee whose café sits in
+  // Tarryn's region — so scan BOTH managers' combined plans, not just the
+  // franchisee's home region, or a cross-region meeting silently won't pull.
+  Object.keys(REGION_GROUPS).forEach(mgrKey => {
+    const plan = getEffectivePlan(mgrKey, MANAGER_LABEL, MANAGER_COMBINED_PLANS[mgrKey]);
+    plan.forEach((names, absDay) => { if (names.some(n => n.startsWith(marker))) dayset.add(absDay); });
+  });
+  // Fold in the actual slot of every confirmed check-in too (under either
+  // manager), so a confirmed meeting still counts as scheduled even if the
+  // rotation has since moved past it — same protection the café stats use.
+  confirmedVisitsForFranchisee(franchisee).forEach(c => {
+    const d = slotToAbsDay(c.scheduledSlot); if (d !== null) dayset.add(d);
+  });
+  const scheduledDays = Array.from(dayset).sort((a, b) => a - b);
+  return { managerKey: homeKey, scheduledDays };
 }
+// Confirmed check-ins for a franchisee. With no managerKey given, searches
+// BOTH managers' logs (a cross-region meeting can be confirmed under either).
 function confirmedVisitsForFranchisee(franchisee, managerKey) {
-  const prefix = managerKey + '|' + MANAGER_LABEL + '|';
   const marker = '🤝 ' + franchisee.name + ' (at ';
-  return Object.entries(CONFIRM_LOG)
-    .filter(([k]) => k.startsWith(prefix) && k.split('|').slice(3).join('|').startsWith(marker))
-    .map(([k, v]) => {
+  const mgrKeys = managerKey ? [managerKey] : Object.keys(REGION_GROUPS);
+  const out = [];
+  mgrKeys.forEach(mk => {
+    const prefix = mk + '|' + MANAGER_LABEL + '|';
+    Object.entries(CONFIRM_LOG).forEach(([k, v]) => {
+      if (!k.startsWith(prefix)) return;
+      if (!k.split('|').slice(3).join('|').startsWith(marker)) return;
       const slot = k.split('|')[2];
-      return Object.assign({}, v, { scheduledDate: slotToDate(slot) });
+      out.push(Object.assign({}, v, { scheduledSlot: slot, scheduledDate: slotToDate(slot) }));
     });
+  });
+  return out;
 }
 // Same rule as cafés: a franchisee is at risk only when there is NOTHING
 // scheduled and nothing confirmed for the whole cycle (fiscal quarter). A
@@ -1955,7 +1974,7 @@ function renderFrTable() {
     const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of period
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
-    const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
+    const confirmed = confirmedVisitsForFranchisee(f);
     const confirmedThisMonth = confirmed.filter(c => isThisQuarter(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       if (!stats.managerKey) return false;
