@@ -1041,6 +1041,8 @@ let DIR_SEARCH = '';
 let DIR_EXPANDED = null;
 let DIR_PERIOD = 'quarter'; // 'month' or 'quarter' — default to the fiscal quarter (the visit cycle)
 let DIR_STATUS_FILTER = ''; // '', 'ontrack', 'atrisk', 'outofcycle'
+let DIR_PRINT_TABLE_HTML = ''; // full per-café table built each render, for the PDF export
+let FR_PRINT_TABLE_HTML = '';  // full per-franchisee table built each render, for the PDF export
 let OS_REGION = 'all'; // 'all' | 'Franlo' | 'Tarryn'
 let OS_MONTH = new Date().getMonth();
 let OS_YEAR = new Date().getFullYear();
@@ -1446,15 +1448,18 @@ function renderOpeningSupportTab() {
 // past/future, confirmed = confirmed visits this month). Global scope —
 // used by both the Weekly tab's Monthly Dashboard and the Café
 // Directory's combined-regions figure.
-function monthlyStatsFor(mgrKey) {
-  const monthStart = currentMonthStart(), monthEnd = currentMonthEnd();
+function monthlyStatsFor(mgrKey, period) {
+  const useQuarter = period === 'quarter';
+  const monthStart = useQuarter ? currentQuarterStart() : currentMonthStart();
+  const monthEnd = useQuarter ? currentQuarterEnd() : currentMonthEnd();
+  const inPeriod = useQuarter ? isThisQuarter : isThisMonth;
   const mgrSites = SITES.filter(s => s.manager === mgrKey && !isCafeNotYetOpen(s));
   let scheduled = 0, confirmed = 0, rescheduled = 0;
   mgrSites.forEach(site => {
     const stats = cafeVisitStats(site);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const confirmedThisMonth = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
-      .filter(c => isThisMonth(c.scheduledDate));
+      .filter(c => inPeriod(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
@@ -1946,7 +1951,8 @@ function renderFranchiseeTab() {
   document.getElementById('frExportPdfBtn').addEventListener('click', () => {
     const kpiHtml = document.getElementById('frKpiStrip').outerHTML;
     const filterLabel = FR_FILTER_MANAGER ? (FR_FILTER_MANAGER === 'Franlo' ? "Franlo's Team" : "Tarryn's Team") : 'All Regions';
-    exportToPdf('Franchisee Directory — Summary', filterLabel, kpiHtml);
+    const qLbl = `This Quarter (${currentQuarterStart().toLocaleDateString('en-ZA',{month:'short'})}–${currentQuarterEnd().toLocaleDateString('en-ZA',{month:'short'})} ${currentQuarterEnd().getFullYear()})`;
+    exportToPdf('Franchisee Directory', `${qLbl} · ${filterLabel}`, kpiHtml + FR_PRINT_TABLE_HTML);
   });
   document.getElementById('frSearch').addEventListener('input', (e) => { FR_SEARCH = e.target.value; renderFrTable(); });
   document.getElementById('frSelect').addEventListener('change', (e) => {
@@ -2000,9 +2006,9 @@ function renderFrTable() {
   });
 
   document.getElementById('frKpiStrip').innerHTML = `
-    <div><div class="card-label">Scheduled (${selectedMonthLabel()})</div><div class="card-value">${kpiScheduled}</div></div>
-    <div><div class="card-label">Confirmed (${selectedMonthLabel()})</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
-    <div><div class="card-label">Rescheduled (${selectedMonthLabel()})</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
+    <div><div class="card-label">Scheduled (This Quarter)</div><div class="card-value">${kpiScheduled}</div></div>
+    <div><div class="card-label">Confirmed (This Quarter)</div><div class="card-value" style="color:var(--green);">${kpiConfirmed}</div></div>
+    <div><div class="card-label">Rescheduled (This Quarter)</div><div class="card-value" style="color:var(--amber);">${kpiRescheduled}</div></div>
     <div><div class="card-label">At Risk of Missing Cycle</div><div class="card-value" style="color:var(--red);">${kpiAtRisk}</div></div>
     <div><div class="card-label">Completion %</div><div class="card-value" style="color:${kpiScheduled ? (kpiConfirmed/kpiScheduled >= 0.8 ? 'var(--green)' : kpiConfirmed/kpiScheduled >= 0.5 ? 'var(--gold)' : 'var(--red)') : 'var(--grey-500)'};">${kpiScheduled ? Math.round((kpiConfirmed/kpiScheduled)*100) + '%' : '—'}</div></div>
   `;
@@ -2022,6 +2028,36 @@ function renderFrTable() {
     const detailRow = FR_EXPANDED === f.id ? `<tr><td colspan="7" style="padding:0;background:var(--grey-100);">${buildFrExpandedHtml(f, stats)}</td></tr>` : '';
     return row + detailRow;
   }).join('') || '<tr><td colspan="7" class="empty-state">No franchisees match this filter.</td></tr>';
+
+  // Full per-franchisee table for the PDF export — check-in status + scheduled
+  // count. Inline styles + print-color-adjust so the highlighting prints.
+  FR_PRINT_TABLE_HTML = `
+    <div style="font-size:13px;font-weight:700;margin:18px 0 6px;">Franchisee Check-in Status — Full List (${rows.length})</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+      <thead><tr style="background:#1a1a1a;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+        <th style="text-align:left;padding:6px 8px;">Franchisee</th>
+        <th style="text-align:left;padding:6px 8px;">Café(s)</th>
+        <th style="text-align:left;padding:6px 8px;">Region</th>
+        <th style="text-align:center;padding:6px 8px;">Scheduled (This Quarter)</th>
+        <th style="text-align:center;padding:6px 8px;">Confirmed</th>
+        <th style="text-align:left;padding:6px 8px;">Next Check-in</th>
+        <th style="text-align:left;padding:6px 8px;">Status</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(({ f, stats, scheduledThisMonth, confirmedThisMonth, nextDay, atRisk }) => {
+          const cafeNames = f.sites.map(id => { const s = SITES.find(x => x.id === id); return s ? s.name : id; }).join(', ');
+          return `<tr style="background:${atRisk ? '#fdecea' : '#ffffff'};-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;font-weight:600;">${f.name}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${cafeNames}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${stats.managerKey || '—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:700;">${scheduledThisMonth.length}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;">${confirmedThisMonth.length}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;font-weight:700;color:${atRisk ? '#c62828' : '#2e7d32'};">${atRisk ? 'AT RISK' : 'ON TRACK'}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 
   document.querySelectorAll('#frTableBody tr[data-franchisee]').forEach(row => {
     row.addEventListener('click', () => {
@@ -2256,11 +2292,15 @@ function selectedMonthLabel() {
 // NOT calendar-year quarters. currentQuarterStart/End give the bounds of
 // whichever fiscal quarter today falls in.
 function currentQuarterStart() {
-  const now = new Date();
+  // Follow the reporting-month selector (SELECTED_REPORT_MONTH) so the quarter
+  // view tracks whatever period the user picked — same as currentMonthStart —
+  // instead of always snapping to today's quarter.
+  let now;
+  if (SELECTED_REPORT_MONTH) { const [y, m] = SELECTED_REPORT_MONTH.split('-').map(Number); now = new Date(y, m - 1, 1); }
+  else now = new Date();
   const fiscalMonthIndex = (now.getMonth() + 10) % 12; // shift so March = 0
   const quarterStartMonth = now.getMonth() - (fiscalMonthIndex % 3);
-  const d = new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0);
-  return d;
+  return new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0);
 }
 function currentQuarterEnd() {
   const start = currentQuarterStart();
@@ -2368,7 +2408,7 @@ function renderDirectoryTab() {
     const combinedHtml = document.getElementById('dirCombinedRegion').outerHTML;
     const periodLabel = DIR_PERIOD === 'quarter' ? `This Quarter (${qLabel})` : selectedMonthLabel();
     const filterLabel = DIR_FILTER_MANAGER ? (DIR_FILTER_MANAGER === 'Franlo' ? "Franlo's Team" : "Tarryn's Team") : 'All Regions';
-    exportToPdf('Café Directory — Summary', `${periodLabel} · ${filterLabel}`, kpiHtml + combinedHtml);
+    exportToPdf('Café Directory', `${periodLabel} · ${filterLabel}`, kpiHtml + combinedHtml + DIR_PRINT_TABLE_HTML);
   });
   document.getElementById('dirFsmFilter').addEventListener('change', (e) => { DIR_FILTER_FSM = e.target.value; renderDirTable(); });
   document.getElementById('dirStatusFilter').addEventListener('change', (e) => { DIR_STATUS_FILTER = e.target.value; renderDirTable(); });
@@ -2452,14 +2492,17 @@ function renderDirTable() {
   // filter is currently applied above, always reflecting the full
   // national picture for the month, per Franlo's request that this sit
   // in the same view as the matrix rather than the weekly tab.
-  const combinedFranlo = monthlyStatsFor('Franlo');
-  const combinedTarryn = monthlyStatsFor('Tarryn');
+  const combinedPeriodLabel = DIR_PERIOD === 'quarter'
+    ? `This Quarter (${currentQuarterStart().toLocaleDateString('en-ZA',{month:'short'})}–${currentQuarterEnd().toLocaleDateString('en-ZA',{month:'short'})} ${currentQuarterEnd().getFullYear()})`
+    : selectedMonthLabel();
+  const combinedFranlo = monthlyStatsFor('Franlo', DIR_PERIOD);
+  const combinedTarryn = monthlyStatsFor('Tarryn', DIR_PERIOD);
   const combinedScheduled = combinedFranlo.scheduled + combinedTarryn.scheduled;
   const combinedConfirmed = combinedFranlo.confirmed + combinedTarryn.confirmed;
   const combinedPct = combinedScheduled ? Math.round((combinedConfirmed / combinedScheduled) * 100) : null;
   document.getElementById('dirCombinedRegion').innerHTML = `
     <div class="card" style="padding:10px 16px;display:flex;align-items:center;gap:16px;border-left:3px solid var(--black);">
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — ${selectedMonthLabel()}</div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--grey-500);">Both Regions Combined — ${combinedPeriodLabel}</div>
       <div style="font-size:20px;font-weight:700;color:${combinedPct===null ? 'var(--grey-500)' : combinedPct>=80 ? 'var(--green)' : combinedPct>=50 ? 'var(--gold)' : 'var(--red)'};">${combinedPct===null?'—':combinedPct+'%'}</div>
       <div style="font-size:11px;color:var(--grey-500);">${combinedConfirmed} confirmed of ${combinedScheduled} scheduled (Franlo: ${combinedFranlo.confirmed}/${combinedFranlo.scheduled} · Tarryn: ${combinedTarryn.confirmed}/${combinedTarryn.scheduled})</div>
     </div>
@@ -2482,6 +2525,41 @@ function renderDirTable() {
     const detailRow = String(DIR_EXPANDED) === String(site.id) ? `<tr><td colspan="7" style="padding:0;background:var(--grey-100);">${buildDirExpandedHtml(site, stats)}</td></tr>` : '';
     return row + detailRow;
   }).join('') || '<tr><td colspan="7" class="empty-state">No cafés match this filter.</td></tr>';
+
+  // Full per-café table for the PDF export — every café in the current filter
+  // with its scheduled count and colour-coded visit status. Inline styles +
+  // print-color-adjust so the status highlighting actually prints.
+  const periodColLabel = DIR_PERIOD === 'quarter' ? 'This Quarter' : 'This Month';
+  DIR_PRINT_TABLE_HTML = `
+    <div style="font-size:13px;font-weight:700;margin:18px 0 6px;">Café Visit Status — Full List (${statusFilteredRows.length} cafés)</div>
+    <table style="width:100%;border-collapse:collapse;font-size:11px;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+      <thead><tr style="background:#1a1a1a;color:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+        <th style="text-align:left;padding:6px 8px;">Café</th>
+        <th style="text-align:left;padding:6px 8px;">Region</th>
+        <th style="text-align:left;padding:6px 8px;">Support / FSM</th>
+        <th style="text-align:center;padding:6px 8px;">Scheduled (${periodColLabel})</th>
+        <th style="text-align:center;padding:6px 8px;">Confirmed</th>
+        <th style="text-align:left;padding:6px 8px;">Next Visit</th>
+        <th style="text-align:left;padding:6px 8px;">Status</th>
+      </tr></thead>
+      <tbody>
+        ${statusFilteredRows.map(({ site, stats, scheduledThisMonth, confirmedThisMonth, nextDay, atRisk, outOfCycle }) => {
+          const bg = outOfCycle ? '#ffcdd2' : atRisk ? '#fdecea' : '#ffffff';
+          const statusText = outOfCycle ? 'OUT OF CYCLE' : atRisk ? 'AT RISK' : 'ON TRACK';
+          const statusColor = outOfCycle ? '#b71c1c' : atRisk ? '#c62828' : '#2e7d32';
+          return `<tr style="background:${bg};-webkit-print-color-adjust:exact;print-color-adjust:exact;">
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;font-weight:600;">${site.name}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${site.region}${site.outlying ? ' (outlying)' : ''}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${stats.personLabel ? displayLabel(stats.managerKey, stats.personLabel) : '—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;font-weight:700;">${scheduledThisMonth.length}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:center;">${confirmedThisMonth.length}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;">${nextDay !== null ? fmtShort(absDayToDate(nextDay)) : '—'}</td>
+            <td style="padding:5px 8px;border-bottom:1px solid #eee;font-weight:700;color:${statusColor};">${statusText}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+    <div style="font-size:10px;color:#888;margin-top:8px;">On Track = has a scheduled or confirmed visit this ${DIR_PERIOD==='quarter'?'quarter':'month'} · At Risk = outlying café with nothing booked · Out of Cycle = non-outlying café with nothing booked${unopenedExcludedCount ? ` · ${unopenedExcludedCount} not-yet-open café(s) excluded` : ''}</div>`;
 
   document.querySelectorAll('#dirTableBody tr[data-site]').forEach(row => {
     row.addEventListener('click', () => {
