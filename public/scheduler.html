@@ -1869,8 +1869,17 @@ function franchiseeVisitStats(franchisee) {
   // Tarryn's region — so scan BOTH managers' combined plans, not just the
   // franchisee's home region, or a cross-region meeting silently won't pull.
   Object.keys(REGION_GROUPS).forEach(mgrKey => {
-    const plan = getEffectivePlan(mgrKey, MANAGER_LABEL, MANAGER_COMBINED_PLANS[mgrKey]);
-    plan.forEach((names, absDay) => { if (names.some(n => n.startsWith(marker))) dayset.add(absDay); });
+    const raw = MANAGER_COMBINED_PLANS[mgrKey];
+    // Scan BOTH the raw deterministic rotation AND the override-merged plan.
+    // The raw rotation guarantees each franchisee's quarterly check-in is
+    // counted even when an unrelated confirm/edit on the SAME day wrote an
+    // override that replaced that day's entries — which would otherwise erase
+    // the franchisee marker and wrongly flag them At Risk (a franchisee has
+    // only ~one visit a quarter, so losing one zeroes them out). The effective
+    // plan adds any manual check-ins scheduled on top.
+    const eff = getEffectivePlan(mgrKey, MANAGER_LABEL, raw);
+    raw.forEach((names, absDay) => { if (names.some(n => n.startsWith(marker))) dayset.add(absDay); });
+    eff.forEach((names, absDay) => { if (names.some(n => n.startsWith(marker))) dayset.add(absDay); });
   });
   // Fold in the actual slot of every confirmed check-in too (under either
   // manager), so a confirmed meeting still counts as scheduled even if the
