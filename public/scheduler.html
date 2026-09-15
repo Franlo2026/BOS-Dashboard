@@ -2026,7 +2026,7 @@ function renderFrTable() {
 
 function buildFrExpandedHtml(f, stats) {
   const nowAbsDay = nowAbsDayIndex();
-  const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
+  const confirmed = confirmedVisitsForFranchisee(f);
   const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay).slice(0, 10);
   const cafeNames = f.sites.map(id => { const s = SITES.find(x => x.id === id); return s ? s.name : id; }).join(', ');
   return `
