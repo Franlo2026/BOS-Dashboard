@@ -1085,6 +1085,54 @@ function buildLetterheadEmailHtml({ cafeName, attentionName, subjectTitle, bodyH
     </div>`;
 }
 
+// Email clients — Outlook especially — do NOT render <img src="/uploads/…">
+// (a site-relative URL means nothing in an inbox) or <img src="data:…base64">
+// (Outlook strips data URIs), which is why visit-report / task photos showed
+// as broken placeholders. The reliable cross-client fix is to attach each
+// referenced image to the message as an INLINE attachment and point the <img>
+// at it via a cid: reference. This turns remote/relative/data images into
+// bytes that travel with the mail, so they render without the recipient having
+// to "download pictures" and regardless of the client.
+const EMAIL_IMG_EXT_CT = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' };
+const EMAIL_INLINE_BUDGET = 3300000; // total base64 bytes to inline; keeps the Graph sendMail JSON under its ~4MB limit
+function inlineEmailImages(html) {
+  const attachments = [];
+  const cidBySrc = new Map();
+  let budgetUsed = 0, seq = 0;
+  const out = html.replace(/(<img\b[^>]*?\ssrc=)("|')(.*?)\2/gi, (full, pre, quote, src) => {
+    if (!src || src.startsWith('cid:')) return full;
+    if (cidBySrc.has(src)) return pre + quote + 'cid:' + cidBySrc.get(src) + quote;
+    let buf, contentType, baseName;
+    try {
+      if (src.startsWith('data:')) {
+        const m = src.match(/^data:([^;]+);base64,(.+)$/);
+        if (!m) return full;
+        contentType = m[1]; buf = Buffer.from(m[2], 'base64');
+        baseName = 'image.' + ((contentType.split('/')[1] || 'jpg'));
+      } else if (src.includes('/uploads/')) {
+        const rel = src.slice(src.indexOf('/uploads/') + '/uploads/'.length).split('?')[0];
+        buf = fs.readFileSync(path.join(UPLOAD_DIR, rel));
+        baseName = path.basename(rel);
+        contentType = EMAIL_IMG_EXT_CT[(baseName.split('.').pop() || '').toLowerCase()] || 'image/jpeg';
+      } else {
+        return full; // genuine external URL — leave untouched
+      }
+    } catch (e) { return full; } // unreadable file — leave the src as-is rather than breaking the send
+    const b64 = buf.toString('base64');
+    if (budgetUsed + b64.length > EMAIL_INLINE_BUDGET) return full; // over budget — don't risk exceeding Graph's message cap
+    budgetUsed += b64.length;
+    const cid = 'bosimg' + (++seq) + '@bos.dashboard';
+    cidBySrc.set(src, cid);
+    attachments.push({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: baseName || ('image' + seq + '.jpg'),
+      contentType, contentId: cid, isInline: true, contentBytes: b64,
+    });
+    return pre + quote + 'cid:' + cid + quote;
+  });
+  return { html: out, attachments };
+}
+
 async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   if (!EMAIL_CONFIGURED) {
     console.warn('sendEmail() called but Microsoft 365 email is not configured yet — set MS_TENANT_ID, MS_CLIENT_ID, MS_CLIENT_SECRET, MS_SENDER_EMAIL on Railway.');
@@ -1103,13 +1151,15 @@ async function sendEmail({ to, cc, subject, html, throwOnError = false }) {
   if (!toList.length) return { ok: false, error: 'No recipients to send to' };
   try {
     const token = await getGraphAccessToken();
+    // Turn relative /uploads and data: images into inline (cid) attachments so
+    // they render in every client, Outlook included.
+    const { html: bodyHtml, attachments } = inlineEmailImages(actualHtml);
+    const message = { subject: actualSubject, body: { contentType: 'HTML', content: bodyHtml }, toRecipients: toList, ccRecipients: ccList };
+    if (attachments.length) message.attachments = attachments;
     const res = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(MS_SENDER_EMAIL)}/sendMail`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        message: { subject: actualSubject, body: { contentType: 'HTML', content: actualHtml }, toRecipients: toList, ccRecipients: ccList },
-        saveToSentItems: true,
-      }),
+      body: JSON.stringify({ message, saveToSentItems: true }),
     });
     if (!res.ok) {
       const errBody = await res.text();
