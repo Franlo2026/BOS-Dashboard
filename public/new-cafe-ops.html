@@ -1119,19 +1119,37 @@ function viewPipeline(){
   // "Clara Anna").
   function newCafeBBetterFor(storeName){
     const norm = (s) => (s||'').toLowerCase().replace(/[^a-z0-9]/g,'');
-    const target = norm(storeName);
-    // 1) Admin's B.Better Training upload (bos-upload-data-bbetter) — same
-    // data Cafe Status/Regional Report use. Field names differ (completion/
-    // members/avgProgress vs this section's avgCompletion/onboardedMembers/
-    // onboardedPct) so map them across.
-    const adminKey = Object.keys(adminBBetterData).find(k => norm(k) === target);
+    // A "loose" key drops café-format / branding noise and word order, so a
+    // BOS café name and its Beeline group name still resolve to each other
+    // when they differ only by that noise — e.g. "Delta Central" ↔ "Delta
+    // Central XS", "Sandkraal XS" ↔ "Sandkraal", "Alzu Rayton Pod" ↔ "Rayton
+    // Alzu Pod", "Total Beacon Bay" ↔ "TEMSA Beacon Bay". A loose match is
+    // ONLY accepted when it resolves to exactly ONE group, so genuinely
+    // different sites that share a loose key ("Paarl Mall" vs "TEMSA Paarl
+    // Mall") are never merged — the exact match below already handles those.
+    const NOISE = new Set(['xs','kiosk','pod','store','mall','centre','center','temsa','total','pp','spar','the','cafe','café','shopping']);
+    const loose = (s) => (s||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(t => t && !NOISE.has(t)).sort().join('');
+    const target = norm(storeName), targetLoose = loose(storeName);
+    const findKey = (data) => {
+      let key = Object.keys(data).find(k => norm(k) === target);        // 1) exact (normalised)
+      if (!key && targetLoose) {                                        // 2) unique loose match
+        const hits = Object.keys(data).filter(k => loose(k) === targetLoose);
+        if (hits.length === 1) key = hits[0];
+      }
+      return key;
+    };
+    // Admin's B.Better Training upload (bos-upload-data-bbetter) — same data
+    // Cafe Status/Regional Report use. Field names differ (completion/members/
+    // avgProgress vs this section's avgCompletion/onboardedMembers/onboardedPct)
+    // so map them across.
+    const adminKey = findKey(adminBBetterData);
     if (adminKey) {
       const a = adminBBetterData[adminKey];
       return { avgCompletion: a.completion, onboardedMembers: a.members, onboardedPct: a.avgProgress, uploadedAt: '', source: 'admin' };
     }
-    // 2) Fall back to this app's own upload, for a café Admin doesn't have yet.
+    // Fall back to this app's own upload, for a café Admin doesn't have yet.
     if (newCafeBBetter[storeName]) return Object.assign({ source:'legacy' }, newCafeBBetter[storeName]);
-    const matchKey = Object.keys(newCafeBBetter).find(k => norm(k) === target);
+    const matchKey = findKey(newCafeBBetter);
     return matchKey ? Object.assign({ source:'legacy' }, newCafeBBetter[matchKey]) : null;
   }
   // Expects the Beeline "Groups Report" .xlsx export as-is: Name, Average
