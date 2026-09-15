@@ -1039,7 +1039,7 @@ let DIR_FILTER_MANAGER = '';
 let DIR_FILTER_FSM = '';
 let DIR_SEARCH = '';
 let DIR_EXPANDED = null;
-let DIR_PERIOD = 'month'; // 'month' or 'quarter'
+let DIR_PERIOD = 'quarter'; // 'month' or 'quarter' — default to the fiscal quarter (the visit cycle)
 let DIR_STATUS_FILTER = ''; // '', 'ontrack', 'atrisk', 'outofcycle'
 let OS_REGION = 'all'; // 'all' | 'Franlo' | 'Tarryn'
 let OS_MONTH = new Date().getMonth();
@@ -1098,8 +1098,8 @@ function exportCombinedSummaryPdf() {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
-    const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
-    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    const outOfCycle = confirmedThisMonth.length === 0 && isOutOfCycle(site, scheduledThisMonth.length);
+    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, scheduledThisMonth.length);
     cafeScheduled += scheduledThisMonth.length; cafeConfirmed += confirmedThisMonth.length; cafeRescheduled += rescheduledThisMonth.length;
     if (atRisk) cafeAtRisk++; if (outOfCycle) cafeOutOfCycle++;
   });
@@ -1131,7 +1131,7 @@ function exportCombinedSummaryPdf() {
       const entries = getCellEntriesByAbsDay(stats.managerKey, MANAGER_LABEL, d, MANAGER_COMBINED_PLANS[stats.managerKey]);
       return entries.some(e => e.text.startsWith('🤝 ' + f.name + ' (at ') && e.status === 'rescheduled');
     });
-    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, scheduledThisMonth.length);
     frScheduled += scheduledThisMonth.length; frConfirmed += confirmedThisMonth.length; frRescheduled += rescheduledThisMonth.length;
     if (atRisk) frAtRisk++;
   });
@@ -1879,11 +1879,11 @@ function confirmedVisitsForFranchisee(franchisee, managerKey) {
       return Object.assign({}, v, { scheduledDate: slotToDate(slot) });
     });
 }
-// Same month-anchored logic as the café directory's isAtRisk() — at risk
-// means no confirmed visit yet this month AND no remaining scheduled
-// visit left this month to still get it done.
-function isFranchiseeAtRisk(confirmedThisMonthCount, remainingScheduledThisMonthCount) {
-  return confirmedThisMonthCount === 0 && remainingScheduledThisMonthCount === 0;
+// Same rule as cafés: a franchisee is at risk only when there is NOTHING
+// scheduled and nothing confirmed for the whole cycle (fiscal quarter). A
+// scheduled-but-unconfirmed check-in counts as on track.
+function isFranchiseeAtRisk(confirmedThisPeriodCount, scheduledThisPeriodCount) {
+  return confirmedThisPeriodCount === 0 && scheduledThisPeriodCount === 0;
 }
 
 function renderFranchiseeTab() {
@@ -1909,7 +1909,7 @@ function renderFranchiseeTab() {
     </div>
     <div class="card" style="padding:0;">
       <table class="data-table">
-        <thead><tr><th>Franchisee</th><th>Café(s)</th><th>Region</th><th>Scheduled (this month)</th><th>Confirmed / Actual</th><th>Next Check-in</th><th>Status</th></tr></thead>
+        <thead><tr><th>Franchisee</th><th>Café(s)</th><th>Region</th><th>Scheduled (this quarter)</th><th>Confirmed / Actual</th><th>Next Check-in</th><th>Status</th></tr></thead>
         <tbody id="frTableBody"></tbody>
       </table>
     </div>
@@ -1943,23 +1943,26 @@ function renderFrTable() {
   franchisees.sort((a, b) => a.name.localeCompare(b.name));
 
   const nowAbsDay = nowAbsDayIndex();
-  const monthStart = currentMonthStart();
-  const monthEnd = currentMonthEnd();
+  // Franchisee check-ins run on a ~quarterly cadence, so the cycle here is the
+  // fiscal quarter (Q3 = Sep–Nov) — not a single month, which would wrongly
+  // flag a franchisee scheduled later in the same quarter.
+  const monthStart = currentQuarterStart();
+  const monthEnd = currentQuarterEnd();
 
   let kpiScheduled = 0, kpiConfirmed = 0, kpiRescheduled = 0, kpiAtRisk = 0;
   const rows = franchisees.map(f => {
     const stats = franchiseeVisitStats(f);
-    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of month
+    const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay); // for "Next Visit" — genuinely upcoming, regardless of period
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
     const confirmed = confirmedVisitsForFranchisee(f, stats.managerKey);
-    const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
+    const confirmedThisMonth = confirmed.filter(c => isThisQuarter(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       if (!stats.managerKey) return false;
       const entries = getCellEntriesByAbsDay(stats.managerKey, MANAGER_LABEL, d, MANAGER_COMBINED_PLANS[stats.managerKey]);
       return entries.some(e => e.text.startsWith('🤝 ' + f.name + ' (at ') && e.status === 'rescheduled');
     });
-    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    const atRisk = isFranchiseeAtRisk(confirmedThisMonth.length, scheduledThisMonth.length);
     kpiScheduled += scheduledThisMonth.length;
     kpiConfirmed += confirmedThisMonth.length;
     kpiRescheduled += rescheduledThisMonth.length;
@@ -2239,15 +2242,15 @@ function isThisQuarter(date) {
   const start = currentQuarterStart(), end = currentQuarterEnd();
   return date >= start && date <= end;
 }
-// A café is "at risk" if it has NOT been confirmed-visited this month AND
-// has no scheduled visit remaining this month to still get it done.
-// Deliberately anchored to actual monthly confirmation status (not a
-// forward-looking cadence check) — a café with a confirmed visit already
-// this month is on track regardless of when its NEXT visit is scheduled,
-// and a café with zero confirmed visits is at risk even if a future visit
-// is scheduled next month, since that doesn't help this month's cycle.
-function isAtRisk(confirmedThisMonthCount, remainingScheduledThisMonthCount) {
-  return confirmedThisMonthCount === 0 && remainingScheduledThisMonthCount === 0;
+// A café is "at risk" only if it has NOTHING on the books for the cycle —
+// i.e. no scheduled visit AND no confirmed visit anywhere in the current
+// period (the fiscal quarter, by default). A visit that is merely SCHEDULED
+// — even if it is still unconfirmed, or its date has already passed — means
+// the café is being managed and counts as on track. This makes the directory
+// surface exactly the cafés that have fallen through the cracks (nothing
+// planned for the whole quarter), which is what "at risk" is meant to flag.
+function isAtRisk(confirmedThisPeriodCount, scheduledThisPeriodCount) {
+  return confirmedThisPeriodCount === 0 && scheduledThisPeriodCount === 0;
 }
 // A non-outlying café should get a scheduled visit every single month —
 // if it has ZERO scheduled days for the current period at all (not just
@@ -2397,8 +2400,8 @@ function renderDirTable() {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
       return entries.some(e => e.text === site.name && e.status === 'rescheduled');
     });
-    const outOfCycle = isOutOfCycle(site, scheduledThisMonth.length);
-    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, remainingScheduledThisMonth.length);
+    const outOfCycle = confirmedThisMonth.length === 0 && isOutOfCycle(site, scheduledThisMonth.length);
+    const atRisk = !outOfCycle && isAtRisk(confirmedThisMonth.length, scheduledThisMonth.length);
     kpiScheduled += scheduledThisMonth.length;
     kpiConfirmed += confirmedThisMonth.length;
     kpiRescheduled += rescheduledThisMonth.length;
