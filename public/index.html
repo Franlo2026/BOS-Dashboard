@@ -3588,7 +3588,7 @@ const UPLOAD_TYPES = [
     note:'Each row becomes a real audit entry via the same endpoint the LTL tab\'s own upload uses — repeat audits for the same café keep only the most recent one.' },
   { key:'bbetter', label:'B.Better Training', accept:'.xlsx,.xls', ready:true,
     desc:'The Beeline "Groups" export, as-is (Group, Classification, Location kind, Completion %, Members, Avg progress %, FSM, Region, Store Type, ...).',
-    note:'Only rows where Classification="Location" and Location kind="SITE" are used — everything else in that export (roles, the network-wide container row) is skipped automatically.' },
+    note:'Only café rows (Classification="Location") are used — role groups and the province / network-wide container rows are skipped automatically. New cafés are included even if their Location kind isn’t set yet.' },
   { key:'flow', label:'Flow (Recipe & Cleaning)', accept:'.csv,.xlsx,.xls', ready:true,
     desc:'The KeyTech Flow monthly report, as-is (site_name, shot_count, met_recipe_percent, bean_usage_kg, cleaning_score_percent, ...).',
     note:'This is a single month\'s snapshot, not MTD-vs-previous — whatever was previously "current" automatically becomes "previous month" when a new upload lands, so month-over-month still shows correctly.' },
@@ -3790,14 +3790,24 @@ function parseTurnoverUploadRows(rows){
 
 // The real Beeline export is a "Groups" report — most rows are NOT cafés
 // (container rows like "All Locations", role-based groups like "All-Rounder").
-// A real per-café row has Classification=='Location' and Location kind=='SITE'.
+// Every actual café is Classification=='Location'; the geography containers
+// (provinces / country / "All Locations") are ALSO Classification=='Location',
+// so we exclude those by name. We used to additionally require Location
+// kind=='SITE', but newer café groups don't always carry that value, which
+// silently dropped brand-new cafés (e.g. Springbok XS) from the upload — so
+// the SITE check is gone and the name-based container exclusion does the work.
+const BBETTER_CONTAINER_GROUPS = new Set([
+  'all locations','western cape','eastern cape','northern cape','gauteng',
+  'free state','kwazulu-natal','kwazulu natal','kzn','limpopo','mpumalanga',
+  'north west','namibia','demo - checklist group',
+]);
 function parseBBetterUploadRows(rows){
   const BB_DATA_NEW = {};
   rows.forEach(r => {
     if (String(r['Classification']||'').trim() !== 'Location') return;
-    if (String(r['Location kind']||'').trim() !== 'SITE') return;
     const name = String(r['Group']||'').trim();
     if (!name) return;
+    if (BBETTER_CONTAINER_GROUPS.has(name.toLowerCase())) return; // geography/aggregate container, not a café
     BB_DATA_NEW[name] = {
       completion: Number(r['Completion %']) || 0,
       members: Number(r['Members']) || 0,
@@ -4024,7 +4034,7 @@ async function handleDataUpload(key, file){
       const rows = await readWorkbookRows(file, { sheetMatch: 'group' });
       if (!rows.length) { toast('No rows found in that file'); return; }
       const parsed = parseBBetterUploadRows(rows);
-      if (!Object.keys(parsed).length) { toast('No café-level rows found — expected Classification="Location" and Location kind="SITE" columns from the Beeline Groups report'); return; }
+      if (!Object.keys(parsed).length) { toast('No café-level rows found — expected the Beeline Groups report with a Classification="Location" column'); return; }
       mutateReplace(BB_DATA, parsed);
       await fetch('/api/storage/bos-upload-data-bbetter', { method:'POST', headers:Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ value: JSON.stringify(parsed) }) });
       meta.rows = Object.keys(parsed).length;
