@@ -2095,6 +2095,13 @@ function viewPipeline(){
         <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${t.avgWeek ? `Avg. week ${Math.max(1,Math.round(t.avgWeek))} of 4` : 'No trainees started yet'}</div>
       </div>`;
     const ncBB = newCafeBBetterFor(s.name);
+    // Diagnostic for the empty state — turns a blank "no data" into the actual
+    // reason: no upload yet vs café-not-in-the-upload vs a name that's present
+    // but under a different spelling.
+    const bbAdminKeys = Object.keys(adminBBetterData);
+    const bbNoise = new Set(['xs','kiosk','pod','store','stores','mall','centre','center','temsa','total','pp','spar','the','cafe','café','shopping','gables','village','square','corner','park']);
+    const bbToks = (s.name||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(t => t && !bbNoise.has(t));
+    const bbNear = bbAdminKeys.filter(k => { const kl = k.toLowerCase(); return bbToks.some(t => kl.includes(t)); }).slice(0, 6);
     const bbetterHtml = ncBB ? `
       <div style="margin-bottom:10px;">
         <div style="display:flex;justify-content:space-between;font-size:11px;"><span>Completion</span><b>${Math.round(ncBB.avgCompletion)}%</b></div>
@@ -2107,7 +2114,14 @@ function viewPipeline(){
         ${progressBar(ncBB.onboardedPct, 'var(--gold)')}
         <div style="font-size:10px;color:var(--grey-500);margin-top:2px;">${ncBB.onboardedMembers} member(s) onboarded</div>
       </div>`
-      : `<div class="empty-state" style="padding:20px 10px;font-size:11px;">No B.Better data found for this store in Admin → Data Uploads → B.Better Training.<br>Upload a Groups Report there (or via the button above, as a fallback) to populate this section.</div>`;
+      : `<div class="empty-state" style="padding:16px 12px;font-size:11px;text-align:left;">
+          <div><b>No B.Better data matched for ${escTC(s.name)}.</b></div>
+          ${bbAdminKeys.length
+            ? `<div style="margin-top:6px;">The latest Admin B.Better upload holds <b>${bbAdminKeys.length}</b> café row(s)${bbNear.length ? `. Closest by name: <b>${bbNear.map(escTC).join(', ')}</b> — if one of those is this café, its Beeline group name differs from the café name here.` : `, but none whose name contains “${escTC(bbToks[0]||s.name)}” — this café isn’t in that upload.`}</div>
+               <div style="margin-top:6px;color:var(--grey-500);">For a brand-new café: hard-refresh the main BOS dashboard (Ctrl/Cmd+Shift+R) so the latest upload parser loads, then re-upload the Beeline Groups Report in Admin → Data Uploads → B.Better Training. The report must include this café’s Beeline group.</div>`
+            : `<div style="margin-top:6px;color:var(--grey-500);">No Admin B.Better upload found yet. Upload the Beeline Groups Report in Admin → Data Uploads → B.Better Training (or via the button above, as a fallback).</div>`
+          }
+        </div>`;
     const selectedSupport = supportAllocations[s.name] || [];
     const unselectedSupport = OT_PEOPLE_LIST.filter(m => !selectedSupport.includes(m));
     const supportChipsHtml = `<div id="supportSelectedList">
