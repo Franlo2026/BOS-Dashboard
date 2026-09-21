@@ -1094,7 +1094,7 @@ function exportCombinedSummaryPdf() {
     const stats = cafeVisitStats(site);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
-    const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
+    const confirmed = confirmedVisitsForSiteAny(site);
     const confirmedThisMonth = confirmed.filter(c => isThisMonth(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
@@ -1458,7 +1458,7 @@ function monthlyStatsFor(mgrKey, period) {
   mgrSites.forEach(site => {
     const stats = cafeVisitStats(site);
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= monthStart && dt <= monthEnd; });
-    const confirmedThisMonth = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+    const confirmedThisMonth = confirmedVisitsForSiteAny(site)
       .filter(c => inPeriod(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
@@ -2156,7 +2156,7 @@ function cafeVisitStats(site) {
       // shouldn't be able to make a real, confirmed visit vanish from
       // "scheduled" and get miscounted as "out of cycle" or push confirmed
       // above scheduled.
-      const confirmedDays = visitors.flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+      const confirmedDays = confirmedVisitsForSiteAny(site)
         .map(c => slotToAbsDay(c.scheduledSlot))
         .filter(d => d !== null);
       const allDays = Array.from(new Set([...scheduledDays, ...managerDays, ...supportDays, ...confirmedDays])).sort((a, b) => a - b);
@@ -2175,7 +2175,7 @@ function cafeVisitStats(site) {
     const managerDays = [];
     managerPlan.forEach((names, absDay) => { if (names.includes(site.name)) managerDays.push(absDay); });
     const visitors = [{ managerKey: mgrKey, personLabel: MANAGER_LABEL }];
-    const confirmedDays = visitors.flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+    const confirmedDays = confirmedVisitsForSiteAny(site)
       .map(c => slotToAbsDay(c.scheduledSlot))
       .filter(d => d !== null);
     const allDays = Array.from(new Set([...managerDays, ...confirmedDays])).sort((a, b) => a - b);
@@ -2243,6 +2243,29 @@ function confirmedVisitsForSite(site, managerKey, personLabel) {
     .filter(([k]) => k.startsWith(prefix) && k.endsWith('|' + site.name))
     .map(([k, v]) => {
       const slot = k.slice(prefix.length, k.length - ('|' + site.name).length);
+      return Object.assign({}, v, { scheduledDate: slotToDate(slot), scheduledSlot: slot });
+    });
+}
+// Manager-agnostic version: count EVERY confirmed visit for this café, no
+// matter which manager/person row logged it. Since Franlo can now schedule
+// and confirm visits to cafés that sit in Tarryn's region (cross-region
+// support, added when Franlo got national selectability), a confirmation's
+// CONFIRM_LOG key is prefixed with whichever manager actually did the
+// confirming — which may NOT be the café's home manager. The per-visitor
+// confirmedVisitsForSite above only ever scans the home manager's roster,
+// so those cross-manager September confirmations were silently dropped and
+// a café that HAD been visited still showed as unconfirmed / at risk. This
+// is the café-directory analog of the both-manager franchisee fix. Matching
+// purely on the "…|<cafeName>" suffix (the "|" delimiter rules out café
+// names that are substrings of each other) pulls every real confirmation
+// through, and because CONFIRM_LOG keys are unique there is no double count.
+function confirmedVisitsForSiteAny(site) {
+  const suffix = '|' + site.name;
+  return Object.entries(CONFIRM_LOG)
+    .filter(([k]) => k.endsWith(suffix) && k.length > suffix.length)
+    .map(([k, v]) => {
+      const head = k.slice(0, k.length - suffix.length); // managerKey|personLabel|slot
+      const slot = head.slice(head.lastIndexOf('|') + 1);
       return Object.assign({}, v, { scheduledDate: slotToDate(slot), scheduledSlot: slot });
     });
 }
@@ -2462,7 +2485,7 @@ function renderDirTable() {
     // counting visits still in the future.
     const scheduledThisMonth = stats.scheduledDays.filter(d => { const dt = absDayToDate(d); return dt >= periodStart && dt <= periodEnd; });
     const remainingScheduledThisMonth = scheduledThisMonth.filter(d => d >= nowAbsDay);
-    const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel));
+    const confirmed = confirmedVisitsForSiteAny(site);
     const confirmedThisMonth = confirmed.filter(c => isThisPeriod(c.scheduledDate));
     const rescheduledThisMonth = scheduledThisMonth.filter(d => {
       const entries = (stats.managerKey && stats.personLabel) ? getCellEntriesByAbsDay(stats.managerKey, stats.personLabel, d, ROSTER[stats.managerKey].find(p=>p.label===stats.personLabel).plan) : [];
@@ -2595,7 +2618,7 @@ function renderDirTable() {
 
 function buildDirExpandedHtml(site, stats) {
   const nowAbsDay = nowAbsDayIndex();
-  const confirmed = (stats.visitors || []).flatMap(v => confirmedVisitsForSite(site, v.managerKey, v.personLabel))
+  const confirmed = confirmedVisitsForSiteAny(site)
     .sort((a, b) => new Date(b.confirmedAt) - new Date(a.confirmedAt));
   const upcoming = stats.scheduledDays.filter(d => d >= nowAbsDay).slice(0, 10);
 
