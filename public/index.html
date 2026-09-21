@@ -1772,6 +1772,7 @@ function viewDashboard(){
   renderAttention();
 }
 let DASH_DRILLDOWN = null; // which KPI card is currently expanded
+let SERVICING_DRILL = null; // last-rendered servicing drilldown payload, for the PDF export
 
 function renderKpiStrip(){
   const k = scopedKPIs(DASH_SCOPE, getDateRange('dashboard'));
@@ -1945,12 +1946,19 @@ function renderDrilldown(){
       return targets.map(store => {
         const sd = store ? getServiceScheduleData(store) : getServiceScheduleData(storeName);
         const fsm = store ? store.fsm : (stores.find(r => r.store === storeName) || {}).fsm;
-        return { store: storeName, fsm, sd };
+        return { store: storeName, storeObj: store, fsm, sd };
       });
     }).filter(r => r.sd && r.sd.next_service && r.sd.next_service.slice(0,7) <= asOfDate.slice(0,7))
       .sort((a,b) => a.sd.next_service.localeCompare(b.sd.next_service));
-    rows = outOfCycle.map(r => `<tr><td>${r.store}</td><td>${r.fsm}</td><td class="rag-text red">${r.sd.next_service}</td></tr>`);
-    var head = '<tr><th>Store</th><th>FSM</th><th>Next Service Was Due</th></tr>';
+    // Stash for the "Print / Save PDF" export below — the same list the
+    // table shows, so the PDF always matches exactly what's on screen.
+    SERVICING_DRILL = { asOf: asOfDate, items: outOfCycle.map(r => ({ store: r.store, fsm: r.fsm || '', next: r.sd.next_service })) };
+    rows = outOfCycle.map(r => {
+      const key = escapeHtmlVR2(serviceScheduleKeyFor(r.storeObj, r.store));
+      return `<tr><td>${r.store}</td><td>${r.fsm || ''}</td><td class="rag-text red">${r.sd.next_service}</td>`
+        + `<td class="no-print"><button class="btn btn-outline btn-mini markServicedBtn" data-key="${key}">Mark as Serviced</button></td></tr>`;
+    });
+    var head = '<tr><th>Store</th><th>FSM</th><th>Next Service Was Due</th><th class="no-print">Action</th></tr>';
   } else if (metric === 'google' || metric === 'mysteryDiner') {
     const field = metric === 'google' ? 'google' : 'mysteryDiner';
     const thresh = THRESH[metric];
@@ -1964,11 +1972,62 @@ function renderDrilldown(){
     var head = `<tr><th>Store</th><th>FSM</th><th>Score (${cspiMon || 'latest CSPI upload'})</th></tr>`;
   }
 
+  const servicingPrintBtn = (metric === 'servicing' && rows.length)
+    ? `<button class="btn btn-outline btn-mini no-print" id="servicingPrintPdf" style="float:right;">🖨 Print / Save PDF</button>` : '';
   el.innerHTML = `
     <div class="card" style="margin-top:12px;">
-      <div class="section-title">${title} <span style="color:var(--grey-500);font-weight:400;">(${rows.length})</span></div>
+      <div class="section-title">${servicingPrintBtn}${title} <span style="color:var(--grey-500);font-weight:400;">(${rows.length})</span></div>
       ${rows.length ? `<table class="data-table"><thead>${head}</thead><tbody>${rows.join('')}</tbody></table>` : '<div class="empty-state">Nothing flagged here right now.</div>'}
     </div>`;
+  if (metric === 'servicing') {
+    // "Mark as Serviced" — identical behaviour to the Café Status button:
+    // opens the same date modal, writes the same SERVICE_SCHEDULE_OVERRIDES,
+    // and re-renders (the store drops off this list once its next service
+    // moves 4 months out).
+    el.querySelectorAll('.markServicedBtn').forEach(btn =>
+      btn.addEventListener('click', () => openServiceDateModal(btn.dataset.key)));
+    const pb = document.getElementById('servicingPrintPdf');
+    if (pb) pb.addEventListener('click', printServicingDrilldown);
+  }
+}
+// Opens a clean, letterhead-style print window for the coffee-equipment
+// servicing drilldown and triggers the browser's Save-as-PDF/print dialog —
+// same window.open + print pattern used elsewhere in BOS.
+function printServicingDrilldown(){
+  if (!SERVICING_DRILL || !SERVICING_DRILL.items.length) { toast('Nothing to print'); return; }
+  const logoEl = document.getElementById('bootlegger-logo-data');
+  const logo = logoEl ? ('data:image/jpeg;base64,' + logoEl.textContent.trim()) : '';
+  const asOfLabel = new Date(SERVICING_DRILL.asOf + 'T00:00:00').toLocaleDateString('en-ZA', { day:'numeric', month:'long', year:'numeric' });
+  const scopeLabel = (typeof DASH_SCOPE === 'string' && DASH_SCOPE && DASH_SCOPE !== 'all') ? DASH_SCOPE : 'All Regions';
+  const rowsHtml = SERVICING_DRILL.items.map((r,i) => `<tr style="background:${i%2?'#faf7f0':'#fff'};">
+      <td style="padding:7px 10px;border-bottom:1px solid #e8dcc0;">${escapeHtmlVR2(r.store)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e8dcc0;">${escapeHtmlVR2(r.fsm)}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #e8dcc0;color:#c62828;font-weight:700;">${escapeHtmlVR2(r.next)}</td>
+    </tr>`).join('');
+  const html = `<div style="font-family:-apple-system,'Segoe UI','Helvetica Neue',sans-serif;max-width:820px;margin:0 auto;color:#1a1a1a;">
+    <div style="display:flex;align-items:center;gap:14px;border-bottom:3px solid #1a1a1a;padding-bottom:12px;margin-bottom:16px;">
+      ${logo ? `<img src="${logo}" style="height:46px;">` : ''}
+      <div>
+        <div style="font-size:19px;font-weight:800;">Coffee Equipment Servicing — Out of Cycle</div>
+        <div style="font-size:12px;color:#8f733f;">${escapeHtmlVR2(scopeLabel)} · as at ${asOfLabel} · ${SERVICING_DRILL.items.length} café(s)</div>
+      </div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+      <thead><tr style="background:#1a1a1a;color:#fff;">
+        <th style="text-align:left;padding:8px 10px;">Store</th>
+        <th style="text-align:left;padding:8px 10px;">FSM</th>
+        <th style="text-align:left;padding:8px 10px;">Next Service Was Due</th>
+      </tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>
+    <div style="margin-top:14px;font-size:10px;color:#8f733f;">Servicing cycle: every 4 months. Generated from the BOS Dashboard KPI Tracker.</div>
+  </div>`;
+  const w = window.open('', '_blank');
+  if (!w) { toast('Allow pop-ups to print'); return; }
+  w.document.write('<html><head><title>Coffee Equipment Servicing — Out of Cycle</title></head><body>' + html + '</body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 300);
 }
 function renderScorecardGrid(){
   const fsms = fsmsForScope(DASH_SCOPE);

@@ -785,6 +785,12 @@ function ensureVirtualRosterRow(managerKey, personLabel){
   });
 }
 async function generateNewCafeSupportEntries(){
+  // If the persisted schedule / seeded-triples record failed to load this
+  // session, do NOT run the auto-seeder: it would re-seed against an empty
+  // "already seeded" set and duplicate opening-support entries, and would
+  // mutate OVERRIDES in memory on top of fallback defaults. Skip entirely
+  // until a clean reload has the real data back.
+  if (storageDegraded()) return;
   VIRTUAL_ROSTER_ROWS = {};
   Object.keys(OPENING_SUPPORT).forEach(iso => {
     OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => {
@@ -882,15 +888,65 @@ let NAME_OVERRIDES = {}; // "managerKey|FSM label" -> assigned person's name
 let NEWCAFE_STORES = [];      // extraStores from New Café Ops (Handover/Opening dates)
 let NEWCAFE_ALLOCATIONS = {}; // storeName -> [assigned support member real names]
 let NEWCAFE_SEEDED_TRIPLES = []; // "date|cafeId|managerKey|personLabel" — every triple ever auto-generated, permanently. Once here, never touched again.
+// Tracks, per storage key, whether this session's load of that key
+// actually SUCCEEDED. This is the single most important safety flag in the
+// scheduler: if a load genuinely fails (network blip, transient 5xx, auth
+// hiccup) we must NOT treat "couldn't read it" as "it's empty." Doing so
+// was the root cause of the team's "scheduled visits reverted to
+// system-generated" report — a failed OVERRIDES load left OVERRIDES = {},
+// so every cell fell back to the auto rotation, AND the next confirm/edit
+// then called saveOverrides() which persisted that empty object, wiping
+// every real saved entry from the database for good. A clean 404 (key
+// never written yet) is a legitimate empty and counts as a success.
+const STORAGE_LOADED_OK = {}; // key -> true once loaded successfully (or a genuine 404)
+// Fetches one storage key with retry/backoff. Returns {value|null, ok}.
+// ok is false ONLY on a genuine read failure — never on a 404, which is a
+// real "nothing stored yet" answer.
+async function loadStorageKey(key, retries) {
+  const tries = (retries === undefined) ? 3 : retries;
+  let lastErr;
+  for (let attempt = 0; attempt < tries; attempt++) {
+    try {
+      const r = await window.storage.get(key); // null on 404
+      STORAGE_LOADED_OK[key] = true;
+      return { value: r && r.value, ok: true };
+    } catch (e) {
+      lastErr = e;
+      if (attempt < tries - 1) await new Promise(res => setTimeout(res, 500 * Math.pow(2, attempt)));
+    }
+  }
+  STORAGE_LOADED_OK[key] = false;
+  console.warn('Scheduler: failed to load "' + key + '" after ' + tries + ' attempts', lastErr);
+  return { value: null, ok: false };
+}
 async function loadState() {
-  try { const r = await window.storage.get('support-schedule-overrides-v1'); OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { OVERRIDES = {}; }
-  try { const r = await window.storage.get('support-schedule-confirmations-v1'); CONFIRM_LOG = JSON.parse((r && r.value) || '{}'); } catch (e) { CONFIRM_LOG = {}; }
-  try { const r = await window.storage.get('support-schedule-unopened-cafes-v1'); UNOPENED_CAFE_IDS = new Set(JSON.parse((r && r.value) || '[]')); } catch (e) { UNOPENED_CAFE_IDS = new Set(); }
-  try { const r = await window.storage.get('support-schedule-names-v1'); NAME_OVERRIDES = JSON.parse((r && r.value) || '{}'); } catch (e) { NAME_OVERRIDES = {}; }
-  try { const r = await window.storage.get('opening-support-schedule-v1'); OPENING_SUPPORT = JSON.parse((r && r.value) || '{}'); } catch (e) { OPENING_SUPPORT = {}; }
-  try { const r = await window.storage.get('dashboard-stores-v1'); NEWCAFE_STORES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_STORES = []; }
-  try { const r = await window.storage.get('support-allocations-v1'); NEWCAFE_ALLOCATIONS = JSON.parse((r && r.value) || '{}'); } catch (e) { NEWCAFE_ALLOCATIONS = {}; }
-  try { const r = await window.storage.get('newcafe-seeded-triples-v1'); NEWCAFE_SEEDED_TRIPLES = JSON.parse((r && r.value) || '[]'); } catch (e) { NEWCAFE_SEEDED_TRIPLES = []; }
+  const parse = (res, fb) => { try { return JSON.parse(res.value || fb); } catch (e) { return JSON.parse(fb); } };
+  const ov  = await loadStorageKey('support-schedule-overrides-v1');      OVERRIDES = parse(ov, '{}');
+  const cl  = await loadStorageKey('support-schedule-confirmations-v1');  CONFIRM_LOG = parse(cl, '{}');
+  const uc  = await loadStorageKey('support-schedule-unopened-cafes-v1'); UNOPENED_CAFE_IDS = new Set(parse(uc, '[]'));
+  const nm  = await loadStorageKey('support-schedule-names-v1');          NAME_OVERRIDES = parse(nm, '{}');
+  const os  = await loadStorageKey('opening-support-schedule-v1');        OPENING_SUPPORT = parse(os, '{}');
+  const ds  = await loadStorageKey('dashboard-stores-v1');                NEWCAFE_STORES = parse(ds, '[]');
+  const al  = await loadStorageKey('support-allocations-v1');             NEWCAFE_ALLOCATIONS = parse(al, '{}');
+  const st  = await loadStorageKey('newcafe-seeded-triples-v1');          NEWCAFE_SEEDED_TRIPLES = parse(st, '[]');
+}
+// True when any key carrying real, user-entered schedule data failed to
+// load this session — the app is then showing fallback defaults, and edits
+// that write those keys are blocked so nothing overwrites the real data.
+function storageDegraded() {
+  return ['support-schedule-overrides-v1', 'support-schedule-confirmations-v1',
+          'support-schedule-names-v1', 'opening-support-schedule-v1',
+          'support-schedule-unopened-cafes-v1', 'newcafe-seeded-triples-v1']
+    .some(k => STORAGE_LOADED_OK[k] === false);
+}
+// Blocks a save whose underlying key did not load successfully this
+// session — writing would clobber good data with our fallback default.
+function saveBlockedFor(key) {
+  if (STORAGE_LOADED_OK[key] === false) {
+    toast('⚠️ Not saved — your saved schedule couldn’t be loaded this session. Reload the page before editing so nothing is overwritten.');
+    return true;
+  }
+  return false;
 }
 // Runs after ROSTER exists — both of these read/mutate ROSTER directly, so
 // calling them before it's built (or before OVERRIDES/NAME_OVERRIDES are
@@ -946,10 +1002,10 @@ async function ensureEnabledUsersVisible(){
     ensureVirtualRosterRow(mk, resolved ? resolved.personLabel : name);
   });
 }
-async function saveOverrides() { try { await window.storage.set('support-schedule-overrides-v1', JSON.stringify(OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
-async function saveConfirmations() { try { await window.storage.set('support-schedule-confirmations-v1', JSON.stringify(CONFIRM_LOG)); } catch (e) { toast('Could not save — check connection'); } }
-async function saveNameOverrides() { try { await window.storage.set('support-schedule-names-v1', JSON.stringify(NAME_OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
-async function saveOpeningSupport() { try { await window.storage.set('opening-support-schedule-v1', JSON.stringify(OPENING_SUPPORT)); } catch (e) { toast('Could not save — check connection'); } }
+async function saveOverrides() { if (saveBlockedFor('support-schedule-overrides-v1')) return; try { await window.storage.set('support-schedule-overrides-v1', JSON.stringify(OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
+async function saveConfirmations() { if (saveBlockedFor('support-schedule-confirmations-v1')) return; try { await window.storage.set('support-schedule-confirmations-v1', JSON.stringify(CONFIRM_LOG)); } catch (e) { toast('Could not save — check connection'); } }
+async function saveNameOverrides() { if (saveBlockedFor('support-schedule-names-v1')) return; try { await window.storage.set('support-schedule-names-v1', JSON.stringify(NAME_OVERRIDES)); } catch (e) { toast('Could not save — check connection'); } }
+async function saveOpeningSupport() { if (saveBlockedFor('opening-support-schedule-v1')) return; try { await window.storage.set('opening-support-schedule-v1', JSON.stringify(OPENING_SUPPORT)); } catch (e) { toast('Could not save — check connection'); } }
 
 function cellKey(managerKey, personLabel, slot) { return managerKey + '|' + personLabel + '|' + slot; }
 function visitKey(managerKey, personLabel, slot, cafeName) { return managerKey + '|' + personLabel + '|' + slot + '|' + cafeName; }
@@ -1053,7 +1109,26 @@ function startApp() {
     .then(() => buildRosterFromFsmStores())
     .then(() => postRosterSetup())
     .then(() => purgeObsoleteRosterReferences())
-    .then(render);
+    .then(render)
+    .then(maybeShowStorageDegradedBanner);
+}
+// When a persisted-schedule load failed this session, the grid is showing
+// the system-generated fallback rotation — NOT the team's saved schedule.
+// Make that unmistakable and stop silent editing: a fixed red banner with a
+// reload button. Editing is already blocked at the save layer; this tells
+// the team why, rather than leaving them to think the schedule "reverted."
+function maybeShowStorageDegradedBanner() {
+  if (!storageDegraded() || document.getElementById('storageDegradedBanner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'storageDegradedBanner';
+  bar.setAttribute('role', 'alert');
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:9999;background:#c62828;color:#fff;padding:10px 16px;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:14px;box-shadow:0 2px 8px rgba(0,0,0,0.25);';
+  bar.innerHTML = 'Your saved schedule couldn’t be loaded — you’re seeing default (system-generated) visits, and editing is paused so nothing gets overwritten. '
+    + '<button id="storageDegradedReload" style="background:#fff;color:#c62828;border:none;border-radius:4px;padding:5px 12px;font-weight:700;cursor:pointer;">Reload</button>';
+  document.body.appendChild(bar);
+  document.body.style.paddingTop = (bar.offsetHeight || 40) + 'px';
+  const btn = document.getElementById('storageDegradedReload');
+  if (btn) btn.addEventListener('click', () => location.reload());
 }
 
 // Shared PDF export — builds a clean, letterhead-style print layout and
@@ -2595,6 +2670,7 @@ function renderDirTable() {
   const toggleUnopenedBtn = document.getElementById('dirToggleUnopenedBtn');
   if (toggleUnopenedBtn) toggleUnopenedBtn.addEventListener('click', async (e) => {
     e.stopPropagation(); // don't also trigger the row's own expand/collapse
+    if (saveBlockedFor('support-schedule-unopened-cafes-v1')) return;
     const siteId = toggleUnopenedBtn.dataset.siteId;
     if (UNOPENED_CAFE_IDS.has(siteId)) UNOPENED_CAFE_IDS.delete(siteId);
     else UNOPENED_CAFE_IDS.add(siteId);
