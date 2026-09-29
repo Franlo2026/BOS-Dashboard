@@ -408,6 +408,14 @@ async function apiGet(pathUrl){
 }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function isEditor(){ return window.__ME ? ['admin','editor'].includes(window.__ME.role) : true; }
+// Region + café-type vocab for the New Café pipeline, so a café can be added
+// (and corrected) with its REAL region/format instead of the old hardcoded
+// "WC / Full Store" default — that default was silently stamping every added
+// café Western Cape, which is why e.g. Beacon Bay and Cascades showed as WC.
+const NC_REGIONS = [['WC','Western Cape'],['EC','Eastern Cape'],['NC','Northern Cape'],['GP','Gauteng'],['LP','Limpopo'],['MP','Mpumalanga'],['FS','Free State'],['KZN','KwaZulu-Natal'],['NW','North West'],['NAM','Namibia']];
+const NC_TYPES = ['Full Store','Convenience','XS','Kiosk','TEMSA'];
+function ncRegionOpts(sel){ return NC_REGIONS.map(([v,l])=>`<option value="${v}"${v===sel?' selected':''}>${l}</option>`).join(''); }
+function ncTypeOpts(sel){ return NC_TYPES.map(t=>`<option${t===sel?' selected':''}>${t}</option>`).join(''); }
 function fmtShortDate(iso){ if (!iso) return '—'; const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return iso; return d.toLocaleDateString('en-GB', {day:'2-digit', month:'short'}); }
 
 // CPA Timeline milestone engine — every milestone date is derived from
@@ -617,6 +625,10 @@ function viewPipeline(){
       <div class="form-row">
         <div><label class="field-label">Store Name</label><input type="text" id="otlName" placeholder="e.g. Cavendish Full Store"></div>
         <div><label class="field-label">Opening Date</label><input type="date" id="otlOpenDate"></div>
+      </div>
+      <div class="form-row">
+        <div><label class="field-label">Region</label><select id="otlNewRegion">${ncRegionOpts('WC')}</select></div>
+        <div><label class="field-label">Café Type</label><select id="otlNewType">${ncTypeOpts('Full Store')}</select></div>
       </div>
       <div class="form-row">
         <div><label class="field-label">FSM</label><input type="text" id="otlFsm" placeholder="e.g. Liam"></div>
@@ -2646,6 +2658,17 @@ function viewPipeline(){
           ${miniBar('🎓 Training & Recruitment', snap.trainingRecPct, 'trainingrec')}
           ${miniBar('✅ Project Readiness', snap.readinessPct, 'readiness')}
           ${miniBar('🎯 7-Day Training', snap.trainingPct, 'training7day')}
+          ${isEditor() ? `<div style="border-top:1px solid var(--grey-200);margin-top:12px;padding-top:12px;">
+            <div style="font-size:11px;font-weight:700;margin-bottom:6px;">Edit Café Details</div>
+            <div class="form-row">
+              <div><label class="field-label">Region</label><select class="ncEditRegion" data-id="${s.id}">${ncRegionOpts(s.region)}</select></div>
+              <div><label class="field-label">Café Type</label><select class="ncEditType" data-id="${s.id}">${ncTypeOpts(s.type)}</select></div>
+            </div>
+            <div class="form-row">
+              <div><label class="field-label">FSM</label><input type="text" class="ncEditFsm" data-id="${s.id}" value="${(s.fsm||'').replace(/"/g,'&quot;')}"></div>
+              <div><label class="field-label">Opening Date</label><input type="date" class="ncEditOpenDate" data-id="${s.id}" value="${s.openDate||''}"></div>
+            </div>
+          </div>` : ''}
           <div style="font-size:10px;color:var(--grey-500);margin-top:10px;">Click any row above, or "Opening Status →", to open the full profile.</div>
         </div>`;
       }
@@ -2674,6 +2697,20 @@ function viewPipeline(){
       expanded = expanded === el.dataset.toggle ? null : el.dataset.toggle;
       renderStoreList();
     }));
+    // Inline edit of a café's region / type / FSM / opening date — updates the
+    // shared pipeline record so a mis-regioned café (e.g. added under the old
+    // WC default) can be corrected without deleting and re-creating it.
+    const editStoreField = async (id, apply) => {
+      const store = extraStores.find(s => String(s.id) === String(id));
+      if (!store) return;
+      apply(store);
+      await saveExtraStores();
+      renderStoreList();
+    };
+    document.querySelectorAll('.ncEditRegion').forEach(el => el.addEventListener('change', () => editStoreField(el.dataset.id, s => { s.region = el.value; })));
+    document.querySelectorAll('.ncEditType').forEach(el => el.addEventListener('change', () => editStoreField(el.dataset.id, s => { s.type = el.value; })));
+    document.querySelectorAll('.ncEditFsm').forEach(el => el.addEventListener('change', () => editStoreField(el.dataset.id, s => { s.fsm = el.value.trim(); })));
+    document.querySelectorAll('.ncEditOpenDate').forEach(el => el.addEventListener('change', () => editStoreField(el.dataset.id, s => { s.openDate = el.value; })));
   }
 
   // ---------- Profile view (per-café, navigable sub-sections) ----------
@@ -2981,7 +3018,9 @@ function viewPipeline(){
     const name = document.getElementById('otlName').value.trim();
     const openDate = document.getElementById('otlOpenDate').value;
     if (!name || !openDate) { toast('Store name and open date are required'); return; }
-    extraStores.push({ id: Date.now(), name, type:'Full Store', region:'WC', openDate, createdDate: todayISO(), fsm: document.getElementById('otlFsm').value, notes: document.getElementById('otlNotes').value });
+    const newRegion = (document.getElementById('otlNewRegion') || {}).value || 'WC';
+    const newType = (document.getElementById('otlNewType') || {}).value || 'Full Store';
+    extraStores.push({ id: Date.now(), name, type:newType, region:newRegion, openDate, createdDate: todayISO(), fsm: document.getElementById('otlFsm').value, notes: document.getElementById('otlNotes').value });
     await saveExtraStores();
     if (newStoreSupport.length) {
       supportAllocations = Object.assign({}, supportAllocations, { [name]: [...newStoreSupport] });

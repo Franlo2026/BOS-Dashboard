@@ -897,6 +897,14 @@ let USERNAME = localStorage.getItem('bos_username') || null;
 let DISPLAY_NAME = localStorage.getItem('bos_display_name') || null;
 const WRITE_ROLES = ['admin', 'editor'];
 function isEditor(){ return WRITE_ROLES.includes(ROLE); }
+// Region + café-type vocab for the New Café pipeline, so a café can be added
+// (and corrected) with its REAL region/format instead of the old hardcoded
+// "WC / Full Store" default that silently stamped every added café Western
+// Cape (why e.g. Beacon Bay and Cascades showed as WC).
+const NC_REGIONS = [['WC','Western Cape'],['EC','Eastern Cape'],['NC','Northern Cape'],['GP','Gauteng'],['LP','Limpopo'],['MP','Mpumalanga'],['FS','Free State'],['KZN','KwaZulu-Natal'],['NW','North West'],['NAM','Namibia']];
+const NC_TYPES = ['Full Store','Convenience','XS','Kiosk','TEMSA'];
+function ncRegionOpts(sel){ return NC_REGIONS.map(([v,l])=>`<option value="${v}"${v===sel?' selected':''}>${l}</option>`).join(''); }
+function ncTypeOpts(sel){ return NC_TYPES.map(t=>`<option${t===sel?' selected':''}>${t}</option>`).join(''); }
 function isAdmin(){ return ROLE === 'admin'; }
 
 function setSession(payload){
@@ -5328,6 +5336,10 @@ function viewOpeningTimelines(){
         <div><label class="field-label">Opening Date</label><input type="date" id="otlOpenDate"></div>
       </div>
       <div class="form-row">
+        <div><label class="field-label">Region</label><select id="otlNewRegion">${ncRegionOpts('WC')}</select></div>
+        <div><label class="field-label">Café Type</label><select id="otlNewType">${ncTypeOpts('Full Store')}</select></div>
+      </div>
+      <div class="form-row">
         <div><label class="field-label">FSM</label><input type="text" id="otlFsm" placeholder="e.g. Liam"></div>
         <div><label class="field-label">Notes</label><input type="text" id="otlNotes" placeholder="Optional"></div>
       </div>
@@ -6434,6 +6446,16 @@ function viewOpeningTimelines(){
     await saveExtraStores();
     renderStoreList();
   }
+  // Correct a café's region / café-type on the shared pipeline record — so a
+  // café added under the old hardcoded WC/Full Store default (e.g. Beacon Bay,
+  // Cascades) can be fixed in place rather than deleted and re-created.
+  async function setStoreField(storeName, field, value){
+    const store = extraStores.find(s => s.name === storeName);
+    if (!store) return;
+    store[field] = value;
+    await saveExtraStores();
+    renderStoreList();
+  }
 
   function setPendingField(id, field, value){
     const sub = cafeSubmissions.find(s => s.id === id);
@@ -6847,6 +6869,14 @@ function viewOpeningTimelines(){
             <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px;">
               ${openDateField}
               ${createdDateField}
+              ${isEditableStore ? `<div>
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Region</label>
+                <select class="srField" data-store="${escTC(s.name)}" data-field="region" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">${ncRegionOpts(s.region)}</select>
+              </div>
+              <div>
+                <label style="display:block;font-size:9px;text-transform:uppercase;color:var(--grey-500);letter-spacing:0.04em;margin-bottom:2px;">Café Type</label>
+                <select class="srField" data-store="${escTC(s.name)}" data-field="type" style="width:100%;padding:5px 6px;border:1px solid var(--grey-200);border-radius:2px;font-size:11.5px;box-sizing:border-box;">${ncTypeOpts(s.type)}</select>
+              </div>` : ''}
               ${field('location','Location')}
               ${field('seats','Seat No.')}
               ${field('turnover','Anticipated Turnover')}
@@ -6975,6 +7005,10 @@ function viewOpeningTimelines(){
       el.addEventListener('click', e => e.stopPropagation());
       el.addEventListener('change', () => setStoreCreatedDate(el.dataset.store, el.value));
     });
+    document.querySelectorAll('.srField').forEach(el => {
+      el.addEventListener('click', e => e.stopPropagation());
+      el.addEventListener('change', () => setStoreField(el.dataset.store, el.dataset.field, el.value));
+    });
   }
 
   document.getElementById('otlSearch').addEventListener('input', renderStoreList);
@@ -6993,7 +7027,9 @@ function viewOpeningTimelines(){
     const name = document.getElementById('otlName').value.trim();
     const openDate = document.getElementById('otlOpenDate').value;
     if (!name || !openDate) { toast('Store name and open date are required'); return; }
-    extraStores.push({ id: Date.now(), name, type:'Full Store', region:'WC', openDate, createdDate: todayISO(), fsm: document.getElementById('otlFsm').value, notes: document.getElementById('otlNotes').value });
+    const newRegion = (document.getElementById('otlNewRegion') || {}).value || 'WC';
+    const newType = (document.getElementById('otlNewType') || {}).value || 'Full Store';
+    extraStores.push({ id: Date.now(), name, type:newType, region:newRegion, openDate, createdDate: todayISO(), fsm: document.getElementById('otlFsm').value, notes: document.getElementById('otlNotes').value });
     await saveExtraStores();
     if (newStoreSupport.length) {
       supportAllocations = Object.assign({}, supportAllocations, { [name]: [...newStoreSupport] });
