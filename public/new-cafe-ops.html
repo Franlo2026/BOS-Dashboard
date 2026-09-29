@@ -416,6 +416,59 @@ const NC_REGIONS = [['WC','Western Cape'],['EC','Eastern Cape'],['NC','Northern 
 const NC_TYPES = ['Full Store','Convenience','XS','Kiosk','TEMSA'];
 function ncRegionOpts(sel){ return NC_REGIONS.map(([v,l])=>`<option value="${v}"${v===sel?' selected':''}>${l}</option>`).join(''); }
 function ncTypeOpts(sel){ return NC_TYPES.map(t=>`<option${t===sel?' selected':''}>${t}</option>`).join(''); }
+// --- Bulk import from the café master (CSV) ---
+// Accepts a region as either a code (GP) or a full/loose name (Gauteng,
+// "kwazulu natal") and returns the canonical BOS code.
+function ncNormRegion(v){
+  const s = (v||'').trim();
+  if (!s) return '';
+  const up = s.toUpperCase();
+  if (NC_REGIONS.some(([code]) => code === up)) return up;
+  const byName = { 'western cape':'WC','eastern cape':'EC','northern cape':'NC','gauteng':'GP','limpopo':'LP','mpumalanga':'MP','free state':'FS','kwazulu-natal':'KZN','kwazulu natal':'KZN','kzn':'KZN','north west':'NW','namibia':'NAM','mpl':'MP' };
+  return byName[s.toLowerCase()] || up; // fall back to the raw upper value so nothing is silently dropped
+}
+// Accepts a café format in any of the master's wordings and returns the
+// BOS pipeline type ("All Day Café"/"All Day" -> Full Store, etc.).
+function ncNormType(v){
+  const s = (v||'').trim().toLowerCase();
+  if (!s) return 'Full Store';
+  if (s.includes('all day') || s === 'full store' || s === 'fullstore') return 'Full Store';
+  if (s.includes('conven')) return 'Convenience';
+  if (s.includes('temsa')) return 'TEMSA';
+  if (s.includes('kiosk') || s.includes('pod')) return 'Kiosk';
+  if (s.includes('xs')) return 'XS';
+  return 'Full Store';
+}
+// Loose match key: lowercased, punctuation-stripped, noise words removed and
+// tokens sorted — so a master name ("Springbok", "Diep River") matches an
+// existing pipeline record ("Springbok XS", "Total Diep River") instead of
+// creating a duplicate. Same noise set the B.Better matcher uses.
+function ncLooseKey(name){
+  const NOISE = new Set(['xs','kiosk','pod','store','mall','centre','center','temsa','total','pp','spar','the','cafe','café','shopping','lifestyle','fuels','elegant','halaal','full','n12','east','west']);
+  return (name||'').toLowerCase().replace(/[^a-z0-9 ]/g,' ').split(/\s+/).filter(t => t && !NOISE.has(t)).sort().join('');
+}
+// Minimal CSV parser: handles quoted fields and embedded commas. Returns an
+// array of string arrays (one per non-empty line).
+function ncParseCSV(text){
+  const rows = [];
+  (text||'').replace(/\r\n?/g,'\n').split('\n').forEach(line => {
+    if (!line.trim()) return;
+    const cells = []; let cur = '', inQ = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (inQ) {
+        if (ch === '"' && line[i+1] === '"') { cur += '"'; i++; }
+        else if (ch === '"') inQ = false;
+        else cur += ch;
+      } else if (ch === '"') inQ = true;
+      else if (ch === ',') { cells.push(cur); cur = ''; }
+      else cur += ch;
+    }
+    cells.push(cur);
+    rows.push(cells.map(c => c.trim()));
+  });
+  return rows;
+}
 function fmtShortDate(iso){ if (!iso) return '—'; const d = new Date(iso + 'T00:00:00'); if (isNaN(d)) return iso; return d.toLocaleDateString('en-GB', {day:'2-digit', month:'short'}); }
 
 // CPA Timeline milestone engine — every milestone date is derived from
@@ -640,6 +693,15 @@ function viewPipeline(){
       </div>
       <button class="btn btn-gold" id="otlAdd" style="margin-top:10px;">Add Store &amp; Generate CPA Timeline</button>
       <div id="otlAddedList" style="margin-top:16px;"></div>
+      <div class="section-divider" style="margin:18px 0;"></div>
+      <div class="section-title" style="font-size:14px;">Bulk Import from Café Master (CSV)</div>
+      <div style="font-size:11px;color:var(--grey-500);margin-bottom:8px;">Columns: <b>Name, Region, Type, Opening Date, FSM</b>. Region accepts a full name or code (Gauteng / GP); Type accepts All Day Café / Convenience / XS / Kiosk. A header row is optional. Existing cafés are matched (even under a slightly different name) and updated — new ones are added. Paste rows or choose a .csv, then Preview.</div>
+      <textarea id="ncBulkText" rows="6" placeholder="Name,Region,Type,Opening Date,FSM&#10;Parkhurst,Gauteng,All Day Café,2026-10-05,&#10;Knoppieslaagte,Gauteng,Convenience,2026-10-27," style="width:100%;box-sizing:border-box;font-family:monospace;font-size:11.5px;padding:8px;border:1px solid var(--grey-200);border-radius:3px;"></textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+        <input type="file" id="ncBulkFile" accept=".csv,text/csv" style="font-size:11.5px;">
+        <button class="btn btn-outline btn-mini" id="ncBulkPreview">Preview</button>
+      </div>
+      <div id="ncBulkPreviewArea" style="margin-top:12px;"></div>
     </div>
   `;
   // Seed data pulled from the "New Store Dates" workbook (13 July 2026) for
@@ -3033,6 +3095,86 @@ function viewPipeline(){
     toast('Store added');
     renderAll();
   });
+
+  // ---- Bulk import from café master (CSV) ----
+  function ncParseDate(v){
+    const s = (v||'').trim();
+    if (!s) return '';
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // already ISO
+    const months = {jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11};
+    let m = /^(\d{1,2})[ /-]([A-Za-z]{3,})[ /-](\d{4})$/.exec(s); // 01 Oct 2026
+    if (m && months[m[2].slice(0,3).toLowerCase()] !== undefined) {
+      const d = new Date(Number(m[3]), months[m[2].slice(0,3).toLowerCase()], Number(m[1]));
+      if (!isNaN(d)) return d.toISOString().slice(0,10);
+    }
+    m = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(s); // dd/mm/yyyy
+    if (m) { const d = new Date(Number(m[3]), Number(m[2])-1, Number(m[1])); if (!isNaN(d)) return d.toISOString().slice(0,10); }
+    return s; // leave as-is; user can correct
+  }
+  function ncBuildImportPlan(){
+    const rows = ncParseCSV(document.getElementById('ncBulkText').value);
+    if (!rows.length) return [];
+    let start = 0;
+    const h = rows[0].map(c => c.toLowerCase());
+    if (h.some(c => ['name','store','store name','café','cafe'].includes(c))) start = 1;
+    const byName = {}, byLoose = {};
+    extraStores.forEach(s => {
+      byName[(s.name||'').toLowerCase()] = s;
+      const lk = ncLooseKey(s.name);
+      if (lk && !(lk in byLoose)) byLoose[lk] = s;
+    });
+    const plan = [];
+    for (let i = start; i < rows.length; i++) {
+      const [name, region, type, openDate, fsm] = rows[i];
+      if (!name || !name.trim()) continue;
+      const match = byName[name.trim().toLowerCase()] || byLoose[ncLooseKey(name)] || null;
+      plan.push({ name: name.trim(), region: ncNormRegion(region), type: ncNormType(type), openDate: ncParseDate(openDate), fsm: (fsm||'').trim(), match });
+    }
+    return plan;
+  }
+  function ncRenderImportPreview(){
+    const plan = ncBuildImportPlan();
+    const el = document.getElementById('ncBulkPreviewArea');
+    if (!plan.length) { el.innerHTML = '<div class="empty-state" style="font-size:11px;">Nothing to import — paste rows or choose a file first.</div>'; return; }
+    const adds = plan.filter(p => !p.match).length, updates = plan.length - adds;
+    el.innerHTML = `
+      <div style="font-size:12px;font-weight:700;margin-bottom:6px;">${plan.length} row(s): <span style="color:var(--green);">${adds} new</span> · <span style="color:var(--gold);">${updates} update existing</span></div>
+      <table class="data-table" style="font-size:11px;"><thead><tr><th>Café</th><th>Region</th><th>Type</th><th>Opening</th><th>Action</th></tr></thead><tbody>
+      ${plan.map(p => `<tr>
+        <td>${p.name}</td><td>${p.region||'—'}</td><td>${p.type}</td><td>${p.openDate||'—'}</td>
+        <td>${p.match ? (p.match.name.toLowerCase()===p.name.toLowerCase() ? '<span class="badge amber">Update</span>' : `<span class="badge amber">Update “${p.match.name}”</span>`) : '<span class="badge">Add new</span>'}</td>
+      </tr>`).join('')}
+      </tbody></table>
+      <button class="btn btn-gold btn-mini" id="ncBulkApply" style="margin-top:10px;">Apply Import (${plan.length})</button>`;
+    document.getElementById('ncBulkApply').addEventListener('click', () => ncApplyImportPlan(plan));
+  }
+  async function ncApplyImportPlan(plan){
+    let added = 0, updated = 0, seq = 0;
+    plan.forEach(p => {
+      if (p.match) {
+        if (p.region) p.match.region = p.region;
+        if (p.type) p.match.type = p.type;
+        if (p.openDate) p.match.openDate = p.openDate;
+        if (p.fsm) p.match.fsm = p.fsm;
+        updated++;
+      } else {
+        extraStores.push({ id: Date.now() + (seq++), name: p.name, type: p.type || 'Full Store', region: p.region || 'WC', openDate: p.openDate || '', createdDate: todayISO(), fsm: p.fsm || '', notes: 'Imported from café master' });
+        added++;
+      }
+    });
+    await saveExtraStores();
+    document.getElementById('ncBulkText').value = '';
+    document.getElementById('ncBulkPreviewArea').innerHTML = '';
+    toast(`Imported — ${added} added, ${updated} updated`);
+    renderAll();
+  }
+  document.getElementById('ncBulkFile').addEventListener('change', (e) => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => { document.getElementById('ncBulkText').value = reader.result; ncRenderImportPreview(); };
+    reader.readAsText(file);
+  });
+  document.getElementById('ncBulkPreview').addEventListener('click', ncRenderImportPreview);
 
   document.getElementById('ncBBetterBtn').addEventListener('click', () => document.getElementById('ncBBetterInput').click());
   document.getElementById('ncBBetterInput').addEventListener('change', (e) => {
