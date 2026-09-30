@@ -784,6 +784,12 @@ function ensureVirtualRosterRow(managerKey, personLabel){
     plan: Array.from({ length: ROTATION_HORIZON }, () => []),
   });
 }
+// New-café opening support is auto-generated only for openings BEFORE this
+// date. From here on (October 2026 onward) the team adds opening-support days
+// manually on the scheduler, so nothing is auto-seeded for these dates and any
+// previously auto-seeded entries on/after it are cleared out. Manually-added
+// opening-support entries are always kept, whatever their date.
+const NEWCAFE_AUTO_CUTOFF = '2026-10-01';
 async function generateNewCafeSupportEntries(){
   // If the persisted schedule / seeded-triples record failed to load this
   // session, do NOT run the auto-seeder: it would re-seed against an empty
@@ -792,6 +798,7 @@ async function generateNewCafeSupportEntries(){
   // until a clean reload has the real data back.
   if (storageDegraded()) return;
   VIRTUAL_ROSTER_ROWS = {};
+  let cleaned = false;
   Object.keys(OPENING_SUPPORT).forEach(iso => {
     OPENING_SUPPORT[iso] = (OPENING_SUPPORT[iso] || []).filter(e => {
       // Self-heal: drop anything that no longer resolves to a real café —
@@ -799,11 +806,40 @@ async function generateNewCafeSupportEntries(){
       // anyone and usually means a stale record from an earlier version
       // of this generator that keyed cafés differently. Manually-added
       // entries are otherwise left completely alone.
-      const resolves = SITES.some(s => s.id === e.cafeId);
-      return resolves;
+      if (!SITES.some(s => s.id === e.cafeId)) { cleaned = true; return false; }
+      // Remove auto-generated opening support on/after the cutoff — these
+      // now belong to the team to add by hand. `auto:true` marks a generated
+      // entry; manual ones (no auto flag) are always kept.
+      if (e.auto && iso >= NEWCAFE_AUTO_CUTOFF) { cleaned = true; return false; }
+      return true;
     });
     if (!OPENING_SUPPORT[iso].length) delete OPENING_SUPPORT[iso];
   });
+  // Same clean-up for the weekly-grid chips: drop any auto-generated new-café
+  // chip (source 'newcafe-auto', id "newcafe-<iso>-<cafeId>") dated on/after
+  // the cutoff, keeping every other entry in the cell. A cell left empty by
+  // that removal is deleted so the day falls back to its normal rotation.
+  Object.keys(OVERRIDES).forEach(k => {
+    const arr = OVERRIDES[k] || [];
+    const kept = arr.filter(e => {
+      if (e && e.source === 'newcafe-auto' && typeof e.id === 'string') {
+        const m = /^newcafe-(\d{4}-\d{2}-\d{2})-/.exec(e.id);
+        if (m && m[1] >= NEWCAFE_AUTO_CUTOFF) return false;
+      }
+      return true;
+    });
+    if (kept.length !== arr.length) {
+      cleaned = true;
+      if (kept.length) OVERRIDES[k] = kept; else delete OVERRIDES[k];
+    }
+  });
+  // Forget the seeded-triple records on/after the cutoff too, so state stays
+  // consistent (nothing thinks those dates are still "seeded").
+  const prunedTriples = NEWCAFE_SEEDED_TRIPLES.filter(t => (t.split('|')[0] || '') < NEWCAFE_AUTO_CUTOFF);
+  if (prunedTriples.length !== NEWCAFE_SEEDED_TRIPLES.length) { NEWCAFE_SEEDED_TRIPLES = prunedTriples; cleaned = true; }
+  // The clean-up above is persisted by the unconditional save at the end of
+  // this function; `cleaned` is kept only for clarity/future use.
+  void cleaned;
   // Each (date, café, person) combination is only ever auto-generated
   // once, ever — tracked permanently in NEWCAFE_SEEDED_TRIPLES. Once
   // seeded, it's the team's to edit, confirm, reschedule, or remove
@@ -835,6 +871,7 @@ async function generateNewCafeSupportEntries(){
       const resolved = findRosterRowForName(personName);
       if (!resolved) return;
       const iso = isoOf(date);
+      if (iso >= NEWCAFE_AUTO_CUTOFF) return; // Oct 2026 onward: opening support is added manually, never auto-seeded
       const tripleKey = iso + '|' + cafeId + '|' + resolved.managerKey + '|' + resolved.personLabel;
       if (seeded.has(tripleKey)) return; // already seeded, ever — never touch again regardless of current state
       seeded.add(tripleKey);
