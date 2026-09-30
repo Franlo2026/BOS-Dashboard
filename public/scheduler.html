@@ -1699,22 +1699,32 @@ function renderWeeklyTab() {
     const gridCard = allCards.find(c => c.querySelector('#weekGrid'));
     const summaryCards = allCards.filter(c => c !== gridCard);
     const summaryHtml = summaryCards.map(c => c.outerHTML).join('');
-    let gridHtml = '';
-    if (gridCard) {
-      const clone = gridCard.cloneNode(true);
-      clone.querySelectorAll('button, input').forEach(el => el.remove());
-      // Scoped, print-only styling so the 8-column grid fits an A4 page, and
-      // starts on its own separate page kept together (no mid-grid page break).
-      gridHtml = `<style>
+    // Both teams' schedules, each on its own page — Franlo (Cape Town) first,
+    // then Tarryn (GP) beneath it. Built fresh (not cloned from screen) so the
+    // order is fixed regardless of which team is currently active, with the
+    // interactive controls (add/confirm/reschedule buttons, inputs) stripped.
+    const weekRange = `${fmtShort(days[0])} – ${fmtShort(days[6])}`;
+    const teamPageHtml = (mgrKey) => {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = buildWeekGridHtml(mgrKey, days);
+      tmp.querySelectorAll('button, input').forEach(el => el.remove());
+      return `<div class="schedule-page">
+        <div style="font-size:13px;font-weight:700;margin:0 0 8px;">${REGION_GROUPS[mgrKey].label} — Week ${VIEW_WEEK} · ${weekRange}</div>
+        ${tmp.innerHTML}
+      </div>`;
+    };
+    // Scoped, print-only styling: each schedule starts on its own page, kept
+    // together (no mid-grid break), sized to fit A4.
+    const printStyle = `<style>
         #printArea .week-grid{grid-template-columns:110px repeat(7,1fr);font-size:8.5px;page-break-inside:avoid;break-inside:avoid;}
         #printArea .week-grid-head > div{padding:5px 3px;}
         #printArea .week-grid .day-cell,#printArea .week-grid .fsm-row-name{break-inside:avoid;page-break-inside:avoid;}
         #printArea .week-grid [class*="chip"]{font-size:8.5px;}
         #printArea .schedule-page{page-break-before:always;break-before:page;}
-      </style><div class="schedule-page">${clone.outerHTML}</div>`;
-    }
+      </style>`;
+    const gridHtml = printStyle + teamPageHtml('Franlo') + teamPageHtml('Tarryn');
     const weekLabel = `Week of ${weekStart.toLocaleDateString('en-ZA', { day:'numeric', month:'short', year:'numeric' })} · ${monthLabel}`;
-    exportToPdf(`Weekly Regional Report — ${REGION_GROUPS[ACTIVE_MANAGER].label}`, weekLabel, summaryHtml + gridHtml);
+    exportToPdf('Weekly Regional Report — All Teams', weekLabel, summaryHtml + gridHtml);
   });
   document.getElementById('prevWeekBtn').addEventListener('click', () => { VIEW_WEEK--; renderWeeklyTab(); });
   document.getElementById('thisWeekBtn').addEventListener('click', () => { VIEW_WEEK = currentWeekNum(); renderWeeklyTab(); });
@@ -1764,6 +1774,24 @@ function renderWeekGrid(days, roster, franchisePlan, groupSites) {
   grid.innerHTML = html;
   wireWeekGridEvents(roster, groupSites, franchisePlan);
   wireFsmNameEditing();
+}
+
+// Builds a manager's full week grid as a standalone HTML string (header row +
+// manager row + roster rows) for any manager, independent of ACTIVE_MANAGER
+// and without touching the DOM or wiring events. Used by the weekly PDF so
+// both teams' schedules can be included, each on its own page.
+function buildWeekGridHtml(mgrKey, days) {
+  const roster = ROSTER[mgrKey].concat(SUPPORT_TEAM_PLANS[mgrKey] || []).concat(VIRTUAL_ROSTER_ROWS[mgrKey] || []);
+  const franchisePlan = MANAGER_COMBINED_PLANS[mgrKey];
+  let html = `<div class="week-grid"><div class="week-grid-head"><div>Support Member</div>`;
+  days.forEach(d => { html += `<div>${d.toLocaleDateString('en-ZA',{weekday:'short'}).toUpperCase()}<span class="date-sub">${fmtShort(d)}</span></div>`; });
+  html += `</div>`;
+  html += renderPersonRow(mgrKey, MANAGER_LABEL, 'Regional Manager — quarterly café visits & franchisee check-ins', franchisePlan, []);
+  roster.forEach(person => {
+    html += renderPersonRow(mgrKey, person.label, person.subtitle || (person.sites.length + ' cafés assigned'), person.plan, []);
+  });
+  html += `</div>`;
+  return html;
 }
 
 function renderPersonRow(managerKey, personLabel, subtitle, planArr, addOptions) {
