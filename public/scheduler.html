@@ -1689,27 +1689,29 @@ function renderWeeklyTab() {
   document.querySelectorAll('#mgrTabs .segmented-btn').forEach(b => b.addEventListener('click', () => { ACTIVE_MANAGER = b.dataset.mgr; VIEW_WEEK = currentWeekNum(); render(); }));
   document.getElementById('weeklyExportPdfBtn').addEventListener('click', () => {
     // Stats summary + the weekly grid itself. The summary is every top-level
-    // card in the tab EXCEPT the one holding the week grid (i.e. the Monthly
-    // Metric Dashboard and the "Both Regions Combined" strip), plus the
-    // week's KPI strip. The grid card is cloned with its interactive nav
-    // controls (date picker, Prev/This/Next) stripped so only the schedule
-    // itself prints.
+    // card in the tab EXCEPT the one holding the week grid — i.e. the Monthly
+    // Metric Dashboard and the "Both Regions Combined" strip. The per-region
+    // weekly KPI strip (Cafés in Region / Scheduled / Confirmed / …) is
+    // deliberately excluded from the PDF. The grid card is cloned with its
+    // interactive nav controls (date picker, Prev/This/Next) stripped so only
+    // the schedule itself prints.
     const allCards = Array.from(document.querySelectorAll('#tabBody > .card'));
     const gridCard = allCards.find(c => c.querySelector('#weekGrid'));
     const summaryCards = allCards.filter(c => c !== gridCard);
-    const kpiStrip = document.querySelector('#tabBody .kpi-strip');
-    const summaryHtml = summaryCards.map(c => c.outerHTML).join('')
-      + (kpiStrip ? `<div style="margin:10px 0 16px;">${kpiStrip.outerHTML}</div>` : '');
+    const summaryHtml = summaryCards.map(c => c.outerHTML).join('');
     let gridHtml = '';
     if (gridCard) {
       const clone = gridCard.cloneNode(true);
       clone.querySelectorAll('button, input').forEach(el => el.remove());
-      // Scoped, print-only styling so the 8-column grid fits an A4 page.
+      // Scoped, print-only styling so the 8-column grid fits an A4 page, and
+      // starts on its own separate page kept together (no mid-grid page break).
       gridHtml = `<style>
-        #printArea .week-grid{grid-template-columns:120px repeat(7,1fr);font-size:9px;}
-        #printArea .week-grid-head > div{padding:6px 4px;}
-        #printArea .week-grid .chip,#printArea .week-grid [class*="chip"]{font-size:9px;}
-      </style><div style="margin-top:10px;">${clone.outerHTML}</div>`;
+        #printArea .week-grid{grid-template-columns:110px repeat(7,1fr);font-size:8.5px;page-break-inside:avoid;break-inside:avoid;}
+        #printArea .week-grid-head > div{padding:5px 3px;}
+        #printArea .week-grid .day-cell,#printArea .week-grid .fsm-row-name{break-inside:avoid;page-break-inside:avoid;}
+        #printArea .week-grid [class*="chip"]{font-size:8.5px;}
+        #printArea .schedule-page{page-break-before:always;break-before:page;}
+      </style><div class="schedule-page">${clone.outerHTML}</div>`;
     }
     const weekLabel = `Week of ${weekStart.toLocaleDateString('en-ZA', { day:'numeric', month:'short', year:'numeric' })} · ${monthLabel}`;
     exportToPdf(`Weekly Regional Report — ${REGION_GROUPS[ACTIVE_MANAGER].label}`, weekLabel, summaryHtml + gridHtml);
