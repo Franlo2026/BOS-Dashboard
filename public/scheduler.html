@@ -1703,12 +1703,15 @@ function renderWeeklyTab() {
     if (gridCard) {
       const clone = gridCard.cloneNode(true);
       clone.querySelectorAll('button, input').forEach(el => el.remove());
-      // Scoped, print-only styling so the 8-column grid fits an A4 page.
+      // Scoped, print-only styling so the 8-column grid fits an A4 page, and
+      // starts on its own separate page kept together (no mid-grid page break).
       gridHtml = `<style>
-        #printArea .week-grid{grid-template-columns:120px repeat(7,1fr);font-size:9px;}
-        #printArea .week-grid-head > div{padding:6px 4px;}
-        #printArea .week-grid .chip,#printArea .week-grid [class*="chip"]{font-size:9px;}
-      </style><div style="margin-top:10px;">${clone.outerHTML}</div>`;
+        #printArea .week-grid{grid-template-columns:110px repeat(7,1fr);font-size:8.5px;page-break-inside:avoid;break-inside:avoid;}
+        #printArea .week-grid-head > div{padding:5px 3px;}
+        #printArea .week-grid .day-cell,#printArea .week-grid .fsm-row-name{break-inside:avoid;page-break-inside:avoid;}
+        #printArea .week-grid [class*="chip"]{font-size:8.5px;}
+        #printArea .schedule-page{page-break-before:always;break-before:page;}
+      </style><div class="schedule-page">${clone.outerHTML}</div>`;
     }
     const weekLabel = `Week of ${weekStart.toLocaleDateString('en-ZA', { day:'numeric', month:'short', year:'numeric' })} · ${monthLabel}`;
     exportToPdf(`Weekly Regional Report — ${REGION_GROUPS[ACTIVE_MANAGER].label}`, weekLabel, summaryHtml + gridHtml);
